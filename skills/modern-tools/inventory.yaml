@@ -1,0 +1,85 @@
+# Modern Tools Inventory
+# Generated: 2026-01-04 (updated)
+# Run /modern-tools scan to update
+
+tools:
+  hyperfine:
+    replaces: time
+    location: ~/.cargo/bin/hyperfine
+  eza:
+    replaces: ls
+    location: ~/.cargo/bin/eza
+  bat:
+    replaces: cat
+    location: ~/.cargo/bin/bat
+  rg:
+    replaces: grep
+    location: ~/.cargo/bin/rg
+  fd:
+    replaces: find
+    location: ~/.cargo/bin/fd
+  zoxide:
+    replaces: cd
+    location: ~/.cargo/bin/zoxide
+  sd:
+    replaces: sed
+    location: ~/.cargo/bin/sd
+  dust:
+    replaces: du
+    location: ~/.cargo/bin/dust
+  delta:
+    replaces: diff
+    location: /usr/bin/delta
+  procs:
+    replaces: ps
+    location: ~/.cargo/bin/procs
+  btop:
+    replaces: top
+    location: /usr/bin/btop
+  ytop:
+    replaces: top
+    location: ~/.cargo/bin/ytop
+  tldr:
+    replaces: man
+    location: ~/.cargo/bin/tldr
+  tokei:
+    replaces: wc
+    location: ~/.cargo/bin/tokei
+  starship:
+    replaces: prompt
+    location: ~/.cargo/bin/starship
+  jq:
+    replaces: json
+    location: ~/.local/share/mise/installs/jq/1.7.1/jq
+  sk:
+    replaces: fzf
+    location: ~/.cargo/bin/sk
+  grex:
+    replaces: regex
+    location: ~/.cargo/bin/grex
+  fend:
+    replaces: calc
+    location: ~/.cargo/bin/fend
+  nvim:
+    replaces: vim
+    location: /usr/local/bin/nvim
+  xh:
+    replaces: curl
+    location: ~/.cargo/bin/xh
+  gping:
+    replaces: ping
+    location: ~/.cargo/bin/gping
+
+missing:
+  - name: bottom
+    replaces: top
+    install: cargo install bottom
+  - name: duf
+    replaces: df
+    install: cargo install duf
+  - name: choose
+    replaces: cut
+    install: cargo install choose
+  - name: hexyl
+    replaces: xxd
+    install: cargo install hexyl
