@@ -18,7 +18,7 @@ Research football coaching concepts by searching coaching sites, playbook resour
 **Always save research results to:**
 
 ```
-~/repos/scottidler/obsidian/🏈 Football/Research/<date>/<topic>.md
+~/repos/scottidler/obsidian/🏈 Football/research/<date>/<topic>.md
 ```
 
 - `<date>`: ISO date format `YYYY-MM-DD`

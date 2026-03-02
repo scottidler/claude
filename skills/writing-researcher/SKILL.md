@@ -18,7 +18,7 @@ Research writing craft and publishing by searching writing communities, author b
 **Always save research results to:**
 
 ```
-~/repos/scottidler/obsidian/✍️ Writing/Research/<date>/<topic>.md
+~/repos/scottidler/obsidian/✍️ Writing/research/<date>/<topic>.md
 ```
 
 - `<date>`: ISO date format `YYYY-MM-DD`

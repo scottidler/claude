@@ -18,7 +18,7 @@ Research construction and DIY projects by searching YouTube, building forums, an
 **Always save research results to:**
 
 ```
-~/repos/scottidler/obsidian/🧠 Knowledge/Building/<date>/<topic>.md
+~/repos/scottidler/obsidian/🧠 Knowledge/building/<date>/<topic>.md
 ```
 
 - `<date>`: ISO date format `YYYY-MM-DD`

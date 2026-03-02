@@ -110,7 +110,7 @@ To apply a pattern:
 **Always save research results to:**
 
 ```
-~/repos/scottidler/obsidian/🤖 Tech/Research/<date>/<topic>.md
+~/repos/scottidler/obsidian/🤖 Tech/research/<date>/<topic>.md
 ```
 
 - `<date>`: ISO date format `YYYY-MM-DD`
