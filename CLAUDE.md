@@ -30,3 +30,9 @@ I have two personas with distinct identities and tooling:
 | Engineering (shared) | `ENGPROG` | `ENG` — [Engineering](https://tatari.atlassian.net/wiki/spaces/ENG) |
 
 When using the `multi-account-github` MCP, specify `account: "home"` or `account: "work"` as appropriate based on the repo/org context. Default is `home`.
+
+## Repo Convention
+
+- All cloned repos live under `~/repos/` using the full slug: `~/repos/<org|user>/<reponame>`
+  - Example: `~/repos/scottidler/obsidian-borg`, `~/repos/tatari-tv/philo`
+- If a repo or tool is mentioned by name, check `~/repos/` for it before asking where it is

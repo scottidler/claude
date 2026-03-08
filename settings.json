@@ -80,6 +80,9 @@
       "Bash(cargo test:*)",
       "Bash(cargo tree:*)",
       "Bash(cargo udeps:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
@@ -140,6 +143,8 @@
       "Bash(xargs:*)",
       "Bash(fd:*)",
       "Bash(cat:*)",
+      "Bash(yt-dlp:*)",
+      "Bash(whisper:*)",
       "mcp__atlassian__getAccessibleAtlassianResources",
       "mcp__atlassian__getJiraIssue",
       "mcp__atlassian__createJiraIssue",
@@ -169,14 +174,24 @@
       "/home/saidler/.config"
     ]
   },
-  "model": "opus[1m]",
+  "model": "opus",
   "statusLine": {
     "type": "command",
     "command": "npx -y @owloops/claude-powerline@latest --style=powerline"
   },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true,
+    "general@tatari-skills": true,
+    "platform@tatari-skills": true
+  },
+  "extraKnownMarketplaces": {
+    "tatari-skills": {
+      "source": {
+        "source": "directory",
+        "path": "/home/saidler/repos/tatari-tv/tatari-skills"
+      }
+    }
   },
   "skipDangerousModePermissionPrompt": true
 }

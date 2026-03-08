@@ -17,6 +17,8 @@ telemetry/
 todos/
 downloads/
 backups/
+image-cache/
+policy-limits.json
 
 # Machine-specific (MCP server configs, tokens)
 settings.local.json
