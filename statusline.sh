@@ -105,7 +105,7 @@ else
 fi
 
 # --- Format costs ---
-fc() { awk -v c="$1" 'BEGIN{if(c<10)printf"%.2f",c;else printf"%.1f",c}'; }
+fc() { awk -v c="$1" 'BEGIN{if(c<10)printf"%.2f",c;else if(c<100)printf"%.1f",c;else printf"%.0f",c}'; }
 S_COST=$(echo | fc "$SESSION_COST")
 T_COST=$(echo | fc "$TODAY_COST")
 W_COST=$(echo | fc "$WEEK_COST")
