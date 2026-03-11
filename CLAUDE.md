@@ -23,13 +23,21 @@ I have two personas with distinct identities and tooling:
 
 | Scope | Jira Project | Confluence Space |
 |-------|-------------|-----------------|
-| SRE | `DAT` | `SRE` — [Site Reliability Engineering](https://tatari.atlassian.net/wiki/spaces/SRE) |
+| SRE | `SRE` | `SRE` — [Site Reliability Engineering](https://tatari.atlassian.net/wiki/spaces/SRE) |
 | Data Platform | `DAT` | `DATA` — [Data Platform](https://tatari.atlassian.net/wiki/spaces/DATA) |
 | AI Foundry | `AIC` | `AIF` — [AI Foundry](https://tatari.atlassian.net/wiki/spaces/AIF) |
 | Incidents (Eng + DS) | `INC` | `INC` |
 | Engineering (shared) | `ENGPROG` | `ENG` — [Engineering](https://tatari.atlassian.net/wiki/spaces/ENG) |
 
 When using the `multi-account-github` MCP, specify `account: "home"` or `account: "work"` as appropriate based on the repo/org context. Default is `home`.
+
+## Formatting Rules
+
+- NEVER use em dashes (—) in any output destined for documentation, comments, Confluence, Jira, Slack, or any external system. Use regular dashes (-), commas, or semicolons instead.
+
+## Python Package Management
+
+- NEVER use `pip install`. EVER. Always use `pipx` for installing Python tools/packages. No exceptions.
 
 ## Repo Convention
 

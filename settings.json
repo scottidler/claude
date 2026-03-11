@@ -68,6 +68,7 @@
       "WebFetch(domain:blog.sshh.io)",
       "WebFetch(domain:paddo.dev)",
       "WebSearch",
+      "Bash(mkdir:*)",
       "Bash(cargo --list:*)",
       "Bash(cargo add:*)",
       "Bash(cargo build:*)",
@@ -143,6 +144,8 @@
       "Bash(xargs:*)",
       "Bash(fd:*)",
       "Bash(cat:*)",
+      "Bash(jq:*)",
+      "Bash(yq:*)",
       "Bash(yt-dlp:*)",
       "Bash(whisper:*)",
       "mcp__atlassian__getAccessibleAtlassianResources",
@@ -177,13 +180,14 @@
   "model": "opus",
   "statusLine": {
     "type": "command",
-    "command": "npx -y @owloops/claude-powerline@latest --style=powerline"
+    "command": "~/.claude/statusline.sh"
   },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
     "general@tatari-skills": true,
-    "platform@tatari-skills": true
+    "platform@tatari-skills": true,
+    "skill-creator@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "tatari-skills": {
