@@ -82,9 +82,9 @@ end_seg() {
 }
 
 # --- Cost via ccu ---
-TODAY_COST=$(timeout 1s ccu today --json 2>/dev/null | jq -r '.today // 0' 2>/dev/null || echo "0")
-WEEK_COST=$(timeout 1s ccu daily --json -d 7 2>/dev/null | jq -r '[.days[].cost] | add // 0' 2>/dev/null || echo "0")
-MONTH_COST=$(timeout 1s ccu monthly --json 2>/dev/null | jq -r '.months[0].cost // 0' 2>/dev/null || echo "0")
+TODAY_COST=$(timeout 1s ccu today --total 2>/dev/null || echo "0")
+WEEK_COST=$(timeout 1s ccu weekly --total -w 1 2>/dev/null || echo "0")
+MONTH_COST=$(timeout 1s ccu monthly --total -m 1 2>/dev/null || echo "0")
 
 
 # --- Format duration ---
