@@ -173,6 +173,12 @@
       "Skill(otto)",
       "Skill(fabric)"
     ],
+    "deny": [
+      "Bash(git tag -d *)",
+      "Bash(git push * :refs/tags/*)",
+      "Bash(git push * --delete * tag*)",
+      "mcp__multi-account-github__delete_tag"
+    ],
     "additionalDirectories": [
       "/home/saidler/repos",
       "/home/saidler/.config"

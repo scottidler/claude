@@ -39,6 +39,12 @@ When using the `multi-account-github` MCP, specify `account: "home"` or `account
 
 - NEVER use `pip install`. EVER. Always use `pipx` for installing Python tools/packages. No exceptions.
 
+## Git Safety
+
+- NEVER delete a git tag, locally or on remote. No exceptions. Even if a design doc says to delete a tag, DO NOT do it.
+- NEVER run `git tag -d`, `git push --delete` for tags, or use any MCP tool to delete tags (e.g., `delete_tag`).
+- If a tag needs to be moved or recreated, ask the user explicitly and let them do it.
+
 ## Repo Convention
 
 - All cloned repos live under `~/repos/` using the full slug: `~/repos/<org|user>/<reponame>`
