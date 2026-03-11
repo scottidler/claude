@@ -130,7 +130,7 @@ fgr_split() { IFS=';' read -r r g b <<< "$1"; fgr "$r" "$g" "$b"; }
 seg "${VERSION} " "$S1" "$ACCENT_OK"
 seg "${MODEL}(${CTX_WIN}) " "$S2" "$ACCENT_PRIMARY"
 seg "${CTX} " "$CTX_BG" "$CTX_FG"
-seg "\$${M_COST}$(fgr_split $ACCENT_MUTED)/$(fgr_split $ACCENT_COST)\$${W_COST}$(fgr_split $ACCENT_MUTED)/$(fgr_split $ACCENT_COST)\$${T_COST}$(fgr_split $ACCENT_MUTED)/$(fgr_split $ACCENT_COST)\$${S_COST} " "$S2" "$ACCENT_COST"
+seg "\$${M_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${W_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${T_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${S_COST} " "$S2" "$ACCENT_COST"
 seg "${DUR} " "$S1" "$SUBTEXT"
 
 if [[ "$LINES_ADDED" != "0" || "$LINES_REMOVED" != "0" ]]; then
