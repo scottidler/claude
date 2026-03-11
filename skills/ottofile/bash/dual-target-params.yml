@@ -1,0 +1,7 @@
+params:
+  -b|--backend:
+    default: false
+    help: <action> backend only
+  -f|--frontend:
+    default: false
+    help: <action> frontend only
