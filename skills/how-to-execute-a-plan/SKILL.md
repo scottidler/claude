@@ -110,17 +110,38 @@ Common fixes:
 
 ### Step 6: Commit with Meaningful Message
 
-Once CI passes, commit the phase:
+Once CI passes, commit the phase.
+
+**For the final phase commit**: include the design document itself in the commit and update its status to "Implemented" before committing. This ensures the design doc and its implementation are shipped together:
 
 ```bash
-git add .
+# Update design doc status
+sed -i 's/^**Status:** Draft/**Status:** Implemented/' docs/design/<feature>.md
+
+# Stage implementation + updated design doc
+git add <implementation files> docs/design/<feature>.md
+git commit -m "$(cat <<'EOF'
+<type>(<scope>): <description>
+
+<body explaining what this phase accomplishes>
+
+Phase N of N: <phase name from design doc>
+Design doc: docs/design/<feature>.md
+EOF
+)"
+```
+
+**For non-final phase commits**:
+
+```bash
+git add <implementation files>
 git commit -m "$(cat <<'EOF'
 <type>(<scope>): <description>
 
 <body explaining what this phase accomplishes>
 
 Phase N of M: <phase name from design doc>
-Design doc: docs/<feature>-design.md
+Design doc: docs/design/<feature>.md
 EOF
 )"
 ```
@@ -169,6 +190,7 @@ Before moving to the next phase, verify:
 - [ ] `otto ci` passes
 - [ ] Commit message references the phase and design doc
 - [ ] No unrelated changes were introduced
+- [ ] **Final phase only**: Design doc status updated to "Implemented" and included in commit
 
 ## Example Session
 
@@ -246,6 +268,8 @@ If a phase cannot be completed:
 - Don't deviate from the design doc without updating it first
 - Don't gold-plate - implement exactly what the phase specifies
 - Don't push to remote until the user requests it
+- Don't finish the final phase without updating the design doc status to "Implemented"
+- Don't leave the design doc out of the final phase commit
 
 ## After All Phases Complete
 
@@ -253,5 +277,7 @@ When all phases are implemented:
 
 1. **Review the full implementation** against the design doc
 2. **Run final `otto ci`** to ensure everything works together
-3. **Consider version bump** with `/bump` if appropriate
-4. **Update design doc status** to "Implemented"
+3. **Verify the design doc** was updated to "Implemented" and included in the final phase commit
+4. **Consider version bump** with `/bump` if appropriate
+
+**CRITICAL**: The design doc status MUST be updated to "Implemented" and the design doc MUST be included in the final phase commit. This is not optional -- it ensures the design doc and its implementation are always in sync in git history.

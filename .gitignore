@@ -31,3 +31,7 @@ claude-powerline.json
 
 # Auto memory (project-scoped, generated per-machine)
 memory/
+
+# Credentials and sessions (per-machine, sensitive)
+.credentials.json
+sessions/
