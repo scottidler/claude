@@ -1,0 +1,26 @@
+{
+  "skill_name": "shipit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "ship it",
+      "expected_output": "Commits dirty file, bumps version from 0.1.0 to 0.1.1, pushes to remote with tags, installs via cargo install --path .",
+      "context": "Simple Rust project with one dirty file, bare local remote",
+      "working_dir": "/tmp/tmp.yd5nGSarRM/shipit-test-rust"
+    },
+    {
+      "id": 2,
+      "prompt": "shipit",
+      "expected_output": "Commits, bumps, pushes, and discovers daemon install command from CLAUDE.md. Runs cargo install --path . && systemctl --user restart daemon-test (which will fail since the service doesn't exist, but it should attempt it)",
+      "context": "Rust daemon project with CLAUDE.md documenting install+restart",
+      "working_dir": "/tmp/tmp.T5TsFSaajc/shipit-test-daemon"
+    },
+    {
+      "id": 3,
+      "prompt": "/shipit --no-bump",
+      "expected_output": "Commits dirty README, pushes, skips bump and install since no Cargo.toml",
+      "context": "Non-Rust project, no Cargo.toml",
+      "working_dir": "/tmp/tmp.LijILrdY1m/shipit-test-nonrust"
+    }
+  ]
+}

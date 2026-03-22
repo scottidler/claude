@@ -15,9 +15,7 @@ eval "$(echo "$DATA" | jq -r '
   @sh "LINES_ADDED=\(.cost.total_lines_added // 0)",
   @sh "LINES_REMOVED=\(.cost.total_lines_removed // 0)",
   @sh "SESSION_ID=\(.session_id // "unknown")",
-  @sh "CWD=\(.workspace.current_dir // .cwd // "")",
-  @sh "TOK_IN=\(.context_window.total_input_tokens // 0)",
-  @sh "TOK_OUT=\(.context_window.total_output_tokens // 0)"
+  @sh "CWD=\(.workspace.current_dir // .cwd // "")"
 ')"
 
 # Shorten model name: strip version, strip "context" noise, lowercase
@@ -84,29 +82,14 @@ end_seg() {
 }
 
 # --- Cost via ccu ---
-TODAY_COST=$(timeout 1s ccu today --total 2>/dev/null || echo "0")
-WEEK_COST=$(timeout 1s ccu weekly --total -w 1 2>/dev/null || echo "0")
-MONTH_COST=$(timeout 1s ccu monthly --total -m 1 2>/dev/null || echo "0")
+TODAY_COST=$(timeout 1s ccu today --json 2>/dev/null | jq -r '.today // 0' 2>/dev/null || echo "0")
+WEEK_COST=$(timeout 1s ccu daily --json -d 7 2>/dev/null | jq -r '[.days[].cost] | add // 0' 2>/dev/null || echo "0")
+MONTH_COST=$(timeout 1s ccu monthly --json 2>/dev/null | jq -r '.months[0].cost // 0' 2>/dev/null || echo "0")
 
 
 # --- Format duration ---
 DS=$((DURATION_MS/1000)); DM=$((DS/60)); DH=$((DM/60)); DM=$((DM%60))
 [[ $DH -gt 0 ]] && DUR="${DH}h${DM}m" || DUR="${DM}m"
-
-# --- Token burn rate (tok/h) ---
-TOTAL_TOKENS=$((TOK_IN + TOK_OUT))
-if [[ $DURATION_MS -gt 30000 && $TOTAL_TOKENS -gt 0 ]]; then
-    TOK_HR=$(awk -v t="$TOTAL_TOKENS" -v d="$DURATION_MS" 'BEGIN{printf "%.0f", t / (d / 3600000)}')
-    if [[ $TOK_HR -ge 1000000 ]]; then
-        TOK_HR_FMT="$(awk -v t="$TOK_HR" 'BEGIN{printf "%.1fM", t/1000000}')/h"
-    elif [[ $TOK_HR -ge 1000 ]]; then
-        TOK_HR_FMT="$(awk -v t="$TOK_HR" 'BEGIN{printf "%.0fK", t/1000}')/h"
-    else
-        TOK_HR_FMT="${TOK_HR}/h"
-    fi
-else
-    TOK_HR_FMT="..."
-fi
 
 # --- Context color (bg/fg) ---
 CTX_BG=$S1; CTX_FG=$ACCENT_OK
@@ -146,9 +129,8 @@ fgr_split() { IFS=';' read -r r g b <<< "$1"; fgr "$r" "$g" "$b"; }
 [[ -n "$GIT_BRANCH" ]] && seg " ${GIT_BRANCH} " "$S2" "$ACCENT_OK"
 seg "${VERSION} " "$S1" "$ACCENT_OK"
 seg "${MODEL}(${CTX_WIN}) " "$S2" "$ACCENT_PRIMARY"
-seg "🔥${TOK_HR_FMT} " "$S1" "$ACCENT_WARN"
 seg "${CTX} " "$CTX_BG" "$CTX_FG"
-seg "\$${M_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${W_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${T_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${S_COST} " "$S2" "$ACCENT_COST"
+seg "\$${M_COST}$(fgr_split $ACCENT_MUTED)/$(fgr_split $ACCENT_COST)\$${W_COST}$(fgr_split $ACCENT_MUTED)/$(fgr_split $ACCENT_COST)\$${T_COST}$(fgr_split $ACCENT_MUTED)/$(fgr_split $ACCENT_COST)\$${S_COST} " "$S2" "$ACCENT_COST"
 seg "${DUR} " "$S1" "$SUBTEXT"
 
 if [[ "$LINES_ADDED" != "0" || "$LINES_REMOVED" != "0" ]]; then

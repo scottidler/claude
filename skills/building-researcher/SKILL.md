@@ -18,13 +18,11 @@ Research construction and DIY projects by searching YouTube, building forums, an
 **Always save research results to:**
 
 ```
-~/repos/scottidler/obsidian/🧠 Knowledge/building/<date>/<topic>.md
+~/repos/scottidler/obsidian/notes/<topic>.md
 ```
 
-- `<date>`: ISO date format `YYYY-MM-DD`
-- `<topic>`: lowercase, hyphenated topic name (e.g., `shed-foundation`, `electrical-rough-in`, `deck-framing`)
-
-Create the directory if it doesn't exist before writing.
+- `<topic>`: lowercase-hyphenated slug with `-research` suffix (e.g., `shed-foundation-research`, `electrical-rough-in-research`, `deck-framing-research`)
+- All research notes go to the flat `notes/` folder - no subdirectories
 
 ## Research Process
 
@@ -113,18 +111,23 @@ YouTube is the primary source for building research:
 
 ## Output Format
 
+Every research note must have proper YAML frontmatter per the vault schema, followed by the research content.
+
 ```markdown
-# <Topic> Research
-
-> Researched: <date>
-
+---
+title: "<Human Readable Topic> Research"
+date: <YYYY-MM-DD>
+type: research
+domain: knowledge
+origin: assisted
+tags:
+  - building
+  - <relevant-tags>
 ---
 
 ## Summary
 
 <2-3 paragraph overview of technique/project>
-
----
 
 ## Tools Required
 
@@ -132,15 +135,11 @@ YouTube is the primary source for building research:
 |------|---------|-------|
 | ... | ... | Buy vs rent? |
 
----
-
 ## Materials
 
 | Material | Quantity Calc | Alternatives |
 |----------|---------------|--------------|
 | ... | ... | ... |
-
----
 
 ## Step-by-Step Process
 
@@ -148,15 +147,11 @@ YouTube is the primary source for building research:
 2. **Step 1:** ...
 3. **Step 2:** ...
 
----
-
 ## Code Considerations
 
 - Permit required: Yes/No
 - Inspection points: ...
 - Key code requirements: ...
-
----
 
 ## Pro Tips
 
@@ -164,15 +159,11 @@ YouTube is the primary source for building research:
 - Common mistakes to avoid
 - Time/money savers
 
----
-
 ## Video Resources
 
 | Video | Channel | Why Watch |
 |-------|---------|-----------|
 | [title](url) | ... | ... |
-
----
 
 ## Safety Considerations
 

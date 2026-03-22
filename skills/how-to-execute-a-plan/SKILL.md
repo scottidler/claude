@@ -273,11 +273,53 @@ If a phase cannot be completed:
 
 ## After All Phases Complete
 
-When all phases are implemented:
+When the final phase is committed and CI is green, execute the finalization sequence
+without pausing or asking. This is part of the workflow, not a separate step.
 
-1. **Review the full implementation** against the design doc
-2. **Run final `otto ci`** to ensure everything works together
-3. **Verify the design doc** was updated to "Implemented" and included in the final phase commit
-4. **Consider version bump** with `/bump` if appropriate
+### 1. Update design doc status and commit
 
-**CRITICAL**: The design doc status MUST be updated to "Implemented" and the design doc MUST be included in the final phase commit. This is not optional -- it ensures the design doc and its implementation are always in sync in git history.
+Change the design doc's `**Status:**` from `Draft` to `Implemented`, then commit:
+
+```bash
+git add docs/design/<design-doc>.md
+git commit -m "docs: mark <feature> design doc as implemented"
+```
+
+### 2. Bump version
+
+Use the `/bump` skill to increment the version. Default to `patch` unless the
+design doc describes a breaking change (then `minor` or `major`).
+
+### 3. Push
+
+Push all commits and tags to the remote:
+
+```bash
+git push && git push --tags
+```
+
+### 4. Install
+
+Build and install the release binary locally:
+
+```bash
+cargo install --path .
+```
+
+This step assumes a Rust CLI project (which is ~99% of what we build). If the
+project is not Rust, substitute the equivalent install command.
+
+### Finalization summary
+
+```
+┌──────────────────────────────────────────────────┐
+│  1. Update design doc status to "Implemented"    │
+│  2. Commit the status change                     │
+│  3. /bump (patch by default)                     │
+│  4. git push && git push --tags                  │
+│  5. cargo install --path .                       │
+└──────────────────────────────────────────────────┘
+```
+
+**CRITICAL: Do NOT ask the user before running these steps.** The user invoked
+this skill expecting the full pipeline - implement, validate, ship.

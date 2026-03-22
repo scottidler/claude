@@ -1,10 +1,10 @@
-# Install Skill
+# Cargo Install Skill
 
 Install the current Rust project locally.
 
 ## Usage
 
-Run `/install` in any Rust project directory to install the binary.
+Run `/cargo-install` in any Rust project directory to install the binary.
 
 ## What It Does
 

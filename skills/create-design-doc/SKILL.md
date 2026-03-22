@@ -7,7 +7,7 @@ description: Create high-quality design documents using Jeffrey Emanuel's Rule o
 
 Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced to review their work 4-5 times until convergence.
 
-> **Full research:** `~/repos/scottidler/obsidian/🤖 Tech/research/2026-01-20/jeffrey-emanuel-rule-of-five-agentic-llm.md`
+> **Full research:** `~/repos/scottidler/obsidian/notes/jeffrey-emanuel-rule-of-five-agentic-llm.md`
 
 ## The Five Passes
 

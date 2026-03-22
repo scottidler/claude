@@ -18,13 +18,11 @@ Research football coaching concepts by searching coaching sites, playbook resour
 **Always save research results to:**
 
 ```
-~/repos/scottidler/obsidian/🏈 Football/research/<date>/<topic>.md
+~/repos/scottidler/obsidian/notes/<topic>.md
 ```
 
-- `<date>`: ISO date format `YYYY-MM-DD`
-- `<topic>`: lowercase, hyphenated topic name (e.g., `wing-t-series`, `cover-3-beaters`, `youth-tackling-drills`)
-
-Create the directory if it doesn't exist before writing.
+- `<topic>`: lowercase-hyphenated slug with `-research` suffix (e.g., `wing-t-series-research`, `cover-3-beaters-research`, `youth-tackling-drills-research`)
+- All research notes go to the flat `notes/` folder - no subdirectories
 
 ## Research Process
 
@@ -96,24 +94,26 @@ film room "<scheme>"
 
 ## Output Format
 
+Every research note must have proper YAML frontmatter per the vault schema, followed by the research content.
+
 ```markdown
-# <Topic> Research
-
-> Researched: <date>
-
+---
+title: "<Human Readable Topic> Research"
+date: <YYYY-MM-DD>
+type: research
+domain: football
+origin: assisted
+tags:
+  - <relevant-tags>
 ---
 
 ## Summary
 
 <2-3 paragraph overview of scheme/concept>
 
----
-
 ## Formation/Alignment
 
 <Diagram or description of base alignment>
-
----
 
 ## Key Plays/Concepts
 
@@ -121,15 +121,11 @@ film room "<scheme>"
 |-----------|-----------|-------------|--------------|
 | ... | ... | ... | ... |
 
----
-
 ## Coaching Points
 
 - Key teaching point 1
 - Key teaching point 2
 - Common mistakes to avoid
-
----
 
 ## Practice Drills
 
@@ -137,23 +133,17 @@ film room "<scheme>"
 |-------|---------|------|
 | ... | ... | ... |
 
----
-
 ## Install Progression
 
 1. Day 1: ...
 2. Day 2: ...
 3. Day 3: ...
 
----
-
 ## Resources
 
 - **Videos:** [title](url)
 - **Playbooks:** [title](url)
 - **Clinics:** [title](url)
-
----
 
 ## Age-Appropriate Modifications
 

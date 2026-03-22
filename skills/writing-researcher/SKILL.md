@@ -18,13 +18,11 @@ Research writing craft and publishing by searching writing communities, author b
 **Always save research results to:**
 
 ```
-~/repos/scottidler/obsidian/✍️ Writing/research/<date>/<topic>.md
+~/repos/scottidler/obsidian/notes/<topic>.md
 ```
 
-- `<date>`: ISO date format `YYYY-MM-DD`
-- `<topic>`: lowercase, hyphenated topic name (e.g., `three-act-structure`, `middle-grade-conventions`)
-
-Create the directory if it doesn't exist before writing.
+- `<topic>`: lowercase-hyphenated slug with `-research` suffix (e.g., `three-act-structure-research`, `middle-grade-conventions-research`)
+- All research notes go to the flat `notes/` folder - no subdirectories
 
 ## Research Process
 
@@ -89,25 +87,27 @@ gh search repos "worldbuilding" --limit 5 --sort stars
 
 ## Output Format
 
+Every research note must have proper YAML frontmatter per the vault schema, followed by the research content.
+
 ```markdown
-# <Topic> Research
-
-> Researched: <date>
-
+---
+title: "<Human Readable Topic> Research"
+date: <YYYY-MM-DD>
+type: research
+domain: writing
+origin: assisted
+tags:
+  - <relevant-tags>
 ---
 
 ## Summary
 
 <2-3 paragraph overview>
 
----
-
 ## Key Concepts
 
 - Concept 1: explanation
 - Concept 2: explanation
-
----
 
 ## Techniques
 
@@ -115,15 +115,11 @@ gh search repos "worldbuilding" --limit 5 --sort stars
 |-----------|-------------|---------|
 | ... | ... | ... |
 
----
-
 ## Resources
 
 - **Articles:** [title](url)
 - **Books:** Title by Author
 - **Communities:** [name](url)
-
----
 
 ## Recommendations
 

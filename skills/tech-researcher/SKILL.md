@@ -110,41 +110,61 @@ To apply a pattern:
 **Always save research results to:**
 
 ```
-~/repos/scottidler/obsidian/🤖 Tech/research/<date>/<topic>.md
+~/repos/scottidler/obsidian/notes/<topic>.md
 ```
 
-- `<date>`: ISO date format `YYYY-MM-DD`
-- `<topic>`: lowercase, hyphenated topic name (e.g., `slack-mcp`, `rust-http-clients`)
-
-Create the directory if it doesn't exist before writing.
+- `<topic>`: lowercase-hyphenated slug (e.g., `slack-mcp-research`, `rust-http-clients-research`)
+- All research notes go to the flat `notes/` folder - no subdirectories
+- Append `-research` to the slug to distinguish from ingested notes on the same topic
 
 ## Output Format
 
-Present research findings in a structured format:
+Every research note must have proper YAML frontmatter per the vault schema, followed by the research content.
 
 ```markdown
-## Topic: <topic>
+---
+title: "<Human Readable Topic> Research"
+date: <YYYY-MM-DD>
+type: research
+domain: <ai|tech|football|work|writing|music|spanish|knowledge|resources>
+origin: assisted
+tags:
+  - <relevant>
+  - <tags>
+---
 
-### Top GitHub Repositories
+## Top GitHub Repositories
 
 | Repository | Stars | Description |
 |------------|-------|-------------|
 | owner/repo | 1.2k  | Brief desc  |
 
-### Key Resources
+## Key Resources
 
 - **Official Docs:** [link]
 - **Best Tutorial:** [link]
 - **Comparison:** [link]
 
-### Summary
+## Summary
 
 <2-3 paragraph summary of findings>
 
-### Recommendations
+## Recommendations
 
 <actionable recommendations based on research>
 ```
+
+### Domain Selection
+
+Pick the `domain` value that best matches the research topic:
+
+| Research about | Domain |
+|----------------|--------|
+| AI, LLMs, agents, prompting | ai |
+| Programming, CLI tools, DevOps, infrastructure | tech |
+| Football coaching, schemes, plays | football |
+| Tatari, SRE, work infrastructure | work |
+| Other topics | use best match from domain-values |
 
 ## Research Depth Levels
 
@@ -166,11 +186,11 @@ Adjust depth based on user needs:
 
 Prioritize sources in this order:
 
-1. **Official documentation** — Most authoritative
-2. **GitHub repos** — Real implementations and examples
-3. **Reputable tech blogs** — (e.g., official company blogs, known authors)
-4. **Stack Overflow** — Community solutions
-5. **Tutorial sites** — Learning resources
+1. **Official documentation** - most authoritative
+2. **GitHub repos** - real implementations and examples
+3. **Reputable tech blogs** - e.g., official company blogs, known authors
+4. **Stack Overflow** - community solutions
+5. **Tutorial sites** - learning resources
 
 ## Avoiding Noise
 
