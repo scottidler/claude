@@ -164,6 +164,21 @@
       "Bash(cat:*)",
       "Bash(jq:*)",
       "Bash(yq:*)",
+      "Bash(dmesg:*)",
+      "Bash(lspci:*)",
+      "Bash(setpci:*)",
+      "Bash(sudo setpci:*)",
+      "Bash(sudo dmesg:*)",
+      "Bash(sudo lspci:*)",
+      "Bash(sudo iwconfig:*)",
+      "Bash(iwconfig:*)",
+      "Bash(nmcli:*)",
+      "Bash(ip:*)",
+      "Bash(modinfo:*)",
+      "Bash(lsmod:*)",
+      "Bash(modprobe:*)",
+      "Bash(sudo modprobe:*)",
+      "Bash(uname:*)",
       "Bash(yt-dlp:*)",
       "Bash(whisper:*)",
       "Bash(journalctl:*)",
@@ -220,7 +235,8 @@
     "typescript-lsp@claude-plugins-official": true,
     "general@tatari-skills": true,
     "platform@tatari-skills": true,
-    "skill-creator@claude-plugins-official": true
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "tatari-skills": {

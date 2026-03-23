@@ -55,6 +55,10 @@ When using the `multi-account-github` MCP, specify `account: "home"` or `account
 - `lappy` or `laptop` => `ltl7007.lan`
 - `desk` or `desktop` => `desk.lan`
 
+## Obsidian Vault (my Second Brain)
+
+- Location: `~/repos/scottidler/obsidian/`
+
 ## Repo Convention
 
 - All cloned repos live under `~/repos/` using the full slug: `~/repos/<org|user>/<reponame>`
