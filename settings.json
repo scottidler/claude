@@ -205,14 +205,24 @@
       "Skill(bump)",
       "Skill(otto)",
       "Skill(fabric)",
-      "mcp__oracle__knowledge_search",
-      "mcp__oracle__vault_overview",
+      "mcp__oracle__classify_status",
+      "mcp__oracle__creator_browse",
       "mcp__oracle__domain_brief",
+      "mcp__oracle__duplicate_groups",
+      "mcp__oracle__find_links",
+      "mcp__oracle__find_similar",
+      "mcp__oracle__inbox_status",
       "mcp__oracle__ingest_history",
+      "mcp__oracle__knowledge_search",
       "mcp__oracle__list_notes",
       "mcp__oracle__note_read",
+      "mcp__oracle__quality_report",
+      "mcp__oracle__recent_activity",
       "mcp__oracle__reindex",
-      "mcp__oracle__schema_info"
+      "mcp__oracle__schema_info",
+      "mcp__oracle__source_browse",
+      "mcp__oracle__tag_search",
+      "mcp__oracle__vault_overview"
     ],
     "deny": [
       "Bash(git tag -d *)",
@@ -247,5 +257,18 @@
     }
   },
   "effortLevel": "high",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/allow-help.sh"
+          }
+        ]
+      }
+    ]
+  }
 }

@@ -1,5 +1,6 @@
 # Anthropic runtime (managed by Claude Code itself)
 history.jsonl
+mcp-needs-auth-cache.json
 cache/
 debug/
 file-history/
