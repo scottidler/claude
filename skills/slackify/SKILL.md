@@ -16,9 +16,11 @@ The script converts markdown to HTML via pandoc, then copies it to the clipboard
 
 When the user invokes `/slackify` or asks to format output for Slack:
 
-1. Identify the most recent substantial output (analysis, summary, report, etc.)
-2. Write it as clean markdown - do NOT attempt Slack mrkdwn syntax
-3. Pipe it through the script using a heredoc:
+1. Identify the most recent substantial output (the Q&A exchange, analysis, summary, etc.)
+2. Include both the user's questions and Claude's responses as they appeared
+3. Write it as clean markdown - do NOT attempt Slack mrkdwn syntax
+4. Strip any leading 2-space terminal indentation from lines before piping
+5. Pipe it through the script using a heredoc:
 
 ```bash
 cat << 'EOF' | ~/.claude/skills/slackify/slackify.sh
@@ -29,15 +31,11 @@ cat << 'EOF' | ~/.claude/skills/slackify/slackify.sh
 - Bullet lists
 - Code: `inline code`
 
-| Col A | Col B |
-|-------|-------|
-| 1     | 2     |
-
 > Blockquotes too
 EOF
 ```
 
-4. Confirm with "Copied to clipboard - ready to paste in Slack"
+6. Confirm with "Copied to clipboard - ready to paste in Slack"
 
 ## Rules
 
@@ -45,10 +43,11 @@ EOF
 - Tables, headers, bold, italic, code blocks, links, lists all work.
 - Do NOT use Slack mrkdwn syntax (`*bold*`). Use standard markdown (`**bold**`).
 - Do NOT add emoji unless the original content had them.
-- Strip any terminal artifacts (leading spaces, hard wraps) before piping.
-- If the user says `/slackify <specific text>`, use that content instead of last output.
+- Do NOT use em dashes.
+- Strip leading whitespace/indentation from all lines before piping.
+- If the user provides specific text, send that text VERBATIM.
 
 ## Requirements
 
 - `pandoc` (apt install pandoc)
-- `xclip` (apt install xclip)
+- `wl-copy` (Wayland) or `xclip` (X11)

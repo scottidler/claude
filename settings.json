@@ -236,6 +236,19 @@
     ]
   },
   "model": "opus[1m]",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/allow-help.sh"
+          }
+        ]
+      }
+    ]
+  },
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
@@ -256,19 +269,6 @@
       }
     }
   },
-  "effortLevel": "high",
-  "skipDangerousModePermissionPrompt": true,
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/allow-help.sh"
-          }
-        ]
-      }
-    ]
-  }
+  "effortLevel": "medium",
+  "skipDangerousModePermissionPrompt": true
 }
