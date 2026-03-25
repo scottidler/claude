@@ -39,6 +39,10 @@ When using the `multi-account-github` MCP, specify `account: "home"` or `account
 
 - NEVER use `pip install`. EVER. Always use `pipx` for installing Python tools/packages. No exceptions.
 
+## Rust CLI Overrides
+
+- A Rust variant of `tail` is installed at `~/.cargo/bin/tail` and shadows `/usr/bin/tail`. It has incompatible flags. In Bash commands, always use `/usr/bin/tail` instead of bare `tail`.
+
 ## File Deletion Safety
 
 - NEVER use `rm` or `rm -rf`. Always use `rkvr rmrf` instead. This archives files before deleting, enabling recovery if needed.
@@ -49,6 +53,7 @@ When using the `multi-account-github` MCP, specify `account: "home"` or `account
 - NEVER delete a git tag, locally or on remote. No exceptions. Even if a design doc says to delete a tag, DO NOT do it.
 - NEVER run `git tag -d`, `git push --delete` for tags, or use any MCP tool to delete tags (e.g., `delete_tag`).
 - If a tag needs to be moved or recreated, ask the user explicitly and let them do it.
+- ALWAYS use annotated tags (`git tag -a -m "message"`), NEVER lightweight tags (`git tag`). No exceptions.
 
 ## Hostnames
 
