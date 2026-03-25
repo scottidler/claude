@@ -57,7 +57,7 @@ When using the `multi-account-github` MCP, specify `account: "home"` or `account
 
 ## Hostnames
 
-- `lappy` or `laptop` => `ltl7007.lan`
+- `lappy` or `laptop` => `ltl-7007.lan`
 - `desk` or `desktop` => `desk.lan`
 
 ## Obsidian Vault (my Second Brain)
