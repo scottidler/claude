@@ -22,8 +22,10 @@ Commit, bump, push, and install in one shot. Default workflow for shipping chang
 
 - Verify the current directory is a git repo
 - Check for modified or untracked files via `git status`
-- If there are no changes, inform the user and stop
+- If there are no changes AND no unpushed commits, inform the user and stop
+- If there are no changes but there ARE unpushed commits, skip to Step 4 (bump) or Step 5 (push)
 - Check if this is a Rust project (has `Cargo.toml`) to determine if bump applies
+- Detect push protection: `git config --get branch.$(git branch --show-current).pushremote` - if `no_push`, note that this will go through a PR flow instead of direct push
 
 ### Step 2: Discover install command
 
@@ -65,9 +67,27 @@ bump -a -M       # major
 
 ### Step 5: Push
 
+First, detect whether the current branch has push protection:
+
 ```bash
-git push && git push --tags
+git config --get branch.$(git branch --show-current).pushremote
 ```
+
+If the result is `no_push` or the push remote doesn't exist, the branch is protected (common for `main` in tatari-tv/* repos). In that case, switch to the **PR flow**:
+
+1. Generate a branch name from the commit message (e.g., `feat/add-cli-expansion`)
+2. Create and checkout the branch: `git checkout -b <branch-name>`
+3. Push the branch: `git push origin <branch-name> -u && git push origin --tags`
+4. Create a PR: `gh pr create --title "<title>" --body "<summary>"`
+5. Report the PR URL
+
+If no push protection is detected, push directly:
+
+```bash
+git push origin $(git branch --show-current) && git push origin --tags
+```
+
+Always push to `origin` explicitly - never rely on the default pushremote (which may be `no_push`).
 
 If push fails due to upstream changes, inform the user rather than force-pushing.
 
@@ -117,3 +137,5 @@ For non-Rust projects (no `Cargo.toml`):
 - **Cargo workspace**: check CLAUDE.md first, then look for binary targets
 - **Push rejected**: do NOT force push - tell the user to pull/rebase first
 - **Daemon projects**: CLAUDE.md should document the full install+restart command sequence
+- **Branch protection / `no_push`**: automatically switch to PR flow - create a feature branch, push it, and open a PR. This is the common case for `tatari-tv/*` repos where `branch.main.pushremote=no_push` is set. Never ask the user about this - just detect and adapt.
+- **Already pushed**: if `git log origin/main..HEAD` is empty and there are no local changes, everything is already shipped - say so and stop
