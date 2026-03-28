@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Claude Code custom status line - two-line powerline style
+# Claude Code custom status line - powerline style
 set -euo pipefail
 
 DATA=$(cat)
 
 # Parse all fields in one jq call
 eval "$(echo "$DATA" | jq -r '
+  @sh "VERSION=\(.version // "?")",
   @sh "MODEL=\(.model.display_name // .model.id // "?")",
   @sh "USED_PCT=\(.context_window.used_percentage // "")",
   @sh "CTX_SIZE=\(.context_window.context_window_size // 0)",
@@ -13,12 +14,14 @@ eval "$(echo "$DATA" | jq -r '
   @sh "DURATION_MS=\(.cost.total_duration_ms // 0)",
   @sh "LINES_ADDED=\(.cost.total_lines_added // 0)",
   @sh "LINES_REMOVED=\(.cost.total_lines_removed // 0)",
+  @sh "SESSION_ID=\(.session_id // "unknown")",
   @sh "CWD=\(.workspace.current_dir // .cwd // "")",
   @sh "TOK_IN=\(.context_window.total_input_tokens // 0)",
   @sh "TOK_OUT=\(.context_window.total_output_tokens // 0)"
 ')"
 
-# Shorten model name
+# Shorten model name: strip version, strip "context" noise, lowercase
+# "Opus 4.6" -> "opus", "opus (1M context)" -> "opus"
 MODEL=$(echo "$MODEL" | sed -e 's/ ([^)]*context[^)]*)//g' -e 's/Opus [0-9.]*/opus/' -e 's/Sonnet [0-9.]*/sonnet/' -e 's/Haiku [0-9.]*/haiku/')
 
 # Format context window size
@@ -29,20 +32,6 @@ elif [[ "$CTX_SIZE" -ge 1000 ]]; then
 else
     CTX_WIN="$CTX_SIZE"
 fi
-
-# --- Format tokens ---
-fmt_tok() {
-    local t="$1"
-    if [[ $t -ge 1000000 ]]; then
-        awk -v t="$t" 'BEGIN{printf "%.1fM", t/1000000}'
-    elif [[ $t -ge 1000 ]]; then
-        awk -v t="$t" 'BEGIN{printf "%.0fK", t/1000}'
-    else
-        echo "$t"
-    fi
-}
-TOK_IN_FMT=$(fmt_tok "$TOK_IN")
-TOK_OUT_FMT=$(fmt_tok "$TOK_OUT")
 
 # --- ANSI helpers ---
 RST=$'\033[0m'
@@ -57,9 +46,11 @@ SCHEME="${CLAUDE_COLORSCHEME:-catppuccin-mocha}"
 SCHEME_DIR="${CLAUDE_COLORSCHEME_DIR:-$HOME/.claude/statusline.d}"
 SCHEME_FILE="${SCHEME_DIR}/${SCHEME}.sh"
 
+# Validate scheme name: alphanumeric, hyphens, underscores only
 if [[ "$SCHEME" =~ ^[a-zA-Z0-9_-]+$ ]] && [[ -f "$SCHEME_FILE" ]]; then
     source "$SCHEME_FILE"
 else
+    # Inline fallback (catppuccin-mocha) so statusline never breaks
     S0="30;30;46"; S1="49;50;68"; S2="69;71;90"; S3="88;91;112"
     ACCENT_PRIMARY="137;180;250"; ACCENT_OK="166;227;161"
     ACCENT_WARN="249;226;175"; ACCENT_CAUTION="250;179;135"
@@ -97,6 +88,7 @@ TODAY_COST=$(timeout 1s ccu today --total 2>/dev/null || echo "0")
 WEEK_COST=$(timeout 1s ccu weekly --total -w 1 2>/dev/null || echo "0")
 MONTH_COST=$(timeout 1s ccu monthly --total -m 1 2>/dev/null || echo "0")
 
+
 # --- Format duration ---
 DS=$((DURATION_MS/1000)); DM=$((DS/60)); DH=$((DM/60)); DM=$((DM%60))
 [[ $DH -gt 0 ]] && DUR="${DH}h${DM}m" || DUR="${DM}m"
@@ -116,8 +108,8 @@ else
     TOK_HR_FMT="..."
 fi
 
-# --- Context color ---
-CTX_FG=$ACCENT_OK
+# --- Context color (bg/fg) ---
+CTX_BG=$S1; CTX_FG=$ACCENT_OK
 if [[ -n "$USED_PCT" && "$USED_PCT" != "null" ]]; then
     case $(awk -v p="$USED_PCT" 'BEGIN{if(p>=70)print 4;else if(p>=60)print 3;else if(p>=50)print 2;else print 1}') in
         4) CTX_FG=$ACCENT_ERROR ;;
@@ -145,54 +137,29 @@ if [[ -n "$CWD" ]] && git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null;
     fi
 fi
 
-# --- Hostname ---
-HOSTNAME_SHORT=$(hostname -s 2>/dev/null || echo "?")
-
-# --- Shorten CWD ---
-DISPLAY_CWD="${CWD/#$HOME/\~}"
-
 # --- Inline color helpers ---
 bgr_split() { IFS=';' read -r r g b <<< "$1"; bgr "$r" "$g" "$b"; }
 fgr_split() { IFS=';' read -r r g b <<< "$1"; fgr "$r" "$g" "$b"; }
 
-# Line background and foreground colors
-L1_A="94;129;172"   # muted blue bg
-L1_B="163;190;140"  # soft green bg
-L2_A="235;203;139"  # warm sand bg
-L2_B="191;97;106"   # muted red bg
-L1_A_FG="15;25;45"  # darker blue text
-L1_B_FG="25;45;15"  # darker green text
-L2_A_FG="60;45;10"  # darker yellow text
-L2_B_FG="50;10;15"  # darker red text
+# --- Build segments ---
+#  git |  version |  model(ctx) |  used% | month/week/today/session |  duration | +/-
+[[ -n "$GIT_BRANCH" ]] && seg " ${GIT_BRANCH} " "$S2" "$ACCENT_OK"
+seg "${VERSION} " "$S1" "$ACCENT_OK"
+seg "${MODEL}(${CTX_WIN}) " "$S2" "$ACCENT_PRIMARY"
+seg "🔥${TOK_HR_FMT} " "$S1" "$ACCENT_WARN"
+seg "${CTX} " "$CTX_BG" "$CTX_FG"
+seg "\$${M_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${W_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${T_COST}$(fgr_split $TEXT)|$(fgr_split $ACCENT_COST)\$${S_COST} " "$S2" "$ACCENT_COST"
+seg "${DUR} " "$S1" "$SUBTEXT"
 
-# =====================
-# LINE 1: CWD | hostname | git branch +/- | model(ctx)
-# =====================
-seg "${DISPLAY_CWD} " "$L1_A" "$L1_A_FG"
-seg "🌐 ${HOSTNAME_SHORT} " "$L1_B" "$L1_B_FG"
-
-if [[ -n "$GIT_BRANCH" ]]; then
-    DIFF_TEXT=" ${GIT_BRANCH}"
-    if [[ "$LINES_ADDED" != "0" || "$LINES_REMOVED" != "0" ]]; then
-        DIFF_TEXT+=" $(fgr_split $ACCENT_OK)+${LINES_ADDED}$(fgr_split $ACCENT_ERROR)-${LINES_REMOVED}"
-    fi
-    seg "${DIFF_TEXT} " "$L1_A" "$L1_A_FG"
+if [[ "$LINES_ADDED" != "0" || "$LINES_REMOVED" != "0" ]]; then
+    IFS=';' read -r br bg_ bb <<< "$S0"
+    IFS=';' read -r pr pg pb <<< "$PREV_BG"
+    OUT+="$(bgr "$br" "$bg_" "$bb")$(fgr "$pr" "$pg" "$pb")${PL}${RST}"
+    IFS=';' read -r gr gg gb <<< "$ACCENT_OK"
+    IFS=';' read -r rr rg rb <<< "$ACCENT_ERROR"
+    OUT+="$(bgr "$br" "$bg_" "$bb")$(fgr "$gr" "$gg" "$gb") +${LINES_ADDED}$(fgr "$rr" "$rg" "$rb")-${LINES_REMOVED} ${RST}"
+    PREV_BG="$S0"
 fi
 
 end_seg
-
-# =====================
-# LINE 2: model | tokens | burn rate | used% | costs | duration
-# =====================
-PREV_BG=""
-OUT+="\n"
-
-seg "${MODEL}(${CTX_WIN}) " "$L2_B" "$L2_B_FG"
-seg "${CTX} " "$L2_A" "$L2_A_FG"
-seg "↓${TOK_IN_FMT} ↑${TOK_OUT_FMT} " "$L2_B" "$L2_B_FG"
-seg "🔥${TOK_HR_FMT} " "$L2_A" "$L2_A_FG"
-seg "\$${M_COST}$(fgr_split $L2_B_FG)|$(fgr_split $L2_B_FG)\$${W_COST}$(fgr_split $L2_B_FG)|$(fgr_split $L2_B_FG)\$${T_COST}$(fgr_split $L2_B_FG)|$(fgr_split $L2_B_FG)\$${S_COST} " "$L2_B" "$L2_B_FG"
-seg "${DUR} " "$L2_A" "$L2_A_FG"
-end_seg
-
 echo -e "$OUT"

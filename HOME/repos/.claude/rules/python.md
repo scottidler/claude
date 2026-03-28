@@ -49,7 +49,7 @@ myproject/
 - Use `ruff` for everything - never black, flake8, or isort separately
 - `uv run ruff check .` / `uv run ruff check --fix .`
 - `uv run ruff format .`
-- Line length: 100
+- Line length: 120
 - Rules: E, F, I, UP, B, SIM
 
 ## Type Hints: mypy strict
