@@ -1,0 +1,1156 @@
+# Slack IDs - Tatari workspace
+# id -> name (channels), username (users), members list (groups)
+
+channels:
+  C058DUF7GGM: 2023-new-clients-in-cs-rev
+  C04FP78HXDL: 2023-product-roadmap-questions
+  C04BG7RKWCE: 2023-sales-product-strategy-alignment
+  C04BVUP2ZB3: 40-day-fast
+  C051RS448LA: 50plus1internal
+  C03SSKKMEHM: aag-plex_medieval-internal
+  C04GQTZRLD9: adnimation_tvp
+  C04TUSZAPEF: adops-tasks
+  C051CCUQ7KQ: adquick-tatari-external
+  C04PEGQM6TY: adventure_challenge-tatari-external
+  C04T9RZANF6: ai-productivity-tools
+  C01DD91V36C: airflow-notifications
+  C022P0VTU3S: airflow-notifications-staging
+  C02AV244HRS: alerts-mbp-execution
+  C053TNASC8K: alerts-mbp-intelligence
+  C04LC99ULEA: alerts-xuegao
+  C041UQLHGCC: alex-fraczak-test
+  C03LXNQ2KT9: alex-kahan-test
+  C03TWE7SU7Q: alexf-test-alerts
+  C02GLR8UN4T: alter_egos
+  C01D8TW0CAV: anime
+  C03JAG61B44: annie-welcome-team-activity
+  C040G65T1Q8: anomaly-detection
+  C0153NBBRM0: anomaly-detection-alerts
+  C0152SM0ZC6: anomaly-test
+  C03CGS8G0AK: anton-test
+  C0524R3KBHU: art-art-art
+  C01PGCU4T4P: asian-alliance
+  C022M7T7F61: ask-engineering-solutions
+  C03UDNQPUCA: ask-hubspot-team
+  C01J1E7J0NN: ask-inventory-modeling
+  C026LHZB4JF: ask-product
+  C038KDDEXUZ: atlassian-admin
+  C038E7XVCHJ: atlassian-help
+  C025YSGQGHE: atx
+  C02JLFVL2CW: audience-squad-feedback
+  C02KUKUN6P7: aura-pitch-team
+  C02V7UY8VK2: automatic-media-planning
+  C01107WJ9N2: awkward-rona
+  C054XCRF8JF: azek_tatari_external
+  C020H2XT708: backend-screeners
+  C02QENDV3T6: balling
+  C03MC8V6U9H: beeswax_ab_test
+  C018V7R43HS: beisbol
+  C054N2MNNG1: bi-team-on-dbx
+  C0582PQP6AW: biat-sales-alignment
+  C01T9GTQCBA: bingo-pod-3
+  C01S4UU7RQR: bingopod18
+  C01PXC8FRR9: black-alliance
+  C02SXKY77FH: blended-cac
+  C02A0DVHNG6: boardgames
+  C03CETJBT25: bonanza-hyatt2lax-shuttle1
+  C03CETWLPTK: bonanza-hyatt2lax-shuttle2
+  C03BMJ0D9NK: bonanza-lax2hyatt-shuttle1
+  C03C4HMABA8: bonanza-lax2hyatt-shuttle2
+  C01BZ009NRK: book_club
+  C02D0PWJXQD: boom_fb_integration
+  C02QEBSQDC1: botm_tatari-external
+  C05H2406CSG: breeo-tatari-external
+  C02EYHCUV6H: brians-latte-of-the-day
+  C04D2HWL1QV: broken-images-on-knowledgebase
+  C01TAMF4KB5: bulk_upload_efficiency
+  C02UYA6RXBL: cab
+  C02DK9SNX7E: calm-tataritv
+  C02QBLXAEFL: carl-test
+  C0452HDA4B0: catch-creations-ih
+  C01DT6W6WT1: ccd-adsphere
+  C01NTH2CM17: chess_club
+  C0188PNHUM8: chime-retargeting
+  C04NAEP9PDY: chime-tt-uvs-transition
+  C0208UZJVFT: clearance-estimation-innovation
+  C01RBCDU526: clearing_the_path_forward
+  C05HVS0UZF0: clickhouse-reporting-rollouts
+  C01JZ0M6UJ2: client-deck-feedback
+  C02FRUCH44E: client-local-events
+  C01DM8V2X1Q: client-notifications
+  C036YSXEVML: client_launch_emails
+  C04L87NHZ2M: cloud-cost-notifications
+  C03FPKN86PN: cloud-costs
+  C03FA9CLLMB: cloudio_tests
+  C01C5SD524D: coffee
+  C02LBASSY12: conference-engagement
+  C02JZMRK1QF: copilot_suggestions
+  C0108PGT1HD: corona-data
+  C04PUHG27NC: creative-deck-project
+  C024EUDPQUA: creative-library
+  C0199S7V6BX: creative-thoughts
+  C01RZA9DC00: critical-job-notifications
+  C05H1S3ELUD: croud_agency_ps
+  C01MR2ML6AX: crypto_investing
+  C05JT7YFC4U: cs-client-rev-2-rev-projections
+  C02BHV8A1K3: cs-ds-analytics
+  C01U8NBPJ4C: cs-ds-ticket-priortization-team
+  C01NA52NMRQ: cs-eng-discussions
+  C04RPBR4KT7: cs-measurement-hotline
+  C050BAE7R2R: cs-nyc
+  C02E8D8DVEE: cs-shoutouts-companystandup
+  C016XSV3MEV: cs_mediaopps
+  C03T7MX3V9P: csa-premium-opps-slides
+  C048KA9BEMD: csa-requests
+  C0151B2K1V2: csa_jira
+  C03TNLAFV6C: cycling
+  C03TB000XC5: dare-data-anomaly-rescue-effort
+  C0104SPN83B: data-anomaly-test
+  C01FF0YF5B2: data-company-categorization
+  C04DY75707K: data-deletion-requests
+  C03LR5SQFHU: data-fees-2022-client-feedback
+  C0195L0G667: data-platform
+  C02PAVBU0QZ: data-platform-alerts
+  C023YTN4B1D: data-platform-internal
+  C0306S938M9: data-platform-jira
+  C0445HNHJEP: data-platform-til
+  C04HNA3KRJT: data-quality-dev
+  C04DEASKXNK: data-quality-okr
+  C04QKPHJ682: data-quality-prod
+  C04Q57R85EK: data-quality-staging
+  C02H3KC5CQK: data-reprocessing
+  C01TELCE43U: data-science-notifications
+  C022YKMQ7RP: dave-finlay-test
+  C02GF59G944: dei-creatives
+  C012MF330R1: demographic-correlation
+  C01JC99KS93: deployment-notifications
+  C03JBEY6U5P: deployment-notifications-dev
+  C03JNJ1CFDE: deployment-notifications-staging
+  C03HXHKDR1A: deployment-notifications-test
+  C01Q3PPRNS0: desi-alliance
+  C02CD0SK6FL: design-system
+  C03JESADFRU: directvp
+  C02ELKJEF9V: disneyottlaunch
+  C045GPH4G74: diwhynot
+  C04275NU5EX: dlc-working-group
+  C01JF8KPH5Y: dm-slava
+  C01QSBDFHKQ: dnd
+  C03HF1ZAQQP: dockerized-philo-localhost
+  C046FTUJACA: dq-filter-review-evergreen
+  C046FRF4YBV: dq-filter-review-pilot
+  C02PFU4K2Q2: dq-notifications
+  C03B98Q3Q1Y: dq-str-clearance-pred
+  C01FJNAH1CY: drag-factor
+  C02SSSF53NJ: ds-2021-eoy-campaign-reviews
+  C03RU2L182H: ds-cars
+  C040HVDVDV4: ds-data-alerts
+  C03UF2TU9L1: ds-donuts
+  C04MEKM27ST: ds-experian-exploration
+  C054W1Z8R7C: ds-llm-brainstorm
+  C02C0JXFFRT: ds-mb-reach-metrics
+  C03Q49MHD6X: ds-monday-study-group
+  C05CQ5XHDTK: ds-nyc
+  C04RW271GSF: ds-product-eng-sync
+  C01QFFED34M: ds-slack-test
+  C034GV5BG4V: ds-social
+  C055TRUP32L: ds-streaming-metric-recommendation
+  C02DYJ5RBGC: ds-ticket-management
+  C02EVM3BDT5: ds-upfront-analysis
+  C032Z45EQVB: ds-widgets
+  C019QF4R8FP: ds_vendor_evaluation
+  C05JQ11MJDC: earth_breeze-measurement-investigation
+  C040ND7LFRB: electric-sheep
+  C02TGRZS9M2: emojis
+  C03H1BHGDFW: eng-bao-campaign-execution
+  C01L9EYFTAB: eng-bao-campaign-manager
+  C018UGBLKEG: eng-blog
+  C02R7THEHQW: eng-cypress
+  C0461M137KK: eng-reporting
+  C01F4FV68R2: eng-social
+  C01PJD29JUB: eng-system-performance
+  C055PTQUQM6: eng-tvp-tatari
+  C052E2EMLP6: eng-x-design
+  C029Z12SHGV: engineering-demo
+  C01EGL53AUB: engineering-notifications
+  C037BRQ39F1: engineering-performance-alerts
+  C036LQG4V52: engineering-performance-jira
+  C0204FBBMBR: engineering-today-i-learned
+  C014WA2HJVA: equalityforall
+  C02V4CJKJLA: estaff-trivia
+  C03RF5WBN30: estaff_trivia
+  C058T9YM5H6: ethos-tatari-external
+  C02QEFXMLU9: exploration-nbcu-automation
+  C043QDA0TCH: ext-tatari-notion
+  C03M40Z8GV8: ext-tatari-webflow
+  C01KYQ1UCFP: ext_tatari_joytunes
+  C029W1A6P2A: extreme_reach_engagement
+  C01EY66M5V1: f1
+  C020LAJ2J5P: fe-interview-team
+  C017NU5B3NH: fight-on
+  C05AKCUKC06: figma-temp-billing
+  C02QQ312AKY: finance-hub-invoice-arch
+  C02REJ9VD51: finance-hub-invoicing
+  C054MFH02TB: finance_icon
+  C01CFDEMECC: finding_art_lown
+  C042L2B7KEC: first-media-networks-external
+  C042CP9RN77: firstmedia-external
+  C043WUWL3J5: fiverr_tatari-external
+  C057EMYRJTZ: flaky-tests-2023
+  C036W4Z9FEC: football
+  C055XC49B5G: forward-2023
+  C02TCP2LRK5: french_studies
+  C03UPMT1K29: fubo-genre-insight-test
+  C046VJ2EK71: gametime-tatari
+  C03QCB05ZPW: gametime_adjust
+  C01S54RQR96: gapers
+  C013CGLD92P: gardening-and-fishies
+  C035K01CPGE: gemini_pitch
+  C03CAGCD35X: general_ua
+  C02A81ZECNB: general_upfront_buys_naming
+  C02J8V6PJE9: george-test
+  C030KSX2J0J: gerald-diep-tran-test
+  C022W2GCTAQ: giant-peace-hamster
+  C03KKMJLF7B: gnar
+  C05F2K89TGR: going-null-page-analysis
+  C053AFJ599Q: golang
+  C04JCRSNKPW: google-analytics-pipeline
+  C013KA75WTF: grateful
+  C026BL0NMFF: greenlight-call
+  C01UNGNQQ0L: greenlight-fix
+  C01S18KT4KZ: greenlight-growth-plan
+  C051SLC95SP: greg-schwartz-hhtv
+  C02TZ8CJG3U: grey-zone-transition
+  C04119HP17Z: groove_life_tatari_external
+  C04K6U37V4M: grpc
+  C01C0T66UP9: gt-omscs
+  C01EJ8MGEKU: happiness-channel
+  C04EKN5SZU3: haskell-university-collaboration
+  C0125QU8614: henry-test-channel
+  C021C234D44: hey-bestie
+  C01AGDN7CH2: hiking-backpacking
+  C0108KJN0UT: homeschool
+  C04A8NMUXS8: homestead-tatari-external
+  C02PDFPL16X: hot-pot-nyc
+  C051TDDPPUK: hubspot-notification-testing
+  C02QU9ZNPPW: hulu-2022-superspender-prospect
+  C04JH2Y0X38: humann-internal-cs-ds
+  C03E55DT5GQ: icon-international-in-house
+  C052XMX1VQX: icon-public-rec-tatari
+  C05DPMKUZ9S: icon-wild-earth-tatari
+  C05DEJF90HL: icon-wild-earth-tatari-internal
+  C027459CEMA: ilmakiage_tatari
+  C043XFUSD1N: inbound-deal-assignment
+  C022VV0LG1E: inc-13
+  C04RDNG5V61: inc-89-s3-reports-incorrect-spend
+  C0516JBUFMM: incident-tcs78-streamingspend
+  C01EMTW0XS7: incidents
+  C048ZJZ2U85: incoming-jira-ce
+  C03BFSR9AD9: incoming-jira-cx
+  C02539CJHUN: incoming-jira-mbp
+  C01MS8BT1EC: incrementality-tests
+  C03T5PRGBV4: industry-monthly-updates
+  C052P6E7JHK: infra-ttv-tvp
+  C02M1780G1H: intelligence-tools-feedback
+  C057EANNHDL: internal-23-and-me
+  C0580RQQ6J1: internal-adcologyfield-of-greens
+  C04ES4RB141: internal-allegiance-flag-supply
+  C03A466F3EH: internal-american-trucks
+  C0390MM3TK8: internal-andie-swim
+  C02J1JXJ0JK: internal-anolon
+  C03H20VQ2C8: internal-apartment-list
+  C02JGDU4JLS: internal-aquasana
+  C04183NJXQF: internal-ariat-international
+  C04HQDXEW75: internal-aroma360
+  C02D6MY9PT8: internal-athena-club
+  C01MW6E5XSR: internal-augustinus-bader
+  C03RNTYAZ17: internal-avalara
+  C029BCJDDG8: internal-avocado
+  C03M7MM2SBH: internal-bandai-namco-mobile
+  C01SGCDPWUD: internal-barkbox
+  C024RQ69MRD: internal-because-market
+  C053W3LBBNU: internal-beis-travel
+  C0583247VCP: internal-billboardnerds
+  C02D6UYU1DX: internal-biotrust
+  C01NLHV2UKE: internal-birchbox
+  C02J29LT39D: internal-birdies
+  C02QSAJ5W1H: internal-bite
+  C04D3S6JBC7: internal-blk
+  C02D1DN6MT7: internal-bobbie
+  C0228PFNDEH: internal-bonfire
+  C01SG9UP54Y: internal-book-of-the-month
+  C027PMCFTNH: internal-boom
+  C051TTZ0EBG: internal-bottom-line-concepts
+  C04NHP4JX5E: internal-breeo
+  C02JGHHBE9G: internal-brigit
+  C0356SE190E: internal-brillia
+  C02NF4Q6H8C: internal-brilliant-worldwide-inc
+  C04F7L4BB0S: internal-bylt-basics
+  C02DL3E41EY: internal-chapter
+  C026PRWG6QJ: internal-charity-water
+  C0234211Q3S: internal-chime-bank
+  C04T8LTPHS7: internal-chime-cs-only
+  C03TTS2L8JZ: internal-circulon
+  C03V7JPUMDH: internal-copper
+  C03KF5H82F4: internal-copper-cow-coffee
+  C02BRPYBDBL: internal-criquet
+  C02S7SQSF3R: internal-cuts-clothing
+  C03D7BY653N: internal-dashlane
+  C02F02CUJH4: internal-dave
+  C0381BZ90UE: internal-dia
+  C03EM7SNDN3: internal-dispatchhealth
+  C03RV2ALZD0: internal-dr-squatch
+  C04LQ886955: internal-drink-lmnt
+  C02BSHHU70E: internal-duck-camp
+  C05B0KXJX0T: internal-dyla-brands-stur
+  C04CX2FQK1C: internal-earth-breeze
+  C05H953LTMK: internal-emeals
+  C05FGNEAPSA: internal-emmarelief
+  C0583G00DT2: internal-ethos-life
+  C032NE0AG4C: internal-every-man-jack
+  C02D3AGLGE8: internal-fabletics
+  C04D2K4V19D: internal-fabric
+  C039544FH6H: internal-facet-wealth
+  C038U65P770: internal-fanatee
+  C03KZHN1W12: internal-fi
+  C030AUKGWUT: internal-figs
+  C01S4UUR162: internal-firstleaf
+  C034NC0GYVB: internal-fitbod
+  C036PR327LP: internal-fiverr
+  C039VDZLL0N: internal-floyd
+  C03K5G1N5L0: internal-fresh-n-lean
+  C05BHAH47K4: internal-gabb
+  C01TZU8KQ7Q: internal-gametime
+  C03BGKJBM60: internal-gfore
+  C028T3TPCH1: internal-glamnetic
+  C02CTKNTKMM: internal-glossier
+  C0202RXLGH2: internal-glowforge
+  C058881KH0E: internal-goat-foods
+  C02BAL3F6KY: internal-going
+  C02PX69QV8D: internal-goli-nutrition
+  C01SLRBBXJ5: internal-gorjana
+  C03MECKT6S1: internal-groove-life
+  C03P1RT6AMP: internal-havenly
+  C01QVPJDFQX: internal-hello-bello
+  C056A9195DG: internal-hestan-culinary
+  C03FF9M34TG: internal-heydayballsy
+  C0490B9GW5D: internal-homeaglow
+  C0469ET5A1Y: internal-homelight
+  C040DAZD3GW: internal-honeylove
+  C04T8D08UPR: internal-hotel-collection
+  C04NR3GQ2CB: internal-humankind
+  C04J0TDMC00: internal-humann
+  C0513F96PDZ: internal-humming
+  C026QT39M35: internal-ibotta
+  C027YK3PTFU: internal-il-makiage
+  C04MJM2591D: internal-interior-define
+  C03MPUTRB5F: internal-jackbox-games
+  C02E6TN2ZN2: internal-jambys
+  C01SF7BRC2D: internal-jenni-kayne
+  C0285UQNGQH: internal-jerry
+  C05A8S6FT8U: internal-jettly
+  C049RME4XFT: internal-joinnextmed
+  C022RBP6SKH: internal-kajabi
+  C02KXL2D03D: internal-kencko
+  C04J80GRB2Q: internal-kettle-and-fire
+  C029B8XEYBY: internal-kiwico
+  C04RRARBYKU: internal-kizik
+  C04TF5AJ3FU: internal-laura-geller-beauty
+  C02EJG0U42C: internal-legacybox
+  C01HDG246NP: internal-lemonaid-health
+  C05473NPSLE: internal-life360
+  C01P92TDGCT: internal-literati
+  C03DA496F52: internal-lomi
+  C050SMR6WJ1: internal-lululemon
+  C027XG1MW0G: internal-lumin-skin
+  C03ULHZD5AT: internal-luxury-brand-holdingsrosssimons
+  C04KF5H5CAH: internal-luxury-escapes
+  C03LNDHR6TF: internal-made-in-cookware
+  C03LSCW1ZC6: internal-maelys
+  C02851T9ZN0: internal-magic-spoon
+  C02DMGFJQQZ: internal-manscaped
+  C046J1YJ9GD: internal-marqueebrandsbcbg
+  C012NPE1NMD: internal-masterclass
+  C04LLAKKFSP: internal-melin
+  C0217F77F5F: internal-modsy
+  C04AP3SN771: internal-moon-pals
+  C0596H97Q58: internal-mugsy-jeans
+  C03MVE79QLA: internal-musely
+  C02126W74UV: internal-naked-wines
+  C02RXK18GSU: internal-neighbor
+  C04T68KJP53: internal-newage-products
+  C03J13D1YP2: internal-next-vacay
+  C042DSLV134: internal-nomatic
+  C04B103DE13: internal-nu-image-medical
+  C022HAMTTPY: internal-nutrafol
+  C057BMJ1SQK: internal-nutrisense
+  C036QQHLTR8: internal-offerup
+  C05J33GCAF6: internal-omnilux-led-phototherapy
+  C043FHQQ23F: internal-one-country
+  C02A7JZ4C10: internal-ora-organic
+  C01V2AZUNQ7: internal-outer
+  C046YBC82H2: internal-overland
+  C040CADDLTT: internal-pdmaerogarden
+  C058FJMTHTQ: internal-peregrine-mediacalifornia-department-of-public-health
+  C02K7KHAMMW: internal-peter-millar
+  C02C0U6523T: internal-picsart
+  C04S20DQFRP: internal-plenty-of-fish
+  C03CQRGHJG0: internal-point-card
+  C055LT3DUTX: internal-point-defiance-zoo-aquarium
+  C02DZL6BXTN: internal-promescent
+  C03URSHUBHP: internal-pura-vida-bracelets
+  C02LL2SKJKD: internal-pureboost
+  C03CU1Y5Q0M: internal-purposebuilt-brands
+  C03HT6VTMGV: internal-raycon
+  C025SEQLN9X: internal-red-pocket-mobile
+  C034Y91J8KH: internal-reputation-defender
+  C022EEZN482: internal-ridge-wallet
+  C03NN8VGZ38: internal-ro
+  C03RUHDMAMQ: internal-ro-body
+  C02318JDLRZ: internal-rockerbox
+  C048BB5HH4Y: internal-saatva
+  C03BH6CLDU4: internal-sand-cloud
+  C030FNPK3AR: internal-savage-x
+  C01RPMF0JE9: internal-scribd
+  C034G0J57V3: internal-self-inc
+  C028TQEH611: internal-sheertex
+  C052RMY29V4: internal-shinesty
+  C03BX1GFW78: internal-shoedazzle
+  C01UAS8FU48: internal-skims
+  C029XTYUU84: internal-skylar
+  C02E9PJ93CP: internal-smalls
+  C0278EC2UBA: internal-smartnews
+  C037SLU3JNS: internal-solgaard
+  C047ABC74G5: internal-spoiledchild
+  C05FK6BQJ2U: internal-spot-pet-insurance
+  C02N9J4TV35: internal-storyworth
+  C029LQKPPLG: internal-styleseat
+  C04H723HA1Z: internal-success-academies
+  C01JXEWCPFE: internal-sunbasket
+  C02211QCG0L: internal-sundae
+  C05DUEU35EW: internal-taco-time
+  C02E6UN3XU5: internal-teladoc
+  C03RUSL03V4: internal-ten-thousand
+  C01QWNBJRUP: internal-textnow
+  C04AFD1186B: internal-the-adventure-challenge
+  C051YJTPSRZ: internal-the-azek-company
+  C04LXF8VB0R: internal-the-hartford
+  C04585RU76Y: internal-the-kimba-groupmunicipal
+  C029WDTLJS3: internal-the-pill-club
+  C04194PLGV8: internal-the-routing-company
+  C01RHDR6UL9: internal-thinx
+  C02SK6X25T4: internal-thuma
+  C055Y3ZLUKU: internal-tiege-hanley
+  C02312Q9AMR: internal-tonies
+  C032FV9LT2Q: internal-travis-mathew
+  C02C34TB0MT: internal-true-classic-tees
+  C03QLGJP760: internal-truebill
+  C03Q63Z52P6: internal-truewerk
+  C02EVD1QJ3C: internal-upgrade
+  C02EJK7CWKT: internal-urbanstems
+  C02LYTTEHU1: internal-vault-health
+  C058W8NCVH8: internal-verkada
+  C0534CQ6D25: internal-veyl
+  C024F9KH8R4: internal-vincero-watches
+  C051SUM7PAA: internal-vivian
+  C02390EJAV8: internal-vivino
+  C01LZC5APH7: internal-vuori
+  C0267AHKJ8Z: internal-watch-gang
+  C040VEUHV35: internal-weight-watchers
+  C03539J87G9: internal-whisker
+  C03762B9FFC: internal-wild-earth-temp
+  C03ATJWEEBD: internal-windmillair
+  C01NTS0CKKP: internal-winkylux
+  C0243SMSTT6: internal-wolf-and-shepherd
+  C039KV3N9ED: internal-wpromoteoa
+  C04ASDN1VSL: internal-wpromotetransunion
+  C0267EM9T7B: internal-yelp
+  C049NA01P47: internal-yeschef
+  C05FSS86RU4: internal-yotta-technologies
+  C02CUEWP0P6: internal-zazzle
+  C02AGA3HKK3: internal-zebit
+  C04EFRH8N3V: internal-zulily
+  C03GKH6LSNS: interview-improvements
+  C034CVC8BAP: interviews-clientdevelopment
+  C031T2HMP70: interviews-datascience
+  C03BFG91F6K: interviews-marketing
+  C033CV1SK97: interviews-product
+  C01TNRMH16V: ios-response
+  C057VTGKKC0: ip-events-discrepancies
+  C02U9V18Q6T: it-helpdesk
+  C03HVPENHEU: jcbt-second-request
+  C049SQNCUSD: jeff-test
+  C03NLU9NWP6: jerry-insurance-external
+  C03E0LBBUT1: jiujitsu
+  C027JEQJSCF: jive-marketing
+  C03Q9BQJEP8: jobs-to-databricks
+  C013GS008MD: josh-spend-questions
+  C054KKE1KKK: josh-tatari-spotlight
+  C0143NWCFB6: joshs-spend-question
+  C03QV2TSFC7: kafka-cdc
+  C01HC24CGHE: kantar-insights
+  C03MRDYFXGE: kelly-test
+  C02D6C8SEDT: kids-lingo
+  C02LN4RTH43: kienan-test
+  C055RERDH50: knix-tatari
+  C02GSGPHMK5: koreaboos
+  C02310USAUC: kpc
+  C0441JJJ04V: la-eng
+  C03SRB5GW6T: la-la-lunch-today
+  C045FKUQN1L: la-lunches
+  C04DEARG5PV: lbo-mpe-monitoring
+  C030R2P4K0X: lead-dev
+  C040UNSRD60: leads-from-the-feeds
+  C0494SZ656G: leaf-group
+  C01PU3P83M3: lgbtq-alliance
+  C04KQDMEJ8J: life-rex-md-ih
+  C03B2SU6GQ3: lift
+  C03DQ3WJCR5: linda-test
+  C03KRD12P3J: linkedin-leads
+  C01H2GDD6EQ: linux
+  C0444GKTZ3Q: livongo-data-cleanup
+  C03SBFQPJC8: lmfao
+  C02H2PGEGE7: local-buyers-vip
+  C01HS406MLH: local-opps
+  C02B6SULVB9: localbuying_mediaops
+  C051QV85M7X: lomi-tatari-icon
+  C03BACMP4QP: luantruong-test-channel
+  C02U454ELF4: lucasb-observability-test
+  C02HK57KQG3: lucian_says_things
+  C032G0ZCU3E: mach-8-engagement
+  C015XJB7EV8: made-ovas
+  C01B98TV1K7: madein-tatari
+  C026M9JKNDS: marketing-and-product
+  C03EDHUJZT5: mastery-with-sql
+  C02E0P4EXK9: mb-analytics-support
+  C02DDQAUGFR: mb-team-assignments
+  C05350C6TQS: mb_okr_standup
+  C0387GSCQDA: mb_status_updates
+  C055AJZCKDG: mba-mb-streaming-pacing-updates
+  C01EFUAK28N: mbp-notifications
+  C02HS049PH6: measurement-pr-reviews
+  C02190WJF3Q: media-intelligence-team
+  C01GJH4NKU2: media-news
+  C04U8AFEA9J: media-ops-tech
+  C03B4ALQ0AH: media-plan-engine-feedback
+  C04EN4S2WH4: media-reduction-pricing-beta-rollout
+  C03U30U28HZ: media_ops_alerts
+  C053UA2MTRD: mediaops_icon
+  C01U4J89SA2: meditation
+  C023N1KS2RH: mental_health_and_wellness
+  C056QRB9ATT: merlino-tatari
+  C05JWANUG15: merlino_agency-accounts
+  C0358RJUTKJ: migrate-frontend-to-k8s
+  C03PSRS7J6Q: movie-enthusiasts
+  C03632VQ39D: mri-tatari
+  C01FK8YP2KV: murder-squad
+  C01GB0T1UFR: nature-science-photo-video
+  C02RNNBU5RB: neighbor-tatari-external
+  C044LUXPPU5: netflix
+  C041L27RYNA: netflix-amazon-youtube-convos
+  C043JP1DB7B: network-mapping
+  C01AP3P1NR1: network_clearance_updates
+  C04RPT9PXEC: network_codes_prog
+  C03C2NK1SQG: new-pilot-process-rollout
+  C01099AL0BD: nick-test
+  C02BCC4J07J: nicks
+  C01Q3D0APNC: no-pay-no-buy
+  C028SQ3SKLY: no_more_subtitles
+  C05HACM34D7: noah_rants
+  C040NGFTEAG: notifications-automated-onboarding
+  C046G9SBHTL: notifications-commission-threshold-report
+  C01G4ASNFGX: notifications-conversion-metrics
+  C02FQDM03K3: notifications-creative-asset
+  C02LXR2R6F5: notifications-creative-asset-errors
+  C02JFUHCZ9R: notifications-dashboard-hero-chart-monitor
+  C03UW95HE81: notifications-dsp-api-errors
+  C01SELQQ716: notifications-er-api-submission-errors
+  C037DCVDN83: notifications-finance-hub
+  C03FURVE0R2: notifications-hubspot
+  C02Q4389NG7: notifications-integration-status-monitor
+  C01FTRUG95G: notifications-lambdas
+  C01FJ0EHM89: notifications-media-buying-errors
+  C05AH01SFJ9: notifications-pm360-errors
+  C01PZENJCGY: notifications-programmatic
+  C01K57VCGKS: notifications-rollbar-be
+  C023NRMQKH9: notifications-rollbar-fe
+  C03DKQ3QGCW: notifications-self-serve
+  C04ARLG2Q8Y: notifications-site-serve-pixels
+  C05EPTJ9DHU: notifications-snp-feedback
+  C03BB8591PS: notifications-solutions
+  C01USD2HBE1: notifications-streaming
+  C03MQPSA7ML: notifications-tag-manager-check-errors
+  C02REE3AM17: notifications-third-party-status
+  C03NMF6912R: nutratari
+  C019GQQMY4S: nutratari-tv
+  C046X5Q0KK4: nw-holiday-party
+  C02KNS4T4FJ: nyc_buyers
+  C03HB3T1WLA: offerup-tatari
+  C022TP706PP: office-oc
+  C03AQQKJZNH: office_fomo
+  C033EJN9RA7: onboarding-team-leads
+  C04RT937L04: one_country_tatari_external
+  C03Q1FQENK1: operation-olv
+  C01FY6UES6M: ops-changes
+  C01BBQT34Q1: ops-notifications
+  C01SXJD4QTD: ops-notifications-dev
+  C01U1UUHX4Z: ops-notifications-dev-oom
+  C01DPV3PRK9: ott_linear_naming
+  C03DKTM8HNX: outsidetv
+  C01QGDZ5REH: owenslackbot
+  C054U6SES65: paramount-tatari-ops
+  C04J714EP8V: paramount_open_issues_tatari_tracker
+  C01KMRMQK6G: paul_owes_me-coffee
+  C04SA5K94LS: pdm_tatari_general
+  C04EU6UG2M9: pdx-office-build
+  C02302UL6SX: pelacase
+  C03MB33MJB0: pendo
+  C03LAJP3KUH: performance_mp
+  C03EM9CKT3R: philly-squad
+  C025QQV19E0: philo-internal
+  C03LC5W9FB2: pilot-planning-engine-feedback
+  C037JG1CTFH: pilot-swat-team
+  C03AP8JT8SC: pilots-of-tatari
+  C01TS021FAP: pinoy-alliance
+  C0443QPFE78: platform-mgmt
+  C010QH45KQX: playlist
+  C01SGEFG32L: pod-25
+  C020RHARLRE: pod-26
+  C034YNFC7SS: pod-3
+  C02FL66GWG6: poetry-club
+  C01V119QZ4Y: preethi-mediaops
+  C037XNS5JTX: prelogs-clearance-tool
+  C014U2X1805: prelogs_postlogs
+  C02N13059KQ: premium-opps
+  C02BFUBR65V: privacy-restricted-impressions
+  C03CNGA697F: probabilistic-modeling
+  C01PKKGBZQT: procrasinators
+  C01PKKHMFD1: procrastinators
+  C03R3NBUCT0: prod-db-access-plan
+  C01LS73PTR6: product-and-design
+  C02MLETDYFM: product-releases
+  C01EX535YP2: product-tatari-platform-announcements
+  C0285CZEUP7: production
+  C05GLA293T8: programmatic-23andme
+  C037KG99A2Y: programmatic-been_verified
+  C04RA72M13R: programmatic-earth-breeze
+  C035625BRPY: programmatic-gametime
+  C03B74FHFD4: programmatic-jira
+  C0527D63399: programmatic-john-hardy
+  C02H679DBLN: programmatic-onewheel
+  C03B5HZLCPM: programmatic-sales
+  C03831QM5TJ: programmatic_athena-club_internal
+  C01M6RKLG3V: programmatic_avocado_brentwoodhome
+  C04HT8KT29H: programmatic_balanced
+  C04T10N5FGT: programmatic_bettersleep
+  C029YT0GVU2: programmatic_candid
+  C02R3CLL7LM: programmatic_chapter
+  C05D10M28KS: programmatic_fi
+  C027A7W5QS1: programmatic_gettacar
+  C03U6HVPJUF: programmatic_gfore_internal
+  C02EETWD76D: programmatic_glossier
+  C02NLSTPU7R: programmatic_imperfect-foods
+  C0353PNRK5E: programmatic_jerry
+  C04J0TFDJMD: programmatic_jobber
+  C050X0RCC10: programmatic_leads
+  C01E9MX9CG7: programmatic_masterclass
+  C01J9JP3ALE: programmatic_moonpod
+  C04S84X074Z: programmatic_one_country
+  C01JV2349HS: programmatic_open_spaces
+  C025386NV3P: programmatic_opendoor
+  C01RC298PND: programmatic_openfarm
+  C01JLCFBRTK: programmatic_picsart
+  C02ME4A6WRY: programmatic_red_pocket
+  C0268QHCH6C: programmatic_retargeting_tatari
+  C026CGBL8MB: programmatic_roccat
+  C0344KSH5FX: programmatic_savagexfenty
+  C0208U125GD: programmatic_simplehuman
+  C03BB14KJAC: programmatic_storyworth
+  C048LMSCYLR: programmatic_teladoc_incrementality_test
+  C030ZCDQ5F1: programmatic_thinx
+  C02P75WH75G: programmatic_thrive_market
+  C04JV8U1YCF: programmatic_training
+  C03JEPU0LQZ: programmatic_travismathew
+  C02BE0YF24W: programmatic_truebill
+  C0202EE5H6C: programmatic_trupanion
+  C02KXS8TH8F: programmatic_vault
+  C02D22EQFEU: programmatic_zebit
+  C05F05T6J1W: proj-agent-mpx
+  C05FTB7UB2R: proj-anomalies-to-client-internal
+  C024KDDHZ7U: proj-audience-insights-initiative
+  C05GHP043MZ: proj-audience-similarity-score
+  C05JS369L2U: proj-auth-svc
+  C053KGTPCE6: proj-autopilot-tool
+  C051LRWRAJC: proj-campaigns-and-objectives
+  C02M4F7BH41: proj-clearance-prediction
+  C053LDDG0SH: proj-closed-loop-dbx
+  C03SS4MJ801: proj-combined-metrics-api
+  C03USM5DR9B: proj-comscore-local
+  C03C1LJSZ50: proj-copy-based-on-performance
+  C01F4CD6G20: proj-data-integrity-spots-and-bookings
+  C04CZ8DMR19: proj-data-quality
+  C04MEB21SE6: proj-deadzone-calc-improvement
+  C01L3KHH97E: proj-demographic-linear-buying
+  C04DWB1SJCC: proj-deployments
+  C01LAND6XCY: proj-device-graph
+  C02UMR88UDN: proj-dhxp-ott
+  C04CBSLJVCG: proj-digital-element-transition
+  C025T1HSH1U: proj-disney-pixel
+  C04P0H9NRKJ: proj-experian-audiences-discovery
+  C04PKFTJJF5: proj-experian-demographic-inference
+  C05AD71L5PC: proj-experian-utils
+  C03S0JN87B9: proj-fubo-tvp
+  C044YM7J1K4: proj-ga-profile-automation
+  C04J7430NAY: proj-helpjuice
+  C01MDR5MR0B: proj-hosted-linear-order-flow
+  C01NRDKSH0A: proj-impressions-data-platform
+  C033FMVDA4S: proj-inventory-reloaded
+  C02V91Z4CSV: proj-knowledge-base-permissions
+  C02QKHE7KFV: proj-linear-bid-optimizer
+  C022YD75CGN: proj-linear-bulk-planning-presets
+  C03RSDEMCJC: proj-linear-clearance-model-monitoring
+  C03J3AC922F: proj-linear-creative-scheduling
+  C05A64FNU2W: proj-manual-vs-scheduled-dbx-jobs
+  C0308ETNFFW: proj-mbp-tatari-impressions
+  C04S32XV38R: proj-mea-clickhouse-db
+  C04L3E5KPA9: proj-mea-experian-integration
+  C05EJ2U24C9: proj-mea-observability
+  C04B8LQNGN5: proj-mea-s3-media-price-reduction
+  C03D7G55R5H: proj-media-reduction-pricing
+  C041L6Y5N49: proj-media-reduction-pricing-aud
+  C03PBMG95RA: proj-media-reduction-pricing-eng
+  C05EFU0BG5Q: proj-mind-the-gap
+  C028DR8T83E: proj-mmm
+  C05K27NDMA9: proj-monthly-invoice-adjustment
+  C02QRCUHTQ8: proj-navigation-redesign
+  C028H2E5LH5: proj-npe-avails
+  C04MUMFMGSE: proj-nsa-client-attrition
+  C029K3NMPRA: proj-order-history
+  C03GULVE0UU: proj-persona-api
+  C029URJKB3K: proj-pilot-planning
+  C04E9ADT9U0: proj-pixel-pii
+  C048WK89UF7: proj-planning-engine-metrics
+  C04N9HPUB0W: proj-pm360-order-automation
+  C0476N4BQ23: proj-query-counter
+  C0497U6R6D8: proj-read-only-inventory-selector
+  C03G9JP8REY: proj-read-write-split
+  C02HF4X4EBA: proj-rf-planning-tools
+  C047N6TVBS5: proj-roku-response
+  C046U1F3SNA: proj-s3-alerts
+  C04851MLNDV: proj-safari
+  C03JUEW4SM9: proj-shopify-general-app-requirements
+  C02BVFY8Q9G: proj-similar-inventory
+  C036H61TNHY: proj-sp-approval
+  C026SMJPFC4: proj-strategy-tagging
+  C02U5BL9BM0: proj-streaming-clearance
+  C02U2FQ75K7: proj-streaming-cpv-index
+  C04LE1WDSSU: proj-streaming-inventory-enhancements
+  C02HPEC9GKU: proj-streaming-inventory-selector
+  C04QVEAMKKM: proj-streaming-rates-tool
+  C01UBC0B0CA: proj-streaming-sched-creative
+  C024FGPJJSY: proj-streaming-spend-in-bt
+  C03R2CV0X39: proj-tapad-pixel-test
+  C04H8PRFY5V: proj-tiered-bids-recon
+  C03D550BYQ5: proj-tp-data-anomalies
+  C03NA4BGHG9: proj-traffic-review-automation
+  C0475LRE18C: proj-traffic-review-dbx-migration
+  C02KPNP1QEB: proj-unlock-spend
+  C0451KZPHSM: proj-youtube-channel-exploration
+  C05B7D0T2AH: proj_mea_streaming_spend_spark_migration
+  C04BH1KBHU2: proj_prog_bookingform_tab
+  C041MHNFV0B: proj_prog_campaigns_in_cm
+  C03QB6URDTL: proj_prog_direct_publisher_tvp
+  C0443A0TS7J: proj_prog_pax_network_flag
+  C04BNAYE0UR: proj_prog_reports
+  C03FKMDM3H6: proj_prog_spend_accuracy
+  C04TUHSRFDJ: pumpkin_tatari_external
+  C0426S05R47: pura-vida-external
+  C01FRCJME5U: puzzles
+  C037M8QJGJX: python-bot-test
+  C043VL3TZHD: python-bot-test-2
+  C024DQFR1R8: q3-2021-client-npe
+  C03J7M63ZMY: q3-2022-market-update
+  C04907MJ09Y: q5
+  C01MR86QWAF: que-onda
+  C04ETKQG7GX: ram-oncall
+  C037AAE6415: rate-approval-mb
+  C04583521DE: raycon_tatari_external
+  C01T0SVA6LD: rbac
+  C01C89BSCNR: realfootball
+  C01R5EHR0SF: report-notifications
+  C04F7RAQLTZ: reporting-update-2023
+  C051Y0X5XUK: restart-marketing-platform-solutions
+  C01618Z8ZM5: retargeting
+  C01JKMP76MC: retargeting-case-study
+  C04FBJYQG12: rivetty-ih
+  C047X3R0C9G: roku-device-loss-client-action-plan
+  C02NEET7SN7: rollout-read-only-bt
+  C01RJBC2TKQ: roundup
+  C032B78V6F2: rust
+  C02KYD1QLQH: s3-reporting
+  C02LSKRC9GQ: sales-competitive-requests
+  C0582C77R7V: sales-prospecting
+  C04LGK9MRFZ: samip-test
+  C03S701JLQJ: san-diego
+  C037REDQ5M5: seattle
+  C022DNJB4H4: security-external-questionnaires
+  C0397ERMRV0: self-managed_wave-3_outreach
+  C02GYF3RRU5: self-serve-swat-team
+  C020D6JHPV3: self-tataritv
+  C030X4E4QSZ: selfmanagedwave2
+  C04HJGGTFDM: sf-eng
+  C04HUQ7H083: sf-eng-secret-channel
+  C05DNNESLLW: sf-scavengerhunt
+  C04P181B885: sf-wifi-test
+  C039557TJ21: sf_music
+  C04NQBZS2TY: share-it-on-social
+  C012XKCUTNW: shared-tatari
+  C01UANLB9G8: shift
+  C02G6R03TBJ: si-3141
+  C02LWLTL4E6: si-praise-test
+  C0448GMTVB7: sla-dashboard-alerts
+  C022BAVKNKF: sleepgram
+  C05FZS8HWBF: social-home-automation
+  C023DF0MBHQ: solutions-jira
+  C04U88MAVT6: solutions-pr-reviews
+  C03PQBLS86P: song-of-the-day
+  C03TDPCF4Q4: spent-too-much-on-mics
+  C04LJEA3CR1: spot-spend-alert-test
+  C02VB92GJUF: spot_spend
+  C02K5JZJ3EW: sppoky-la-lunch-wednesday
+  C05DT6YGETT: squad-bi-analytics
+  C059RNR2CDD: squad-client-analytics
+  C02FK8ERANT: squad-coordination
+  C02HT6WJMF0: squad-data-quality
+  C03DSPNKEAF: squad-data-quality-alert
+  C039YLDJW5T: sre-dp
+  C0355PQSVFH: sre-news
+  C01FXF7P3ST: sre-private
+  C02SL43UW9J: sre-sec
+  C05JAH4PEMA: sre-solutions
+  C01TSJ3F9GV: staging-env
+  C042DSMQ4M7: steelers
+  C030VCS8W9W: step-tatari
+  C04N9DKDYUQ: stephen-notifications
+  C02HDN2848H: stephen-test
+  C059WT7RS1M: stf-client-facing-testing-tracker
+  C04USQTHWCE: stf_kettle-fire
+  C023M3ZAMC5: str-299
+  C01G0LDS4CA: strategic_thoughts
+  C02SSQWBMNH: strategy-tag-naming
+  C01T3GY9JHY: streaming-189
+  C01Q5DD0QPK: streaming-demographics
+  C01G6S1E2HF: streaming-lift-alerts
+  C03AAV9LS05: streaming-operations-internal
+  C01BXBZC2CR: streaming-optimization
+  C01A554JNNP: streaming-reminders
+  C04G03BR2HX: streaming-strike-force
+  C04J7Q8JB8X: streaming-task-force-2023
+  C04LSME9WSV: streaming-task-force-measurementsquad
+  C04RHSAU51D: streaming-task-force-research
+  C01R7GXERAA: superbowldeck
+  C04PTCZEMT4: supply_demand
+  C02J87K1BQR: suzy-internal
+  C04G1MFJE67: swat-team-1
+  C04G1MPMZFD: swat-team-3
+  C03291H0P6Y: syndicated-spot-impressions
+  C03S54H01QV: synthetic-data
+  C01TEK2TZ6U: t-pod-5
+  C02A5982AKB: tatari--glamnetic
+  C05CYHWB343: tatari-ag1
+  C053W2ZPX3N: tatari-altinity
+  C04RQ7GDAA2: tatari-ariat_international
+  C0291H1HK4Z: tatari-armature-systems
+  C04FM719ZFB: tatari-bylt-basics
+  C02MFHA0UFN: tatari-class-of-nov-2021
+  C05797P3QTE: tatari-consumable
+  C035UUM6KJS: tatari-databricks
+  C049W578Z34: tatari-drsquatch
+  C05GQAYKKP1: tatari-filtereasy
+  C033ZH27WKT: tatari-fubo
+  C01JS34KS64: tatari-glowforge
+  C02SWU08NP3: tatari-hellobello
+  C03GN3TLJF8: tatari-ibotta
+  C03LGN1E6DV: tatari-intern-network
+  C054HPBPL2G: tatari-life360
+  C04LS2PD8KD: tatari-lomi
+  C01AQFFQUUD: tatari-ltv
+  C055Y52FU03: tatari-melin
+  C034A7CN7NY: tatari-minted
+  C059FSXA4EQ: tatari-mugsy
+  C05847DSKNC: tatari-nutrisense
+  C054AASA539: tatari-olukai
+  C035XHZM2MD: tatari-rise-science
+  C05874GU2A1: tatari-ritual
+  C04L8EH3V2L: tatari-robody
+  C0593H02Z42: tatari-saatva
+  C02GNNWNSV7: tatari-skylar
+  C053JB96AHK: tatari-skynet
+  C04L84X1D7T: tatari-successacademy
+  C04S2GE4U4B: tatari-ten-thousand
+  C059NA8ARS8: tatari-verkada
+  C02MQ3CJK5H: tatari-vt
+  C0541HFHHUH: tatari-windmillair
+  C02L5JFDUFN: tatari-wolfandshepherd
+  C05FQG9UHSA: tatari-yotta
+  C029WSRPYCW: tatari_edge
+  C03GTHKSEF5: tatari_floyd
+  C046U4BBY0Z: tatari_mvmt
+  C03NR0HNSUT: tatari_watch_gang
+  C03PKLANKM0: tatari_wildearth_external
+  C04TAQ5V6KZ: tatari_wpromote
+  C0237D7JU4C: tataricribs
+  C021S28G16Z: tbd
+  C03P3LC7D17: team-dtv-postlog
+  C04CHTBTB9D: temp_2023_planning_ctv_olv_measurement
+  C017S9CTUP9: tennis
+  C05B9PJEMJ4: terminated-client-alerts
+  C03NU6EKKC3: test-channel-trivia
+  C044BNCN814: test-ga-automation1
+  C015JQWSQDC: test-ike
+  C0382NLUL07: test-notifications
+  C02S2EJDESE: test-officely
+  C02G1GD3RFA: test-seanchon
+  C04NX1RQZ6W: test2
+  C03C3ABV9EF: testing-bot
+  C035RC74NR1: the-last-supper
+  C03UFPP4C5S: the-process
+  C057VHR6WHL: tmp-mea-offsite-sf
+  C03LPKE4FDM: tmp-s3-fees
+  C04L8RQ78LC: toronto
+  C03PJ11U0CE: tp-anomalies-detector
+  C04QNJVDJ1M: tp-pre-launch-anomalies
+  C04U80P02SY: trainingday
+  C01V88JHMGE: travel-share
+  C01ECP39E4B: triage
+  C01SK4YG0MU: trustandwill_pilot_review
+  C03R9SFDKQB: tv-guide-email
+  C01GDDGSSBX: tv-test-channel
+  C03CML9DZHN: tvp-accounts-updates
+  C03LASVFSHF: tvp-adops_supply
+  C03BR8J57DL: tvp-alexdemandsales
+  C03FNU8AWJC: tvp-andrew_stav_kris
+  C03BH9W0A2K: tvp-andrew_yarik_stav
+  C03CAGC5UMP: tvp-daily_report
+  C03H07U7ZRS: tvp-david_daniel_stav
+  C03HY7W65L6: tvp-dean_stav_kris
+  C03H05ZSKPX: tvp-denys_stav_kris
+  C038JUXBF9R: tvp-eng
+  C03BR8J6T8E: tvp-epsilon
+  C03CR6F9BC1: tvp-fiksu_ssp
+  C03BH9W1DV5: tvp-general
+  C03CAGC763T: tvp-glewedtv
+  C03CML9HDH6: tvp-grafana_info
+  C04332N6H9U: tvp-hubspot-internal
+  C05BS9SDXAR: tvp-inbound-leads
+  C04PVKX67DM: tvp-infra_info-test
+  C03FKCEHLNP: tvp-internal-adops_ua
+  C03BR8J8BP0: tvp-ipg_kinesso_storefront
+  C03BH9W367R: tvp-kubient
+  C03CAGC8RMF: tvp-lgads_tv
+  C03CML9JZ24: tvp-mediamath
+  C03BH9W4Q8P: tvp-philo
+  C03CAGCA5R7: tvp-plex
+  C03BR8JB4TG: tvp-publica
+  C03CAGCBMCZ: tvp-redash_den
+  C03CML9MUEL: tvp-samsung_ads
+  C04NQTGRV6G: tvp-tatari-dv360-activation
+  C03NA9JCX3P: tvp-tatari-fubo
+  C03BR8JCMFY: tvp-tatarimetadatatests
+  C045BM5EX9T: tvp-team-okta-activation
+  C03BH9W7L6T: tvp-totalplay
+  C03CML9P8GY: tvp-us_publisher_leads
+  C03BR8JE2MU: tvp-vlogbox
+  C03BH9W90EB: tvp-vlogbox_adops
+  C03DHB1RZDY: tvp-xumo
+  C053X292T4Z: tvp_9mediaonline
+  C05BXE851SA: tvp_paramount_issues
+  C03UUS3AFU3: tvpdirect-ops
+  C044J9YA3NJ: tvpdirect-ua
+  C022Q0X75SM: ufo
+  C032RJJ4924: upfront-22-23
+  C03B89JM7DZ: upfronts_22_23_forum
+  C03QPN8TH25: uqora-tatari_external
+  C05BEQ0SYP9: vault-inbound-leads
+  C052KK8U2MD: veyl-tatari
+  C012CDU81JM: vhh-codenames
+  C012CE4CCHX: vhh-drawful
+  C011YU1R7T7: vhh-ride-the-bus
+  C0168MX54DS: vim
+  C0128QNKASE: virtual-donut
+  C01LYLTB2EM: virtual-escape-room
+  C05242ZMYR3: vivian-tatari-external
+  C047ETQKJQN: volunteer_la
+  C047MDTTXMZ: volunteer_nyc
+  C047MDX1XH9: volunteer_sf
+  C050H7AQT6V: volunteering_ua
+  C01MWERAPB2: vuori-tataritv
+  C039B9LG9L5: wanderlust
+  C010NBN0C81: watchthis
+  C0337FZSWHL: wave2-followup-outreach
+  C02UYAR1KDZ: wedding-planning
+  C03RW2PJVM1: weekly-self-service-email
+  C01Q2KQBZNE: werewolves
+  C01CF2XUGGJ: wildlifesharedtatari
+  C05K7U9HQGM: windows-10-users
+  C01H9FULP5X: wine_club
+  C02AVHE205B: within_internal
+  C031YCHA3A5: wordle
+  C031BUGAQ1Z: working-capital
+  C02UWS07Y05: yardzen
+  C04MAAKHMV2: yarn-and-wine
+  C04J1CFMKBP: youtube_buying
+  C053F1Y299U: youtube_robody
+  C04F2CCF3GX: zulily-tech-onboarding-internal
+
+users:
+  # manager
+  # Mark Weiler
+  D087FEUB98W: mark.weiler
+  # peer
+  # Bruce Rechichar
+  D02020W2872: bruce
+  # Dan Stynchula
+  D03DCG3CSQN: dan.stynchula
+  # Mike Sisario
+  D09UD741LKV: mike.sisario
+  # Reno Brown
+  D0247LUESBG: reno
+  # Toussaint Minett
+  D04M1Q59PQ8: toussaint.minett
+  # direct-report
+  # Patrick Shelby
+  D01GPF7MMT3: patrick.shelby
+  # Zach Fierstadt
+  D098F8Z7VFZ: zach.fierstadt
+  # sre
+  # Calvin Morrow
+  D0202PS9D3M: calvin
+  # Johnny Carr
+  D09EE1K6THN: johnny.carr
+  # Keegan Ferrando
+  D02KPAP05B7: keegan
+  # Stephen Price
+  D02J7NDTVT2: stephen
+  # data-platform
+  # Ben Horn
+  D0230DLA259: ben.horn
+  # Jonathan Hohrath
+  D08MXT91F08: jonathan.hohrath
+  # Leslie Rod
+  D02E5JWC9H7: leslie
+  # Luke Chu
+  D0A2AH48AHX: luke.chu
+  # Russell Simco
+  D02BSK7NC10: russell
+
+groups:
+  C02GLTR86TA: [bruce, harshal, jeff, jim, mala, reno, scott, toni]
+  C0273GG66RW: [bruce, bryce.york, david, erica, jeff, jim, mala, reno]
+  C03CFJEFYBY: [alan, calvin, dan.mahoney, keegan, librodo, patrick.shelby, ryan.farjadi, stephen]
+  C04627K094N: [brandon, calvin, dan.mahoney, henry, margot.maxwell, patrick.shelby, ryankuhl, stephen]
+  C05B5U7KE05: [dan.stynchula, greg.schwartz, jim, keegan, mike, ryan.farjadi, scott, wei]
+  C053LLARGT0: [bruce, charlie.qin, dan.stynchula, harshal, peter540, ryan.farjadi, song, vlad.belik]
+  C03N3M7AUFR: [calvin, ellen, harshal, jaeyeong, katie.sing, mala, patrick.shelby, tv]
+  C0663TH5ZAA: [calvin, dan.stynchula, danstynchulasecops, jeremy, jp, keegan, leslie, willis.schubert]
+  C066ZH0KVQQ: [anton.slobodskyi, calvin, dan.stynchula, danstynchulasecops, jeremy, jp, keegan, leslie]
+  C03P81XEPH6: [calvin, harshal, jaeyeong, katie.sing, mala, patrick.shelby, tv]
+  C0465SV7P0V: [brandon, calvin, dan.mahoney, henry, margot.maxwell, patrick.shelby, ryankuhl]
+  C02G9TKSUKT: [bruce, jeff, jim, mala, reno, scott, toni]
+  C026DRJ3CSW: [bruce, david, erica, jeff, jim, mala, reno]
+  C02NNA4TR7Z: [craig, dan.mahoney, harshal, henry, jeremy, keegan, patrick.shelby]
+  C066ADVALEP: [calvin, dan.stynchula, danstynchulasecops, jeremy, jp, keegan, leslie]
+  C05P5MEDZAA: [calvin, dan.mahoney, jian, lucas, mala, patrick.shelby]
+  C02UDRLLN13: [harshal, jerome, jim, patrick.shelby, russell, yi]
+  C09M3GN2WCX: [bruce, dan.stynchula, librodo, reno, toussaint.minett, vlad.belik]
+  C03P81X6N3S: [calvin, jaeyeong, katie.sing, mala, patrick.shelby, tv]
+  C084K9037M0: [keenan.wells, reno, ryanfarjadi, stephen, travis, william]
+  C084K6FE8RH: [brian, jinjin.vazquez, muller, reno, ryanfarjadi, toussaint.minett]
+  C03AD3JNFQS: [calvin, dan.mahoney, dhara.shah, patrick.shelby, song, stephen]
+  C05H1GXP220: [greg.schwartz, jeremy, jp, keegan, patrick.shelby, reno]
+  C0465SUBJJH: [brandon, calvin, dan.mahoney, henry, patrick.shelby, ryankuhl]
+  C0465STV9UM: [brandon, calvin, dan.mahoney, patrick.shelby, ryankuhl]
+  C07UVS32J92: [dan.stynchula, jim, majken.longlade, mala, reno]
+  C044UQHM81W: [benjamin.heaton, dan.stynchula, keegan, tim, toni]
+  C05GW5YBPSR: [greg.schwartz, jp, keegan, patrick.shelby, reno]
+  C07MJ92NMMK: [dan.stynchula, jim, mala, muller, reno]
+  C051CCD86AK: [calvin, jim, patrick.shelby, scott, vlad.belik]
+  C03D78D2WTT: [anusha, calvin, josh.demeo, patrick.shelby, tim.morton]
+  C02FU8Z389K: [bruce, mala, reno, scott, toni]
+  C040CHJGZAP: [calvin, dan.mahoney, henry, patrick.shelby, willis.schubert]
+  C02FXADTNF5: [bruce, david, reno, scott, toni]
+  C07V4RW61SB: [dan.stynchula, jp, maksym.mykhailenko, reno, vlad.belik]
+  C09PGJ40PHU: [jazz, jena.vint, mark.weiler, mike, reno]
+  C05P5NE2LBY: [calvin, dan.mahoney, mala, patrick.shelby]
+  C09MNGVC960: [librodo, reno, toussaint.minett, vlad.belik]
+  C04BGJB8473: [calvin, henry, keegan, patrick.shelby]
+  C08GHD4LWSZ: [dan.stynchula, jp, keegan, mark.weiler]
+  C023J8694DV: [calvin, dan.mahoney, joseph, patrick.shelby]
+  C09FY768LRF: [mark.weiler, michael.garcia, muller, patrick.shelby]
+  C054K2L3MG8: [calvin, dan.mahoney, keegan, patrick.shelby]
+  C09TUSV1M4Z: [dan.stynchula, mark.weiler, muller, vincent.kot]
+  C02FABKAX98: [harshal, henry, patrick.shelby, reno]
+  C07DZKYTSG4: [jim, mala, patrick.shelby, reno]
+  C0525GZ9HG9: [calvin, jim, patrick.shelby, vlad.belik]
+  C03CE1C3ELX: [anusha, calvin, patrick.shelby, tim.morton]
+  C0823RZQGEL: [ben.horn, russell, truxten.cook, will.kiddgonzales]
+  C046B9GHLQ4: [brandon, calvin, dan.mahoney, patrick.shelby]
+  C05GJHBH7D5: [greg.schwartz, keegan, patrick.shelby, reno]
+  C08TYRZ9GUX: [bruce, reno, toussaint.minett]
+  C07QLUHB1P0: [bruce, dan.stynchula, reno]
+  C07P9JECGSE: [calvin, dan.mahoney, reno]
+  C0818DW3Q86: [ben.horn, russell, will.kiddgonzales]
+  C03D77WKPRP: [calvin, patrick.shelby, tim.morton]
+  C02TQB6PM29: [calvin, dan.mahoney, patrick.shelby]
+  C069625JLJF: [calvin, peter540, stephen]
+  C068YUA6NTB: [calvin, keegan, patrick.shelby]
+  C089C6Y41ND: [mark.weiler, reno, toussaint.minett]
+  C08D586KD61: [mark.weiler, patrick.shelby, toussaint.minett]
+  C08FZKYMVGS: [kenneth.obikwelu, mark.weiler, russell]
+  C08GD2EG68N: [dan.stynchula, jp, keegan]
+  C08J3KE1S0Y: [dan.stynchula, reno, toussaint.minett]
+  C08JSDTJQCR: [dan.stynchula, keegan, mark.weiler]
+  C02JK0R29NZ: [calvin, henry, patrick.shelby]
+  C08QT3EUPNX: [kenneth.obikwelu, leslie, mark.weiler]
+  C08R91E1SMD: [librodo, patrick.shelby, reno]
+  C08RKP12P0X: [bruce, librodo, reno]
+  C05H1GVV98C: [greg.schwartz, keegan, reno]
+  C09APSJHNJU: [ben.horn, patrick.shelby, zach.fierstadt]
+  C09B3AWTP4K: [lucian, mark.weiler, reno]
+  C09BB4AKR4N: [patrick.shelby, toussaint.minett, zach.fierstadt]
+  C09BDJS91MW: [bruce, dan.stynchula, mark.weiler]
+  C09DBSPBP2B: [muller, patrick.shelby, zach.fierstadt]
+  C09DQBU7MF1: [mark.weiler, muller, zach.fierstadt]
+  C09JN17QM2M: [jonathan.hohrath, mark.weiler, zach.fierstadt]
+  C09LNK8PKC6: [calvin, mark.weiler, patrick.shelby]
+  C024ARTKZ53: [calvin, muller, patrick.shelby]
+  C058Q2SQ0S2: [ben.horn, harshal, patrick.shelby]
+  C09QMDZMM60: [mark.weiler, reno, vincent.kot]
+  C053YF29FA9: [dan.stynchula, harshal, reno]
+  C0A5Q5QQ9A5: [calvin, patrick.shelby, peter540]
+  C0A7SHMHZ4Y: [dan.stynchula, mark.weiler, patrick.shelby]
+  C0A8PDM1KHN: [calvin, jonathan.hohrath, keenan.wells]
+  C04N4G837S8: [dan.stynchula, reno]
+  C055SV2LVJ8: [bruce, keegan]
+  C0685P9ER4P: [calvin, keegan]
+  C073LELPRBR: [keegan, stephen]
+  C07E2T9705P: [keegan, reno]
+  C07MBMA9QF5: [bruce, reno]
+  C089NAGBSKS: [mark.weiler, reno]
+  C08K3D3GDLG: [keegan, mark.weiler]
+  C08LZKZT01E: [dan.stynchula, mark.weiler]
+  C08QUFE9CDS: [keegan, patrick.shelby]
+  C09921KHU6N: [mark.weiler, zach.fierstadt]
+  C09AKFHSGH3: [bruce, dan.stynchula]
+  C09APSH5QN4: [ben.horn, patrick.shelby]
+  C09C1E6TQ3T: [patrick.shelby, reno]
+  C09DXP98C9M: [bruce, toussaint.minett]
+  C09E9ASAAPP: [mark.weiler, patrick.shelby]
+  C09EC0FCH0S: [ben.horn, zach.fierstadt]
+  C09F8T5N02Z: [mark.weiler, toussaint.minett]
+  C02851PQ7T7: [calvin, patrick.shelby]
+  C09GVHXSM9B: [johnny.carr, keegan]
+  C09QX2106KB: [patrick.shelby, toussaint.minett]
+  C0A4KHUNQAY: [reno, toussaint.minett]
+  C0A7CTFEQRM: [johnny.carr, patrick.shelby]
+  C0A882CPEAD: [calvin, jonathan.hohrath]
+  C0AANSA83KL: [jonathan.hohrath, zach.fierstadt]
