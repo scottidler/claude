@@ -121,6 +121,7 @@ myproject/
 - `_private` prefix for internals
 
 ### Module and file names
+- Maximum file size: 1,000 lines per .py file - if a file exceeds this, decompose into a package (see `rules/dealing-with-large-files.md` for safe decomposition technique)
 - Prefer single-word module/file names
 - If a name would be compound (e.g. `config_loader.py`), decompose into a package with single-word files:
   - `config_loader.py` -> `config/__init__.py` + `config/loader.py`

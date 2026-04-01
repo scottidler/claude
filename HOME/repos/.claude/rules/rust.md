@@ -64,6 +64,7 @@ src/
 ## Naming and Style
 
 ### File and module names
+- Maximum file size: 1500 lines per .rs file - if a file exceeds this, decompose it into a module directory (see `rules/dealing-with-large-files.md` for safe decomposition technique)
 - No underscores in .rs filenames - every source file should be a single word
 - If a name would be compound, decompose it into a module directory with single-word files inside:
   - `config_loader.rs` -> `config/mod.rs` + `config/loader.rs`
