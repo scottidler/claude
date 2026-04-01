@@ -1,14 +1,58 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "effortLevel": "high",
+  "enabledPlugins": {
+    "general@tatari-skills": true,
+    "platform@tatari-skills": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
+  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_COLORSCHEME": "dracula",
     "ENABLE_TOOL_SEARCH": "true"
   },
-  "attribution": {
-    "commit": "",
-    "pr": ""
+  "extraKnownMarketplaces": {
+    "tatari-skills": {
+      "source": {
+        "path": "/home/saidler/repos/tatari-tv/tatari-skills",
+        "source": "directory"
+      }
+    }
   },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/allow-help.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "claude-permit log",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  },
+  "model": "opus",
   "permissions": {
+    "additionalDirectories": [
+      "/home/saidler/repos",
+      "/home/saidler/.config"
+    ],
     "allow": [
       "Edit(bin/**/*.sh)",
       "Write(bin/**/*.sh)",
@@ -153,8 +197,7 @@
       "Bash(grep:*)",
       "Bash(rg:*)",
       "Bash(find:*)",
-      "Bash(gh api:*)",
-      "Bash(gh pr view:*)",
+      "Bash(gh:*)",
       "Bash(python3:*)",
       "Bash(uv run:*)",
       "Bash(uv sync:*)",
@@ -293,62 +336,31 @@
       "WebFetch(domain:thenewstack.io)",
       "WebFetch(domain:pipewire.pages.freedesktop.org)",
       "WebFetch(domain:gitlab.freedesktop.org)",
-      "WebFetch(domain:supabase.com)"
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:persona.ops.tatari.dev)",
+      "Read(//tmp/**)"
     ],
     "deny": [
       "Bash(git tag -d *)",
       "Bash(git push * :refs/tags/*)",
       "Bash(git push * --delete * tag*)",
-      "mcp__multi-account-github__delete_tag"
-    ],
-    "additionalDirectories": [
-      "/home/saidler/repos",
-      "/home/saidler/.config"
+      "mcp__multi-account-github__delete_tag",
+      "Bash(gh repo delete:*)",
+      "Bash(gh release delete:*)",
+      "Bash(gh gist delete:*)",
+      "Bash(gh issue delete:*)",
+      "Bash(gh cache delete:*)",
+      "Bash(gh cache purge:*)",
+      "Bash(gh secret delete:*)",
+      "Bash(gh variable delete:*)",
+      "Bash(gh codespace delete:*)",
+      "Bash(gh extension remove:*)",
+      "Bash(gh run cancel:*)"
     ]
   },
-  "model": "opus[1m]",
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/allow-help.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "claude-permit log"
-          }
-        ]
-      }
-    ]
-  },
+  "skipDangerousModePermissionPrompt": true,
   "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline.sh"
-  },
-  "enabledPlugins": {
-    "general@tatari-skills": true,
-    "platform@tatari-skills": true,
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "tatari-skills": {
-      "source": {
-        "source": "directory",
-        "path": "/home/saidler/repos/tatari-tv/tatari-skills"
-      }
-    }
-  },
-  "effortLevel": "high",
-  "skipDangerousModePermissionPrompt": true
+    "command": "~/.claude/statusline.sh",
+    "type": "command"
+  }
 }
