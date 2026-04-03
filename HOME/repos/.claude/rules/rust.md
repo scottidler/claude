@@ -71,6 +71,12 @@ src/
   - `borg_log.rs` -> `borg/log.rs` (or rethink whether `borg` is already the module)
 - This keeps every .rs filename one word and creates natural module boundaries
 
+### Module style: mod.rs vs Rust 2018
+- Use the **pre-2018 `mod.rs` convention** throughout: the module entry point is `foo/mod.rs`, submodules live inside `foo/`
+- Do NOT mix styles within the same codebase - consistency matters more than which style is chosen
+- The Rust 2018 style (`foo.rs` alongside `foo/`) is valid but creates "sea of `mod.rs` tabs" confusion in editors; migrating to it is a separate, tree-wide mechanical pass, never mixed into a feature or decomposition refactor
+- When decomposing a large file `foo.rs` into a module: rename it to `foo/mod.rs`, then extract submodules into `foo/*.rs`
+
 ### Variable names
 - NEVER prefix variables with `_` to suppress unused warnings - this is a crutch that hides real problems
 - The only exception is bare `_` for genuinely discarded values (e.g. `let _ = sender.send(...)`)
@@ -83,6 +89,12 @@ src/
 ### Naming consistency across layers
 - NEVER use different names for the same concept across struct fields, JSON keys, and IPC params
 - If a handler expects `target_status`, the struct field and variable name must also be `target_status`
+
+### Constants - no magic numbers in production code
+- NEVER hardcode numeric literals for durations, timeouts, intervals, sizes, or limits in production code
+- Define a module-level `const` with an ALL_CAPS name instead: `const POLL_INTERVAL_MS: u64 = 100;`
+- Tests are exempt - inline literals in `#[cfg(test)]` blocks are fine
+- If the value is user-tunable, expose it as a config field that defaults to the const
 
 ### General
 - Imports grouped: std, external crates, internal modules
