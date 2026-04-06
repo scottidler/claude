@@ -55,13 +55,15 @@ Slack uses its own `mrkdwn` dialect - not standard Markdown:
 
 ## ID Reference
 
-Channel, user DM, and group MPDM IDs are in `.claude/slack-ids.yml` (relative to `~/repos`).
+**READ `~/repos/.claude/slack-ids.yml` immediately when any Slack work begins.**
+Do NOT call `channels_list`, `users_list`, or any list tool to find IDs — use the file.
 
-- `channels:` - all workspace channels, name -> ID
-- `users:` - DM channel IDs for org proximity (manager, peers, direct reports, SRE + Data Platform teams)
+The file contains:
+- `channels:` - all workspace channels, keyed `ID: name`
+- `users:` - DM channel IDs for manager, peers, direct reports, SRE + Data Platform
 - `groups:` - MPDMs containing 2+ org members
 
-Look up IDs here before calling any Slack tool rather than listing channels each time.
+Search it with `grep` for the channel or user name you need.
 
 ## Tool Usage
 

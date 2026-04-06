@@ -72,10 +72,10 @@ src/
 - This keeps every .rs filename one word and creates natural module boundaries
 
 ### Module style: mod.rs vs Rust 2018
-- Use the **pre-2018 `mod.rs` convention** throughout: the module entry point is `foo/mod.rs`, submodules live inside `foo/`
+- Use the **Rust 2018+ style** throughout: the module entry point is `foo.rs`, submodules live in `foo/` alongside it
 - Do NOT mix styles within the same codebase - consistency matters more than which style is chosen
-- The Rust 2018 style (`foo.rs` alongside `foo/`) is valid but creates "sea of `mod.rs` tabs" confusion in editors; migrating to it is a separate, tree-wide mechanical pass, never mixed into a feature or decomposition refactor
-- When decomposing a large file `foo.rs` into a module: rename it to `foo/mod.rs`, then extract submodules into `foo/*.rs`
+- The pre-2018 `mod.rs` style is valid but creates "sea of `mod.rs` tabs" confusion in editors; migrating away from it is a tree-wide mechanical pass, never mixed into a feature or decomposition refactor
+- When decomposing a large file `foo.rs` into a module: keep `foo.rs` as the entry point, extract submodules into `foo/*.rs`
 
 ### Variable names
 - NEVER prefix variables with `_` to suppress unused warnings - this is a crutch that hides real problems
@@ -127,6 +127,19 @@ src/
 - Custom `--log-level`/`-l` CLI flag - NEVER use `RUST_LOG` env var
 - Log to `~/.local/share/<project>/logs/<project>.log`
 - Use `env_logger` with file target
+
+### Function-level instrumentation (mandatory)
+
+Every non-trivial function must log its entry at the appropriate level:
+
+- `debug!` at the top of every async handler, pipeline stage, and background worker
+- Include function name and key params: `debug!("my_fn: param_a={} param_b={:?}", a, b);`
+- Completion points (doc counts, item counts, status) log at `info!` or `debug!`
+- Tight loops that would spam (per-item validation, per-record iteration) use `trace!`
+- `warn!` for recoverable failures (retry paths, skipped items, partial results)
+- `error!` / `bail!` for unrecoverable failures that propagate out
+
+The guiding principle: at `debug` level the log should tell the full story of a pipeline run - what entered, what was produced, what was skipped - without reading the source.
 
 ## Dependency Injection
 
