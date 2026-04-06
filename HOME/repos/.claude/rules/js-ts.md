@@ -1,11 +1,23 @@
+<!-- WORKAROUND: YAML array syntax for paths: is broken in Claude Code.
+     The internal CSV parser receives a JS Array object instead of a string,
+     causing path matching to silently fail. Rules never load even when
+     matching files are read/written.
+
+     Bug: https://github.com/anthropics/claude-code/issues/26868
+       "When I configure a rule file under .claude/rules/*.md with multiple
+        entries in the paths array, Claude Code CLI does not handle them
+        correctly. It appears that only one path is honored; adding a second
+        (or more) path entries causes the rule to not be applied as expected."
+
+     See also: https://github.com/anthropics/claude-code/issues/16853
+       "Rules with paths: frontmatter in .claude/rules/ subdirectories are
+        never automatically loaded into context when reading or editing files
+        that match the specified glob patterns."
+
+     Fix: use comma-separated string format + alwaysApply: false -->
 ---
-paths:
-  - "**/*.js"
-  - "**/*.ts"
-  - "**/*.tsx"
-  - "**/*.jsx"
-  - "**/package.json"
-  - "**/tsconfig.json"
+alwaysApply: false
+paths: "**/*.js, **/*.ts, **/*.tsx, **/*.jsx, **/package.json, **/tsconfig.json"
 ---
 
 # JavaScript / TypeScript Coding Conventions

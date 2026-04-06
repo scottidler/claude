@@ -164,6 +164,8 @@
       "Bash(gh pr list:*)",
       "Bash(gh pr create:*)",
       "Bash(gh pr checks:*)",
+      "Bash(gh search:*)",
+      "Bash(gh issue view:*)",
       "Bash(docker stop:*)",
       "Bash(head:*)",
       "Bash(tail:*)",

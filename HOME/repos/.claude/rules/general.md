@@ -1,6 +1,8 @@
+<!-- WORKAROUND: YAML array syntax for paths: is broken in Claude Code.
+     See https://github.com/anthropics/claude-code/issues/26868
+     Fix: use alwaysApply: true for catch-all rules -->
 ---
-paths:
-  - "**/*"
+alwaysApply: true
 ---
 
 # General Coding Conventions
