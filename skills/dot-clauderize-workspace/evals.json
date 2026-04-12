@@ -1,17 +1,1 @@
-{
-  "skill_name": "dot-clauderize",
-  "evals": [
-    {
-      "id": 1,
-      "prompt": "/dot-clauderize /tmp/tmp.KB7NdiXLGN/cidr-test",
-      "expected_output": "Creates .claude/settings.json with Rust-appropriate permissions (cargo build, test, clippy, fmt). May create .claude/commands/ if workflows detected. Updates .gitignore.",
-      "context": "Solo Rust CLI project"
-    },
-    {
-      "id": 2,
-      "prompt": "/dot-clauderize /tmp/tmp.KB7NdiXLGN/team-repo",
-      "expected_output": "Creates .claude/ with Rust + Otto permissions. Should detect .otto.yml and add otto commands to permissions.",
-      "context": "Rust project with otto CI"
-    }
-  ]
-}
+/home/saidler/.claude/HOME/.claude/skills/dot-clauderize-workspace/evals.json

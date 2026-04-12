@@ -1,5 +1,1 @@
-#!/bin/bash
-# Helper to run commands in a specified directory
-DIR="$1"
-shift
-cd "$DIR" && "$@"
+/home/saidler/.claude/HOME/.claude/skills/shipit-workspace/run-in-dir.sh

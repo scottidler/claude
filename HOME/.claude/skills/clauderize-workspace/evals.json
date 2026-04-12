@@ -1,0 +1,17 @@
+{
+  "skill_name": "clauderize",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/clauderize /tmp/tmp.KB7NdiXLGN/cidr-test",
+      "expected_output": "Generates a CLAUDE.md with Quick Reference, Architecture, Build & Test, Coding Conventions, and Key Files sections",
+      "context": "Simple single-crate Rust CLI project"
+    },
+    {
+      "id": 2,
+      "prompt": "/clauderize /tmp/tmp.KB7NdiXLGN/team-repo",
+      "expected_output": "Generates CLAUDE.md appropriate for a Rust project with otto",
+      "context": "Rust project with .otto.yml"
+    }
+  ]
+}

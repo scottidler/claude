@@ -1,1 +1,1 @@
-/tmp/tmp.yd5nGSarRM/shipit-test-rust
+/home/saidler/.claude/HOME/.claude/skills/shipit-workspace/project-dir.txt
