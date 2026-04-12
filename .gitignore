@@ -20,6 +20,7 @@ downloads/
 backups/
 image-cache/
 policy-limits.json
+usage-data/
 
 # Machine-specific (MCP server configs, tokens)
 settings.local.json

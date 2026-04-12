@@ -11,6 +11,7 @@ paths:
 - NEVER run `git tag -d`, `git push --delete` for tags, or use any MCP tool to delete tags (e.g., `delete_tag`).
 - If a tag needs to be moved or recreated, ask the user explicitly and let them do it.
 - ALWAYS use annotated tags (`git tag -a -m "message"`), NEVER lightweight tags (`git tag`). No exceptions.
+- ONLY create tags on `main` or `master`. NEVER tag dev, feature, or any other branch. No exceptions.
 
 ## Pushing to main
 
