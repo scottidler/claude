@@ -17,11 +17,17 @@
 
 ## Dotfiles
 
-- Repo: `scottidler/...` checked out at `~/.claude` (the primary working directory)
-- Driven by `HOME/.config/manifest/manifest.yml` in the repo, symlinked to `~/.config/manifest/manifest.yml`
+- Repo: `scottidler/dotfiles` checked out at `~/repos/scottidler/dotfiles/`
+- `manifest.yml` lives at the repo root
 - Consumed by `manifest` (a Rust binary from `scottidler/manifest`, installed via cargo at `~/.cargo/bin/manifest`)
-- `manifest` discovers the repo root automatically by resolving the config symlink
+- Run from the repo root: `cd ~/repos/scottidler/dotfiles && manifest | bash`
 - The `HOME/` directory mirrors `$HOME` - files inside are symlinked into `~` via `manifest`
 - `manifest.yml` declares: symlinks (`link:`), packages (`pkg:`, `apt:`, `dnf:`, `cargo:`, `pip3:`, `pipx:`, `npm:`, `flatpak:`), PPAs, GitHub repos to clone/build/link (`github:`), and install scripts (`script:`)
 - Contains shell config, git config, tmux, vim/neovim, SSH, Rust formatting, and more
-- Note: `scottidler/dotfiles` is archived on GitHub (redundant snapshot of the dotfiles repo)
+- `~/.config/manifest/identity.txt` is an age private key for decrypting secrets - backed up in 1Password
+
+## Claude Config
+
+- Repo: `scottidler/claude` checked out at `~/repos/scottidler/claude/`
+- `manifest.yml` at the repo root links `HOME/` into `~` (same pattern as dotfiles)
+- Contains Claude rules, skills, hooks, and settings
