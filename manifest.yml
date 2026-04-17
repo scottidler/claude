@@ -1,3 +1,5 @@
 link:
   recursive: true
   HOME: $HOME
+  dirs:
+    HOME/.claude/skills: $HOME/.claude/skills
