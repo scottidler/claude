@@ -12,7 +12,8 @@ channels:
   C04TUSZAPEF: adops-tasks
   C051CCUQ7KQ: adquick-tatari-external
   C04PEGQM6TY: adventure_challenge-tatari-external
-  C04T9RZANF6: ai-productivity-tools
+  C0ACWPXHLPK: ai-foundry
+  C04T9RZANF6: ai-technical
   C01DD91V36C: airflow-notifications
   C022P0VTU3S: airflow-notifications-staging
   C02AV244HRS: alerts-mbp-execution
