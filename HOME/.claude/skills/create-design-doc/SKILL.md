@@ -97,7 +97,26 @@ Save to `docs/design/YYYY-MM-DD-feature-name.md` or user-specified location.
 [Interfaces, endpoints, signatures]
 
 ### Implementation Plan
-[Phased approach]
+
+Each phase must include a **Model** annotation indicating which Claude model
+should execute it. Pick based on complexity:
+
+- **sonnet** - scaffolding, boilerplate, mechanical refactors, simple wiring
+- **opus** - complex logic, algorithmic work, tricky integrations, novel design
+
+Example:
+
+#### Phase 1: Scaffold CLI structure
+**Model:** sonnet
+- [tasks...]
+
+#### Phase 2: Core algorithm
+**Model:** opus
+- [tasks...]
+
+#### Phase 3: Tests and cleanup
+**Model:** sonnet
+- [tasks...]
 
 ## Alternatives Considered
 

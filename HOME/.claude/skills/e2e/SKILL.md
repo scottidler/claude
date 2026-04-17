@@ -70,7 +70,21 @@ mkdir -p /tmp/loopr && /home/saidler/repos/scottidler/loopr/bin/e2e <TARGET> 2>&
 
 Use Bash `run_in_background: true` so you can monitor while it runs.
 
-### 3. Actively monitor while it runs
+### 3. Verify the latest symlink before monitoring
+
+**Before polling anything else**, confirm that `latest` points at the new timestamped run — not a stale one from a previous execution. Run:
+
+```bash
+readlink -f /tmp/loopr/e2e/<TARGET>/latest
+```
+
+The resolved path must contain today's date (e.g. `20260414-083559`). Report this path explicitly so it is visible to anyone monitoring the run — it establishes the ground truth for all subsequent log and data paths.
+
+If `latest` still points at an old timestamp, the symlink has not been updated yet. Wait a few seconds and retry — the script creates it during scaffold, which runs right after the build completes.
+
+**Do not proceed to step 4 until you have confirmed the symlink resolves to the correct new run directory.**
+
+### 4. Actively monitor while it runs
 
 Do NOT just wait for the script to finish. Poll these sources every 30-60 seconds and report what you find.
 
@@ -133,7 +147,7 @@ tail -100 ~/.local/share/loopr/sessions/latest/conversations/implement-wk-*.log 
 
 Note: Conversation logs are only created when `--log-level debug` is set. At the default INFO level, the `conversations/` directory is not created. E2E runs that use `--log-level debug` in their target definition will have these logs.
 
-### 4. Report pattern
+### 5. Report pattern
 
 After each monitoring poll, give a concise status update:
 - What phase the orchestrator is in (planning, implementing, reviewing, integrating)
@@ -151,7 +165,7 @@ Flag problems immediately:
 - 401 auth errors (transient, but note them)
 - Timeout approaching with no progress
 
-### 5. Final report
+### 6. Final report
 
 When the script completes, summarize:
 - Exit code and meaning (0=GoalComplete, 1=Timeout, 2=NeedHelp)
