@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/cargo-install/SKILL.md

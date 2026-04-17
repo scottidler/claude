@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/ottofile/references/python.md

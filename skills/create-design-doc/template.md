@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/create-design-doc/template.md

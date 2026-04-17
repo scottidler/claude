@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/rust-cli-coder/workflows/new-cli.md

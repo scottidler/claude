@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/reposlug/SKILL.md

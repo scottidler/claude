@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/scaffold-rust-repo/SKILL.md

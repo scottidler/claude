@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/how-to-execute-a-plan/SKILL.md

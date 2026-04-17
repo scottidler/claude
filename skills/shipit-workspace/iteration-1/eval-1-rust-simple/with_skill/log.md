@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/shipit-workspace/iteration-1/eval-1-rust-simple/with_skill/log.md

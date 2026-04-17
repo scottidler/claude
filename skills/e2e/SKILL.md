@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/e2e/SKILL.md

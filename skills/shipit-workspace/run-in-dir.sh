@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/skills/shipit-workspace/run-in-dir.sh
