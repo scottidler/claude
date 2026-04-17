@@ -54,6 +54,11 @@ The universal rule: **lowercase, hyphenated, prefer single words**.
 - Design docs at `docs/design/YYYY-MM-DD-feature-name.md`
 - All doc filenames lowercase, hyphenated
 - No ALL CAPS filenames (e.g. `changelog.md` not `CHANGELOG.md`) except `CLAUDE.md`
+- NEVER embed expected/future version numbers in doc filenames or doc content as predictions of the release they will ship in. A doc named `shakedown-v0.6.5-fixes.md` or a design doc that says "ship as v0.6.5" will drift the moment bumping lands differently (another commit sneaks in, a different bump level is used, a release is skipped). Future readers who grep for the version will find the wrong doc and waste time correlating.
+  - Fine: versions that are historical facts at the time of writing - `shakedown-v0.6.4.md` (the version that was shaken down already existed).
+  - Fine: writing "the next patch release," "the release that lands these fixes," or "the follow-up release" in doc content.
+  - Not fine: filenames or doc bodies that pre-name a release before it is cut.
+  - If a doc must record which version actually shipped its work, add that after the fact - a line like "Shipped in: v0.6.5" added once the tag exists.
 
 ## Config Files
 

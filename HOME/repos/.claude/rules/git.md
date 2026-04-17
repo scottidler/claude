@@ -15,4 +15,17 @@ paths:
 
 ## Pushing to main
 
-- NEVER push directly to main/master on `tatari-tv/*` repos. No exceptions. If `branch.main.pushremote=no_push` is set, that means PRs are required. Create a feature branch, push it, and open a PR. Do NOT bypass the guard with `git push origin main`. Do NOT offer direct push as an option. If the user needs to push directly to main, they will do it themselves by hand.
+Before pushing to main on a `tatari-tv/*` repo, check the repo's **live** branch protection state - do not infer from local git config:
+
+```
+gh api repos/OWNER/REPO/branches/main/protection
+```
+
+- HTTP 404 "Branch not protected" → direct push is allowed: `git push origin main`
+- Protection rules returned → PR flow is required: create a feature branch, push it, open a PR
+
+Notes:
+
+- Local `branch.main.pushremote=no_push` is a user-side guardrail against accidental `git push` with no remote specified. It is NOT proof that the remote requires PRs. Do not treat its presence as dispositive.
+- When PR flow is required, tags must be applied AFTER the PR merges to main, not before. The sequence is: commit on feature branch → push branch → open PR → merge to main → pull main → `bump` on main → push main + tag. Tagging before the merge puts the tag on a feature-branch commit that will be orphaned if the PR is squashed.
+- Never use `--force` / `--force-with-lease` on main without explicit user approval.
