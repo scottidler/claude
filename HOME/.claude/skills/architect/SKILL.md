@@ -90,7 +90,7 @@ Note: If the user committed fixes or unrelated work after the implementation, th
 **CRITICAL: ALWAYS call the script. NEVER construct a `gemini` command directly. Do not use `-m`, `--model`, or any gemini flags inline — the script enforces the correct model and policy.**
 
 ```bash
-~/.claude/skills/architect/run.sh <doc-path> "<prompt>"
+~/.claude/skills/architect/script.sh <doc-path> "<prompt>"
 ```
 
 ### Mode 1 — Design Review (default prompt):
@@ -190,7 +190,7 @@ What would you like to explore further? You can:
 **When the user provides a follow-up**, embed the full conversation history in the next Gemini call:
 
 ```bash
-~/.claude/skills/architect/run.sh <doc-path> "
+~/.claude/skills/architect/script.sh <doc-path> "
 --- CONVERSATION SO FAR ---
 [ARCHITECT ROUND 1]:
 <prior architect response>
@@ -240,7 +240,7 @@ Ask the user if they want to append this summary to the design doc's Open Questi
 
 ## What Claude Should NOT Do During This Skill
 
-- Do not construct a `gemini` command directly — always use `~/.claude/skills/architect/run.sh`
+- Do not construct a `gemini` command directly — always use `~/.claude/skills/architect/script.sh`
 - Do not modify the design doc unless explicitly asked after the consultation
 - Do not resolve open questions on behalf of the Architect — surface them
 - Do not pretend to be the Architect — keep Claude and Architect voices clearly separated
