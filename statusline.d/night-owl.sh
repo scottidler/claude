@@ -1,1 +1,0 @@
-/home/saidler/.claude/HOME/.claude/statusline.d/night-owl.sh
