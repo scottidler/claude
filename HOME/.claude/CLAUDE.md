@@ -12,3 +12,4 @@ Rules live in `~/repos/.claude/rules/`. `safety.md` and `git.md` load automatica
 - **jira.md** - Jira issue types, ticket naming, acceptance criteria *(read when working on Jira tickets)*
 - **dealing-with-large-files.md** - Safe decomposition of large source files *(read when splitting files over size threshold)*
 - **yaml.md** - YAML file extension preference (.yml vs .yaml) *(read when creating YAML files)*
+- **refactor.md** - Bulk search-and-replace with the `replace` shell function *(read before mechanical cross-file renames)*
