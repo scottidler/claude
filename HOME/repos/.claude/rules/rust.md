@@ -141,6 +141,37 @@ Every non-trivial function must log its entry at the appropriate level:
 
 The guiding principle: at `debug` level the log should tell the full story of a pipeline run - what entered, what was produced, what was skipped - without reading the source.
 
+### Function-level instrumentation with `tracing` (when a project overrides the `log` default)
+
+When a project uses `tracing` + `tracing-subscriber` instead of `log` + `env_logger` (e.g., multi-crate daemons, async services needing span hierarchy that survives across tasks — justify the override in the project's vision doc), use `#[tracing::instrument]` on function declarations instead of hand-rolled `debug!("fn_name: a={a}")` calls.
+
+**The default pattern:**
+
+```rust
+#[tracing::instrument(level = "debug", skip_all, fields(work_id = %work.id, plan_id = %plan.id, dep_count = deps.len()))]
+pub fn run_implementer(work: &Work, plan: &Plan, deps: &Deps<...>) -> Result<Bundle> {
+    // warn!/error! inside inherit work_id/plan_id/dep_count automatically
+}
+```
+
+**Rules:**
+
+1. **`skip_all` + explicit `fields(...)`, never bare `#[instrument]`.** The default captures every parameter via `Debug`, which pulls full records, prompts, and stdouts into span fields - expensive, noisy, occasionally leaks secrets. `skip_all` then list the specific fields you want.
+2. **`level = "..."` matches function role.** Entry-level orchestrators → `info`. Per-iteration helpers → `debug`. Tight-loop helpers → `trace`. The span's level gates both the span and events emitted inside it.
+3. **`%var` for `Display`, `?var` for `Debug`.** Prefer `%` when the type has a meaningful `Display` (typed IDs, paths). Use `?` when only `Debug` exists.
+4. **`ret` and `err` when the outcome matters.** `#[instrument(ret, err)]` logs the return at span close and auto-logs `Err` variants at `error!`. Use on FSM transitions, store writes, external-call wrappers.
+5. **Required fields by scope (project-specific — generalize from your domain):** every function should carry the identifying keys of its scope as span fields, so `warn!`/`error!` emissions inside inherit them. Missing a scope key forces log-reconstruction - exactly what this section exists to prevent.
+
+**Why this matters for `warn!` / `error!` specifically:** `tracing` events inside an instrumented function inherit the enclosing span's fields automatically. An event emitted inside `run_implementer` above renders as:
+
+```
+ WARN ralph.implementer{work_id=w-00042 plan_id=p-0007 dep_count=3}: crate::agents: retrying after tool failure
+```
+
+The emission site doesn't restate the fields. Adding a new parameter to the `#[instrument]` attribute propagates context to every `warn!`/`error!` inside without touching the call sites.
+
+**When NOT to use `#[tracing::instrument]`:** tiny pure helpers, `Drop` impls (deadlock risk if subscriber's writer is held by a panicking thread), `impl Display`/`impl Debug` on hot types (recursion risk). For those, emit `tracing::debug!` / `warn!` directly with inline fields.
+
 ## Dependency Injection
 
 - Use generics for DI, never `dyn` trait objects or `Box<dyn ...>`
@@ -183,6 +214,16 @@ Scaffold templates enforce these at the crate root:
 - Use `tempfile::TempDir` when real filesystem is needed
 - Test edges and errors, not just happy path
 - Shared test fixtures: create reusable mini-environments (e.g. mini-vaults in /tmp) with complete isolation between tests
+
+### Test file placement
+
+- Tests live in their own files, NEVER as `#[cfg(test)] mod tests { ... }` blocks at the bottom of a source file
+- Use the Rust 2018+ submodule pattern:
+  - For module `src/foo.rs`, declare `#[cfg(test)] mod tests;` at the bottom (just the declaration), and put the test bodies in `src/foo/tests.rs`
+  - For the crate root (`src/lib.rs`), declare `#[cfg(test)] mod tests;` and put bodies in `src/tests.rs`
+  - Inside the test file, `use super::*;` gives access to the parent module's private items (submodule privilege is preserved across the file boundary)
+- Rationale: keeps production source files focused on production code; test bodies and fixtures can grow without blowing out the main file's line count; cleaner diffs and blame on `src/foo.rs`; matches the 2018+ module style used everywhere else in the tree
+- This is NOT optional - inline `mod tests` blocks are drift and must be extracted on sight
 
 ## Async vs Sync
 
