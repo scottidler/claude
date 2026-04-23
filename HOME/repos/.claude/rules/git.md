@@ -1,6 +1,5 @@
 ---
-paths:
-  - "**/*"
+alwaysApply: true
 ---
 
 # Git Safety
@@ -12,6 +11,11 @@ paths:
 - If a tag needs to be moved or recreated, ask the user explicitly and let them do it.
 - ALWAYS use annotated tags (`git tag -a -m "message"`), NEVER lightweight tags (`git tag`). No exceptions.
 - ONLY create tags on `main` or `master`. NEVER tag dev, feature, or any other branch. No exceptions.
+- NEVER introduce a per-crate or multi-scheme tag strategy (e.g. `taskstore-v0.3.0` + `taskstore-traits-v0.1.0`). Always use a single flat `v*` tag for the whole repo/workspace. If a design doc says otherwise, ASK the user before creating any tags.
+
+## Working Directory
+
+- `git -C /some/path` is ONLY valid when targeting a repo that is NOT the current working directory. If CWD is already the repo, run `git` directly. Never use `-C` as a "safety" anchor when you're already there.
 
 ## Pushing to main
 
