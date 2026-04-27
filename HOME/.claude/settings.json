@@ -347,7 +347,7 @@
       "/home/saidler/.config"
     ]
   },
-  "model": "opus[1m]",
+  "model": "sonnet[1m]",
   "hooks": {
     "PreToolUse": [
       {
