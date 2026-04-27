@@ -13,3 +13,8 @@ Rules live in `~/repos/.claude/rules/`. `safety.md` and `git.md` load automatica
 - **dealing-with-large-files.md** - Safe decomposition of large source files *(read when splitting files over size threshold)*
 - **yaml.md** - YAML file extension preference (.yml vs .yaml) *(read when creating YAML files)*
 - **refactor.md** - Bulk search-and-replace with the `replace` shell function *(read before mechanical cross-file renames)*
+# graphify
+- **graphify** (`~/.claude/skills/graphify/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify`
+When the user types `/graphify`, invoke the Skill tool with `skill: "graphify"` before doing anything else.
+
+@RTK.md
