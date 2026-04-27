@@ -90,6 +90,13 @@ src/
 - NEVER use different names for the same concept across struct fields, JSON keys, and IPC params
 - If a handler expects `target_status`, the struct field and variable name must also be `target_status`
 
+### Collection type names: plural-s, not "List" suffix
+- When a type represents a collection, use the plural form rather than appending `List`
+- Prefer `Plans` over `PlanList`, `RecordsResult` over `RecordListResult`, `Bundles` over `BundleList`
+- The plural-s already carries "collection of"; `List` is noise
+- Applies to struct names, enum variant names, and IPC method/result names
+- Exception: stdlib / ecosystem conventions that use `List` as a specific type (e.g. `LinkedList`) stay as-is
+
 ### Constants - no magic numbers in production code
 - NEVER hardcode numeric literals for durations, timeouts, intervals, sizes, or limits in production code
 - Define a module-level `const` with an ALL_CAPS name instead: `const POLL_INTERVAL_MS: u64 = 100;`
@@ -176,6 +183,8 @@ Use the `dirs` crate for config and data directories. It returns platform-native
 - Use `env_logger` with file target
 
 ### Function-level instrumentation (mandatory)
+
+The universal "every function tells its story at DEBUG" rule lives in `rules/log.md` (auto-loaded, language-agnostic). This Rust section is the implementation contract — when a project uses `log + env_logger`, follow the pattern below; when it uses `tracing` (next subsection), follow the `#[tracing::instrument]` pattern. The principle in both cases is the same and is captured in `rules/log.md`: a DEBUG log must tell the full story of a run without reading the source.
 
 Every non-trivial function must log its entry at the appropriate level:
 
