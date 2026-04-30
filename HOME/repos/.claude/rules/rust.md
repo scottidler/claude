@@ -96,6 +96,9 @@ src/
 - Tests are exempt - inline literals in `#[cfg(test)]` blocks are fine
 - If the value is user-tunable, expose it as a config field that defaults to the const
 
+### Imports
+- NEVER use `use foo::Bar as _;` to bring a trait into scope just to call its methods. The `as _` form is unreadable noise that hides what's actually being imported. If a trait method is needed, write `use foo::Bar;` plainly. If the only reason a trait is being imported is to enable a fallback that isn't actually needed, delete the fallback instead - the absence of the import is evidence the code was wrong.
+
 ### General
 - Imports grouped: std, external crates, internal modules
 - Line length under 100 chars
@@ -119,13 +122,57 @@ src/
 
 ### Config precedence
 - CLI flags > environment variables > config file values
-- Config at `~/.config/<project>/<project>.yml`
+- Config at `dirs::config_dir()/<project>/<project>.yml` (Linux: `~/.config/`, macOS: `~/Library/Application Support/`)
 - Config defines WHAT rules look like, not WHETHER they run - scope is controlled via CLI flags, not `enabled: true/false` in config
+
+### Platform path testing
+
+Every CLI project must test platform path resolution in `src/config/tests.rs`:
+
+```rust
+#[test]
+fn test_platform_config_dir_resolves() {
+    assert!(dirs::config_dir().is_some());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_macos_config_dir_is_library_application_support() {
+    let home = std::env::var("HOME").unwrap();
+    let expected = std::path::PathBuf::from(home).join("Library").join("Application Support");
+    assert_eq!(dirs::config_dir().unwrap(), expected);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_linux_config_dir_defaults_to_home_config() {
+    if std::env::var("XDG_CONFIG_HOME").is_err() {
+        let home = std::env::var("HOME").unwrap();
+        let expected = std::path::PathBuf::from(home).join(".config");
+        assert_eq!(dirs::config_dir().unwrap(), expected);
+    }
+}
+```
+
+When testing `Config::load()` via the platform path (not an explicit path), set `XDG_CONFIG_HOME` to a tempdir on Linux. On macOS `dirs::config_dir()` uses system APIs and ignores `$HOME` - use explicit paths for full isolation in tests that load config.
+
+Note: env var mutation is not safe with parallel tests. If a test sets `XDG_CONFIG_HOME`, run that test file with `RUST_TEST_THREADS=1` or add the `serial_test` crate.
+
+The scaffold generates these tests automatically in `src/config/tests.rs`.
+
+### Platform-native paths via `dirs` - When in Rome
+
+Use the `dirs` crate for config and data directories. It returns platform-native paths: on Linux it follows XDG (`$XDG_CONFIG_HOME` / `~/.config`, `$XDG_DATA_HOME` / `~/.local/share`); on macOS it uses `~/Library/Application Support`. This is correct - do not override it.
+
+- Config: `dirs::config_dir().join(project_name).join(format!("{}.yml", project_name))`
+- Logs: `dirs::data_local_dir().join(project_name).join("logs")`
+
+**NEVER hardcode `~/.config/` or `~/.local/share/` in user-facing strings.** Those paths are Linux-specific. Error messages, `after_help` text, and log output must use the runtime-computed value from `dirs`, not a hardcoded string. A hardcoded `~/.config/` on macOS tells users to put config in the wrong place - the code will never find it.
 
 ## Logging
 
 - Custom `--log-level`/`-l` CLI flag - NEVER use `RUST_LOG` env var
-- Log to `~/.local/share/<project>/logs/<project>.log`
+- Log to `dirs::data_local_dir()/<project>/logs/<project>.log`
 - Use `env_logger` with file target
 
 ### Function-level instrumentation (mandatory)
