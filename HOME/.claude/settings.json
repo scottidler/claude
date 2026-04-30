@@ -93,6 +93,7 @@
       "WebSearch",
       "Bash(mkdir:*)",
       "Bash(cargo:*)",
+      "Bash(cr:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -321,7 +322,8 @@
       "WebFetch(domain:layer5.io)",
       "WebFetch(domain:www.businessstandard.com)",
       "WebFetch(domain:www.business-standard.com)",
-      "WebFetch(domain:www.davidborish.com)"
+      "WebFetch(domain:www.davidborish.com)",
+      "Bash(mise *)"
     ],
     "deny": [
       "Bash(git tag -d *)",
@@ -354,6 +356,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/allow-help.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/git-no-dash-c.sh"
           }
         ]
       },
