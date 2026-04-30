@@ -826,7 +826,7 @@ channels:
   C03DSPNKEAF: squad-data-quality-alert
   C039YLDJW5T: sre-dp
   C0355PQSVFH: sre-news
-  C01FXF7P3ST: sre-private
+  C01FXF7P3ST: sre-internal
   C02SL43UW9J: sre-sec
   C05JAH4PEMA: sre-solutions
   C01TSJ3F9GV: staging-env
