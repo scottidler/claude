@@ -1,6 +1,6 @@
 ---
-alwaysApply: false
-paths: "**/*.yml, **/*.yaml"
+paths:
+  - "**/*.{yml,yaml}"
 ---
 
 # YAML File Extensions
