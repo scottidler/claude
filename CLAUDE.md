@@ -1,1 +1,1 @@
-/home/saidler/.claude/HOME/.claude/CLAUDE.md
+HOME/.claude/CLAUDE.md
