@@ -59,6 +59,52 @@ Follow the design doc specifications exactly. If the design doc uses `/rust-cli-
 
 **Key principle**: Implement ONLY what the phase specifies. No gold-plating.
 
+### Step 2.5: Maintain Implementation Notes
+
+As you implement, maintain `docs/design/<feature>-implementation-notes.md` — a
+running, **append-only** record of anything a future reviewer should know about
+how the implementation diverges from or interprets the design doc.
+
+For each phase, append a section with all four buckets — even when empty, write
+"None." so the agent is forced to consider each axis:
+
+- **Design decisions** — choices you made where the spec was ambiguous
+- **Deviations** — places where you intentionally departed from the spec, and why
+- **Tradeoffs** — alternatives you considered and why you picked what you did
+- **Open questions** — anything you'd want the user to confirm or revise
+
+Rules:
+
+- **Append, never edit.** If a later decision overrides an earlier one, add a
+  new entry that supersedes it. Do not rewrite history.
+- **Be specific.** Cite the file and function the decision affects.
+- **Distinguish design-doc deviations from gap-filling.** A deviation modifies
+  what the doc said; a design decision fills a gap the doc didn't address.
+- **Never edit by hand mid-phase.** Append once per phase as part of the
+  commit prep, not after every code change.
+
+Template per phase:
+
+```markdown
+## Phase N: <phase name>
+
+### Design decisions
+- <decision> — <file:function> — <why>
+
+### Deviations
+- <deviation from spec> — <why>
+
+### Tradeoffs
+- <choice> vs. <alternative> — <why this one>
+
+### Open questions
+- <question for the user>
+```
+
+The file is committed with the final-phase commit alongside the design doc.
+This pattern is from Thariq Shihipar (Anthropic, Claude Code lead); adapted
+from `implementation-notes.html` to `.md` per repo conventions.
+
 ### Step 3: Write Tests
 
 **Make sure we have tests that ensure the correctness of our implementation.**
@@ -118,8 +164,8 @@ Once CI passes, commit the phase.
 # Update design doc status
 sed -i 's/^**Status:** Draft/**Status:** Implemented/' docs/design/<feature>.md
 
-# Stage implementation + updated design doc
-git add <implementation files> docs/design/<feature>.md
+# Stage implementation + updated design doc + implementation notes
+git add <implementation files> docs/design/<feature>.md docs/design/<feature>-implementation-notes.md
 git commit -m "$(cat <<'EOF'
 <type>(<scope>): <description>
 
@@ -188,9 +234,11 @@ Before moving to the next phase, verify:
 - [ ] All code for this phase is implemented
 - [ ] Tests exist and pass
 - [ ] `otto ci` passes
+- [ ] Implementation notes appended for this phase (all four buckets, "None." where empty)
 - [ ] Commit message references the phase and design doc
 - [ ] No unrelated changes were introduced
 - [ ] **Final phase only**: Design doc status updated to "Implemented" and included in commit
+- [ ] **Final phase only**: Implementation notes file included in commit
 
 ## Example Session
 
@@ -276,6 +324,19 @@ If a phase cannot be completed:
 When the final phase is committed and CI is green, execute the finalization sequence
 without pausing or asking. This is part of the workflow, not a separate step.
 
+### 0. Surface implementation notes
+
+Before bumping/pushing, print the path to the implementation notes file and a
+one-line summary of each phase's open questions. **Do not block** on the user —
+they can act on it after the push. Example output:
+
+```
+Implementation notes: docs/design/<feature>-implementation-notes.md
+- Phase 1 open questions: none
+- Phase 2 open questions: Should retry logic also cover 5xx from upstream?
+- Phase 3 open questions: none
+```
+
 ### 1. Update design doc status and commit
 
 Change the design doc's `**Status:**` from `Draft` to `Implemented`, then commit:
@@ -313,6 +374,7 @@ project is not Rust, substitute the equivalent install command.
 
 ```
 ┌──────────────────────────────────────────────────┐
+│  0. Surface implementation notes (non-blocking)  │
 │  1. Update design doc status to "Implemented"    │
 │  2. Commit the status change                     │
 │  3. /bump (patch by default)                     │
