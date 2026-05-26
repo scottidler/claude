@@ -13,6 +13,9 @@
     "allow": [
       "Edit(bin/**/*.sh)",
       "Write(bin/**/*.sh)",
+      "Bash(sb:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
       "Read(**/*.yml)",
       "Read(**/*.yaml)",
       "Read(**/*.md)",
@@ -347,7 +350,7 @@
       "/home/saidler/.config"
     ]
   },
-  "model": "sonnet[1m]",
+  "model": "opus[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -384,13 +387,20 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true,
+    "understand-anything@understand-anything": true
   },
   "extraKnownMarketplaces": {
     "tatari-skills": {
       "source": {
         "source": "directory",
         "path": "/home/saidler/repos/tatari-tv/tatari-skills"
+      }
+    },
+    "understand-anything": {
+      "source": {
+        "source": "github",
+        "repo": "Lum1104/Understand-Anything"
       }
     }
   },
