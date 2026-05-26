@@ -62,8 +62,11 @@ src/
 
 ### Variable names
 - NEVER prefix variables with `_` to suppress unused warnings - this is a crutch that hides real problems
-- The only exception is bare `_` for genuinely discarded values (e.g. `let _ = sender.send(...)`)
+- Bare `_` is allowed for genuinely discarded values (e.g. `let _ = sender.send(...)`)
 - Unused variables must be removed or wired up, not silenced
+- **Drop-guard exception:** RAII guards whose entire purpose is their `Drop` side-effect (mutex guards, tracing-subscriber guards, telemetry guards, scoped-id guards) MAY be bound as `let _guard = ...` or `let _name = ...`. The compiler emits an unused-variable warning even for types with `Drop` impls; the underscore prefix here keeps the binding alive for the scope while signaling "no by-name use intended; the work happens on Drop." Do NOT use bare `let _ = ...` for guards - that drops the temporary immediately and defeats the guard.
+  - Examples already in this codebase: `let _guard = self.update_lock.lock().await;` (`store/bundles.rs`, `store/works.rs`), `let _g = tracing::subscriber::set_default(sub);` (test fixtures), `let _id_guard = ScopedIdGuard::new(...);` (daemon spawn-task wrappers).
+  - This is the only place the `_name` prefix is acceptable. Any other use is the crutch this rule exists to forbid.
 
 ### Dead code
 - NEVER use `#[allow(dead_code)]` - dead code must be removed or connected
