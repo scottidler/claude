@@ -613,6 +613,8 @@ channels:
   C037JG1CTFH: pilot-swat-team
   C03AP8JT8SC: pilots-of-tatari
   C01TS021FAP: pinoy-alliance
+  C039YLDJW5T: platform-internal
+  C0A71B867GV: platform-leadership
   C0443QPFE78: platform-mgmt
   C010QH45KQX: playlist
   C01SGEFG32L: pod-25
@@ -712,6 +714,7 @@ channels:
   C03RSDEMCJC: proj-linear-clearance-model-monitoring
   C03J3AC922F: proj-linear-creative-scheduling
   C05A64FNU2W: proj-manual-vs-scheduled-dbx-jobs
+  C0B4MBXU98R: proj-marquee
   C0308ETNFFW: proj-mbp-tatari-impressions
   C04S32XV38R: proj-mea-clickhouse-db
   C04L3E5KPA9: proj-mea-experian-integration
@@ -727,6 +730,7 @@ channels:
   C028H2E5LH5: proj-npe-avails
   C04MUMFMGSE: proj-nsa-client-attrition
   C029K3NMPRA: proj-order-history
+  C03GLVE0UU: proj-persona
   C03GULVE0UU: proj-persona-api
   C029URJKB3K: proj-pilot-planning
   C04E9ADT9U0: proj-pixel-pii
@@ -824,7 +828,7 @@ channels:
   C02FK8ERANT: squad-coordination
   C02HT6WJMF0: squad-data-quality
   C03DSPNKEAF: squad-data-quality-alert
-  C039YLDJW5T: sre-dp
+
   C0355PQSVFH: sre-news
   C01FXF7P3ST: sre-internal
   C02SL43UW9J: sre-sec
