@@ -15,10 +15,20 @@
 
 ## Rules
 
-Auto-loaded from `~/repos/.claude/rules/`:
+Auto-loaded from `~/repos/.claude/rules/`, grouped by purpose.
 
-- Always-on (`alwaysApply: true`): cli, general, git, log, otto
-- Path-scoped (`paths:`): safety (`**/*`, all files), python, rust, js-ts, yaml
+Conventions — how I write code & config:
+- `general` — naming, files, config, deps, CI, version control (always-on)
+- `cli` — CLI flag behavior: space-separated, no commas (always-on)
+- `logging` — function-level debug logging (always-on)
+- `python` / `rust` / `js-ts` / `yaml` — language-specific (path-scoped)
+
+Tool rules — hard constraints on specific tools:
+- `git` — tag/push/working-dir safety (always-on)
+- `otto` — task-runner usage (always-on)
+
+Safety:
+- `safety` — file deletion; applies to all files (path-scoped `**/*`)
 
 @~/.claude/tools.md
 

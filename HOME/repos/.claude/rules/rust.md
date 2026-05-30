@@ -170,7 +170,7 @@ Use the `dirs` crate for config and data directories. It returns platform-native
 
 ### Function-level instrumentation (mandatory)
 
-The universal "every function tells its story at DEBUG" rule lives in `rules/log.md` (auto-loaded, language-agnostic). This Rust section is the implementation contract — when a project uses `log + env_logger`, follow the pattern below; when it uses `tracing` (next subsection), follow the `#[tracing::instrument]` pattern. The principle in both cases is the same and is captured in `rules/log.md`: a DEBUG log must tell the full story of a run without reading the source.
+The universal "every function tells its story at DEBUG" rule lives in `rules/logging.md` (auto-loaded, language-agnostic). This Rust section is the implementation contract — when a project uses `log + env_logger`, follow the pattern below; when it uses `tracing` (next subsection), follow the `#[tracing::instrument]` pattern. The principle in both cases is the same and is captured in `rules/logging.md`: a DEBUG log must tell the full story of a run without reading the source.
 
 Every non-trivial function must log its entry at the appropriate level:
 
