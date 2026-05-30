@@ -1,17 +1,19 @@
 # Decomposing Large Files
 
-Files that exceed a language's size threshold (Rust: 1,500 lines, Python: 1,000 lines) need decomposition into a module directory. This is dangerous territory for LLM agents - the wrong approach can be catastrophic.
+- Files exceeding a language's size threshold (Rust: 1,500 lines, Python: 1,000 lines) need decomposition into a module directory
+- Dangerous territory for LLM agents — the wrong approach can be catastrophic
 
 ## The failure mode (2026-03-31 incident)
 
-A 13,000-line `handlers.rs` needed decomposition. The agent used `sed`, `python3`, `head`, `tail` with precise line numbers to surgically delete function bodies. These commands are brittle on large files - they kept failing (exit 120, 134). Each failure logged the full 483KB file content to Claude Code's session transcript in `/tmp/claude-1000/`. The agent retried hundreds of times, each iteration carrying the half-megabyte file in context. The JSON transcript files ballooned exponentially until `/tmp` (a 16GB tmpfs RAM disk) hit 100% capacity, killing the session and all shell commands.
-
-**Root cause:** Using line-number-based bash commands (sed, awk, python scripts) on large files inside an LLM agent loop. Failures compound because every retry dumps the full file into the transcript.
+- A 13,000-line `handlers.rs` needed decomposition; the agent used `sed`/`python3`/`head`/`tail` with precise line numbers to surgically delete function bodies
+- Those commands are brittle on large files — they kept failing (exit 120, 134), and each failure logged the full 483KB file to the session transcript in `/tmp/claude-1000/`
+- The agent retried hundreds of times, each iteration carrying the half-megabyte file in context; the JSON transcripts ballooned until `/tmp` (a 16GB tmpfs RAM disk) hit 100%, killing the session and all shell commands
+- Root cause: line-number-based bash commands (sed, awk, python) on large files inside an agent loop — failures compound because every retry dumps the full file into the transcript
 
 ## The correct approach
 
 1. **Insert comment markers** at section boundaries (e.g. `// SECTION_START`, `// SECTION_END` or `# SECTION_START`) using the Edit tool with small, unique string matches
-2. **Use `head`/`tail` to split** at the markers - these are deterministic, single-pass, and don't fail:
+2. **Use `head`/`tail` to split** at the markers - deterministic, single-pass, and don't fail:
    ```bash
    head -n 233 mod.rs > /tmp/top.rs
    /usr/bin/tail -n +5354 mod.rs > /tmp/bottom.rs

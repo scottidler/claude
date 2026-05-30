@@ -1,12 +1,12 @@
 # Jira Conventions
 
-Reference: [SRE Jira Guidelines](https://tatari.atlassian.net/wiki/spaces/SRE/pages/24772927/Jira+Guidelines)
+- Reference: [SRE Jira Guidelines](https://tatari.atlassian.net/wiki/spaces/SRE/pages/24772927/Jira+Guidelines)
 
 ## Issue Types
 
 - **Epic** - large body of work encompassing multiple Stories
-- **Story** - smallest unit of work with a clear end user requirement
-- **Spike** - time-boxed investigation; output is documentation and/or 0..N follow-on Stories/Spikes. A Spike can conclude with "we are not going forward" but the docs must say that
+- **Story** - smallest unit of work with a clear end-user requirement
+- **Spike** - time-boxed investigation; output is documentation and/or 0..N follow-on Stories/Spikes; can conclude "we are not going forward" but the docs must say so
 
 ## Ticket Naming (Summary)
 
@@ -17,16 +17,11 @@ Reference: [SRE Jira Guidelines](https://tatari.atlassian.net/wiki/spaces/SRE/pa
 
 ## Acceptance Criteria
 
-**Required** on Stories and Epics. **Optional** on Spikes (default Spike AC: time-boxed investigation producing documentation and/or follow-on work items).
-
-AC is a bulleted list of assert-style statements. At the end of the work, anyone should be able to verify that every item in the list is true and know the work is complete.
-
-Rules:
+- **Required** on Stories and Epics; **optional** on Spikes (default Spike AC: time-boxed investigation producing documentation and/or follow-on work items)
+- A bulleted list of assert-style statements — at the end, anyone can verify every item is true and know the work is complete
 - Bulleted list, not numbered
 - 3-7 items max; consolidate related checks into single assertions
-- Each item is an assertable statement
-- Do not need to be full sentences
-- If they are full sentences, no punctuation at the end
+- Each item is an assertable statement; need not be a full sentence; if a full sentence, no end punctuation
 - Think of them as boolean checks: all must be true for the ticket to be Done
 
 Example:

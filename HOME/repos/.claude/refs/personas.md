@@ -1,6 +1,6 @@
 # Personas
 
-I have two personas with distinct identities and tooling:
+- Two personas with distinct identities and tooling: `home` and `work`
 
 ## Home (`home`)
 - **GitHub:** `scottidler` (default account in multi-account-github MCP)
@@ -27,4 +27,4 @@ I have two personas with distinct identities and tooling:
 | Incidents (Eng + DS) | `INC` | `INC` |
 | Engineering (shared) | `ENGPROG` | `ENG` - [Engineering](https://tatari.atlassian.net/wiki/spaces/ENG) |
 
-When using the `multi-account-github` MCP, specify `account: "home"` or `account: "work"` as appropriate based on the repo/org context. Default is `home`.
+- When using the `multi-account-github` MCP, specify `account: "home"` or `account: "work"` based on the repo/org context; default is `home`

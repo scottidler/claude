@@ -64,9 +64,9 @@ src/
 - NEVER prefix variables with `_` to suppress unused warnings - this is a crutch that hides real problems
 - Bare `_` is allowed for genuinely discarded values (e.g. `let _ = sender.send(...)`)
 - Unused variables must be removed or wired up, not silenced
-- **Drop-guard exception:** RAII guards whose entire purpose is their `Drop` side-effect (mutex guards, tracing-subscriber guards, telemetry guards, scoped-id guards) MAY be bound as `let _guard = ...` or `let _name = ...`. The compiler emits an unused-variable warning even for types with `Drop` impls; the underscore prefix here keeps the binding alive for the scope while signaling "no by-name use intended; the work happens on Drop." Do NOT use bare `let _ = ...` for guards - that drops the temporary immediately and defeats the guard.
-  - Examples already in this codebase: `let _guard = self.update_lock.lock().await;` (`store/bundles.rs`, `store/works.rs`), `let _g = tracing::subscriber::set_default(sub);` (test fixtures), `let _id_guard = ScopedIdGuard::new(...);` (daemon spawn-task wrappers).
-  - This is the only place the `_name` prefix is acceptable. Any other use is the crutch this rule exists to forbid.
+- **Drop-guard exception:** RAII guards whose entire purpose is their `Drop` side-effect (mutex guards, tracing-subscriber guards, telemetry guards, scoped-id guards) MAY be bound as `let _guard = ...` or `let _name = ...`. The compiler warns even for `Drop` types; the underscore keeps the binding alive for the scope while signaling "no by-name use intended; work happens on Drop." Do NOT use bare `let _ = ...` for guards - that drops the temporary immediately and defeats the guard.
+  - Examples in this codebase: `let _guard = self.update_lock.lock().await;` (`store/bundles.rs`, `store/works.rs`), `let _g = tracing::subscriber::set_default(sub);` (test fixtures), `let _id_guard = ScopedIdGuard::new(...);` (daemon spawn-task wrappers)
+  - This is the only place the `_name` prefix is acceptable; any other use is the crutch this rule forbids
 
 ### Dead code
 - NEVER use `#[allow(dead_code)]` - dead code must be removed or connected
@@ -90,7 +90,8 @@ src/
 - If the value is user-tunable, expose it as a config field that defaults to the const
 
 ### Imports
-- NEVER use `use foo::Bar as _;` to bring a trait into scope just to call its methods. The `as _` form is unreadable noise that hides what's actually being imported. If a trait method is needed, write `use foo::Bar;` plainly. If the only reason a trait is being imported is to enable a fallback that isn't actually needed, delete the fallback instead - the absence of the import is evidence the code was wrong.
+- NEVER use `use foo::Bar as _;` to bring a trait into scope just to call its methods - the `as _` form is unreadable noise that hides what's imported; write `use foo::Bar;` plainly
+- If the only reason to import a trait is to enable a fallback that isn't needed, delete the fallback instead - the absent import is evidence the code was wrong
 
 ### General
 - Imports grouped: std, external crates, internal modules
@@ -120,7 +121,7 @@ src/
 
 ### Platform path testing
 
-Every CLI project must test platform path resolution in `src/config/tests.rs`:
+- Every CLI project must test platform path resolution in `src/config/tests.rs`:
 
 ```rust
 #[test]
@@ -147,20 +148,16 @@ fn test_linux_config_dir_defaults_to_home_config() {
 }
 ```
 
-When testing `Config::load()` via the platform path (not an explicit path), set `XDG_CONFIG_HOME` to a tempdir on Linux. On macOS `dirs::config_dir()` uses system APIs and ignores `$HOME` - use explicit paths for full isolation in tests that load config.
-
-Note: env var mutation is not safe with parallel tests. If a test sets `XDG_CONFIG_HOME`, run that test file with `RUST_TEST_THREADS=1` or add the `serial_test` crate.
-
-The scaffold generates these tests automatically in `src/config/tests.rs`.
+- Testing `Config::load()` via the platform path (not an explicit path): set `XDG_CONFIG_HOME` to a tempdir on Linux; on macOS `dirs::config_dir()` uses system APIs and ignores `$HOME` — use explicit paths for full isolation
+- Env-var mutation isn't safe with parallel tests — if a test sets `XDG_CONFIG_HOME`, run that file with `RUST_TEST_THREADS=1` or add the `serial_test` crate
+- The scaffold generates these tests automatically in `src/config/tests.rs`
 
 ### Platform-native paths via `dirs` - When in Rome
 
-Use the `dirs` crate for config and data directories. It returns platform-native paths: on Linux it follows XDG (`$XDG_CONFIG_HOME` / `~/.config`, `$XDG_DATA_HOME` / `~/.local/share`); on macOS it uses `~/Library/Application Support`. This is correct - do not override it.
-
+- Use the `dirs` crate for config and data directories — it returns platform-native paths: Linux follows XDG (`$XDG_CONFIG_HOME`/`~/.config`, `$XDG_DATA_HOME`/`~/.local/share`), macOS uses `~/Library/Application Support`; this is correct, do not override it
 - Config: `dirs::config_dir().join(project_name).join(format!("{}.yml", project_name))`
 - Logs: `dirs::data_local_dir().join(project_name).join("logs")`
-
-**NEVER hardcode `~/.config/` or `~/.local/share/` in user-facing strings.** Those paths are Linux-specific. Error messages, `after_help` text, and log output must use the runtime-computed value from `dirs`, not a hardcoded string. A hardcoded `~/.config/` on macOS tells users to put config in the wrong place - the code will never find it.
+- NEVER hardcode `~/.config/` or `~/.local/share/` in user-facing strings — they're Linux-specific; error messages, `after_help` text, and log output must use the runtime `dirs` value, not a hardcoded string; a hardcoded `~/.config/` on macOS sends users to the wrong place and the code never finds it
 
 ## Logging
 
@@ -170,24 +167,21 @@ Use the `dirs` crate for config and data directories. It returns platform-native
 
 ### Function-level instrumentation (mandatory)
 
-The universal "every function tells its story at DEBUG" rule lives in `rules/logging.md` (auto-loaded, language-agnostic). This Rust section is the implementation contract — when a project uses `log + env_logger`, follow the pattern below; when it uses `tracing` (next subsection), follow the `#[tracing::instrument]` pattern. The principle in both cases is the same and is captured in `rules/logging.md`: a DEBUG log must tell the full story of a run without reading the source.
-
-Every non-trivial function must log its entry at the appropriate level:
-
-- `debug!` at the top of every async handler, pipeline stage, and background worker
-- Include function name and key params: `debug!("my_fn: param_a={} param_b={:?}", a, b);`
-- Completion points (doc counts, item counts, status) log at `info!` or `debug!`
-- Tight loops that would spam (per-item validation, per-record iteration) use `trace!`
-- `warn!` for recoverable failures (retry paths, skipped items, partial results)
-- `error!` / `bail!` for unrecoverable failures that propagate out
-
-The guiding principle: at `debug` level the log should tell the full story of a pipeline run - what entered, what was produced, what was skipped - without reading the source.
+- The language-agnostic "every function tells its story at DEBUG" rule lives in `rules/logging.md`; this section is the Rust implementation contract (`log + env_logger` below, or the `#[tracing::instrument]` pattern next)
+- Every non-trivial function must log its entry at the appropriate level:
+  - `debug!` at the top of every async handler, pipeline stage, and background worker
+  - Include function name and key params: `debug!("my_fn: param_a={} param_b={:?}", a, b);`
+  - Completion points (doc counts, item counts, status) log at `info!` or `debug!`
+  - Tight loops that would spam (per-item validation, per-record iteration) use `trace!`
+  - `warn!` for recoverable failures (retry paths, skipped items, partial results)
+  - `error!` / `bail!` for unrecoverable failures that propagate out
+- Guiding principle: at `debug` level the log tells the full story of a run — what entered, what was produced, what was skipped — without reading the source
 
 ### Function-level instrumentation with `tracing` (when a project overrides the `log` default)
 
-When a project uses `tracing` + `tracing-subscriber` instead of `log` + `env_logger` (e.g., multi-crate daemons, async services needing span hierarchy that survives across tasks — justify the override in the project's vision doc), use `#[tracing::instrument]` on function declarations instead of hand-rolled `debug!("fn_name: a={a}")` calls.
+- When a project uses `tracing` + `tracing-subscriber` instead of `log` + `env_logger` (multi-crate daemons, async services needing span hierarchy that survives across tasks — justify the override in the project's vision doc), use `#[tracing::instrument]` on function declarations instead of hand-rolled `debug!("fn_name: a={a}")` calls
 
-**The default pattern:**
+Default pattern:
 
 ```rust
 #[tracing::instrument(level = "debug", skip_all, fields(work_id = %work.id, plan_id = %plan.id, dep_count = deps.len()))]
@@ -196,23 +190,22 @@ pub fn run_implementer(work: &Work, plan: &Plan, deps: &Deps<...>) -> Result<Bun
 }
 ```
 
-**Rules:**
+Rules:
 
-1. **`skip_all` + explicit `fields(...)`, never bare `#[instrument]`.** The default captures every parameter via `Debug`, which pulls full records, prompts, and stdouts into span fields - expensive, noisy, occasionally leaks secrets. `skip_all` then list the specific fields you want.
-2. **`level = "..."` matches function role.** Entry-level orchestrators → `info`. Per-iteration helpers → `debug`. Tight-loop helpers → `trace`. The span's level gates both the span and events emitted inside it.
-3. **`%var` for `Display`, `?var` for `Debug`.** Prefer `%` when the type has a meaningful `Display` (typed IDs, paths). Use `?` when only `Debug` exists.
-4. **`ret` and `err` when the outcome matters.** `#[instrument(ret, err)]` logs the return at span close and auto-logs `Err` variants at `error!`. Use on FSM transitions, store writes, external-call wrappers.
-5. **Required fields by scope (project-specific — generalize from your domain):** every function should carry the identifying keys of its scope as span fields, so `warn!`/`error!` emissions inside inherit them. Missing a scope key forces log-reconstruction - exactly what this section exists to prevent.
+1. **`skip_all` + explicit `fields(...)`, never bare `#[instrument]`** — the default captures every param via `Debug` (pulls full records, prompts, stdouts into span fields: expensive, noisy, can leak secrets); `skip_all` then list the specific fields you want
+2. **`level = "..."` matches function role** — entry-level orchestrators → `info`, per-iteration helpers → `debug`, tight-loop helpers → `trace`; the span's level gates both the span and events inside it
+3. **`%var` for `Display`, `?var` for `Debug`** — prefer `%` for types with meaningful `Display` (typed IDs, paths), `?` when only `Debug` exists
+4. **`ret` and `err` when the outcome matters** — `#[instrument(ret, err)]` logs the return at span close and auto-logs `Err` at `error!`; use on FSM transitions, store writes, external-call wrappers
+5. **Required fields by scope (project-specific)** — every function carries its scope's identifying keys as span fields so `warn!`/`error!` inside inherit them; a missing scope key forces log-reconstruction, exactly what this section prevents
 
-**Why this matters for `warn!` / `error!` specifically:** `tracing` events inside an instrumented function inherit the enclosing span's fields automatically. An event emitted inside `run_implementer` above renders as:
+- Why this matters for `warn!`/`error!`: events inside an instrumented function inherit the enclosing span's fields automatically, e.g.:
 
 ```
  WARN ralph.implementer{work_id=w-00042 plan_id=p-0007 dep_count=3}: crate::agents: retrying after tool failure
 ```
 
-The emission site doesn't restate the fields. Adding a new parameter to the `#[instrument]` attribute propagates context to every `warn!`/`error!` inside without touching the call sites.
-
-**When NOT to use `#[tracing::instrument]`:** tiny pure helpers, `Drop` impls (deadlock risk if subscriber's writer is held by a panicking thread), `impl Display`/`impl Debug` on hot types (recursion risk). For those, emit `tracing::debug!` / `warn!` directly with inline fields.
+- The emission site doesn't restate the fields; adding a param to the `#[instrument]` attribute propagates context to every `warn!`/`error!` inside without touching call sites
+- When NOT to use `#[tracing::instrument]`: tiny pure helpers, `Drop` impls (deadlock risk if the subscriber's writer is held by a panicking thread), `impl Display`/`impl Debug` on hot types (recursion risk) — emit `tracing::debug!`/`warn!` directly with inline fields
 
 ## Dependency Injection
 
@@ -237,10 +230,10 @@ The emission site doesn't restate the fields. Adding a new parameter to the `#[i
 
 ## Crate-Level Deny Attributes
 
-Scaffold templates enforce these at the crate root:
-- `#![deny(clippy::unwrap_used)]` - catches unwraps in production code; tests get `#[allow(clippy::unwrap_used)]`
-- `#![deny(dead_code)]` - use `deny` not `forbid` (forbid breaks derive macros)
-- `#![deny(unused_variables)]` - prevents the `_variable` crutch
+- Scaffold templates enforce these at the crate root:
+  - `#![deny(clippy::unwrap_used)]` - catches unwraps in production code; tests get `#[allow(clippy::unwrap_used)]`
+  - `#![deny(dead_code)]` - use `deny` not `forbid` (forbid breaks derive macros)
+  - `#![deny(unused_variables)]` - prevents the `_variable` crutch
 
 ## Clippy
 
@@ -264,7 +257,7 @@ Scaffold templates enforce these at the crate root:
   - For module `src/foo.rs`, declare `#[cfg(test)] mod tests;` at the bottom (just the declaration), and put the test bodies in `src/foo/tests.rs`
   - For the crate root (`src/lib.rs`), declare `#[cfg(test)] mod tests;` and put bodies in `src/tests.rs`
   - Inside the test file, `use super::*;` gives access to the parent module's private items (submodule privilege is preserved across the file boundary)
-- Rationale: keeps production source files focused on production code; test bodies and fixtures can grow without blowing out the main file's line count; cleaner diffs and blame on `src/foo.rs`; matches the 2018+ module style used everywhere else in the tree
+- Rationale: keeps production source files focused on production code; test bodies and fixtures can grow without blowing out the main file's line count; cleaner diffs and blame on `src/foo.rs`; matches the 2018+ module style used everywhere else
 - This is NOT optional - inline `mod tests` blocks are drift and must be extracted on sight
 
 ## Async vs Sync

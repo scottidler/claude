@@ -13,7 +13,7 @@ paths:
 
 ## Code Understanding: pyr
 
-Before modifying unfamiliar Python code, use `pyr` to understand structure:
+- Before modifying unfamiliar Python code, use `pyr` to understand structure:
 ```bash
 pyr dump                    # everything: functions, classes, enums
 pyr function                # list all functions with signatures

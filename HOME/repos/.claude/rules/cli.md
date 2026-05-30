@@ -7,25 +7,21 @@ alwaysApply: true
 
 # CLI Conventions
 
-Cross-language conventions for command-line tool behavior.
+- Cross-language conventions for command-line tool *behavior* (how values are passed, parsed, structured)
+- For flag *naming* (hyphens, kebab-case, mirroring config fields), see `general.md`
 
-For flag *naming* (hyphens, kebab-case, mirroring config fields), see `general.md`. This file covers flag *behavior*: how values are passed, parsed, and structured.
+## List-valued flags — no comma separation
 
-## List-valued flags - no comma separation
-
-When a flag accepts multiple values, use **space separation** or **repeated flags**. Never comma separation.
-
+- Use space separation or repeated flags for multi-value flags; never comma separation
 - Right: `cmd --fix mistype duplicate raw-title` (space-separated)
 - Right: `cmd --fix mistype --fix duplicate --fix raw-title` (repeated flag)
 - Wrong: `cmd --fix mistype,duplicate,raw-title` (comma-separated)
-
-Why: commas in CLI args are awkward to type, ambiguous when values can themselves contain commas or shell special characters, and break shell completion. Space-separated and repeated-flag forms follow standard Unix convention (`grep -e foo -e bar`, `find ... -name foo -name bar`, `xargs -I {} ...`).
-
-This is a hard rule. Even when a clap/click/argparse feature exists to enable comma-splitting (clap's `value_delimiter`, click's `type=click.STRING.split(",")`, etc.), do not use it.
+- Why: commas are awkward to type, ambiguous when values contain commas/shell specials, and break completion; space/repeated forms follow Unix convention (`grep -e foo -e bar`, `find -name foo -name bar`)
+- Hard rule: do not use comma-splitting features (clap `value_delimiter`, click `STRING.split(",")`, etc.)
 
 ### Implementation
 
-**Clap (Rust):**
+- Clap (Rust):
 
 ```rust
 // Right: space-separated, optional (no flag = None, --fix alone = Some(vec![]))
@@ -41,19 +37,18 @@ fix: Vec<String>,
 fix: Vec<String>,
 ```
 
-**Click (Python):** use `nargs=-1` for variadic positional, or `multiple=True` for repeated option. Do not split on `,` manually.
+- Click (Python): `nargs=-1` (variadic positional) or `multiple=True` (repeated option); never split on `,` manually
+- argparse (Python): `nargs='*'` or `action='append'`; never `type=lambda s: s.split(',')`
 
-**argparse (Python):** `nargs='*'` or `action='append'`. Do not use `type=lambda s: s.split(',')`.
+## Enum-valued flags — case-insensitive
 
-## Enum-valued flags - case-insensitive
-
-When a flag accepts a set of named values (e.g. `--fix mistype duplicate`, `--log-level debug`), the parser must accept any case. `duplicate`, `Duplicate`, and `DUPLICATE` all match the same value.
-
-Why: tools often display the names in upper or mixed case for emphasis (audit output's `[DUPLICATE]`, log filter's `INFO`/`WARN`), and users will naturally type back what they saw. Forcing one canonical case creates friction with zero semantic benefit. The canonical *internal* form is lowercase-hyphenated (per `general.md`); the *input* form is whatever the user typed.
+- A flag accepting named values (`--fix mistype`, `--log-level debug`) must accept any case: `duplicate`, `Duplicate`, `DUPLICATE` all match
+- Why: tools display names in upper/mixed case (`[DUPLICATE]`, `INFO`/`WARN`) and users type back what they saw; forcing one case is friction with no benefit
+- Canonical *internal* form is lowercase-hyphenated (per `general.md`); *input* form is whatever the user typed
 
 ### Implementation
 
-**Clap (Rust):** derive `ValueEnum` with `rename_all = "kebab-case"`, and set `ignore_case = true` on the arg.
+- Clap (Rust): derive `ValueEnum` with `rename_all = "kebab-case"`, set `ignore_case = true` on the arg
 
 ```rust
 #[derive(ValueEnum, Clone)]
@@ -70,14 +65,11 @@ enum FixKind {
 fix: Option<Vec<FixKind>>,
 ```
 
-**Click (Python):** `click.Choice([...], case_sensitive=False)`.
-
-**argparse (Python):** wrap the type with `lambda s: s.lower()` or use a custom type that lowercases before matching.
+- Click (Python): `click.Choice([...], case_sensitive=False)`
+- argparse (Python): wrap the type with `lambda s: s.lower()`, or a custom type that lowercases before matching
 
 ## No `--dry-run` on opt-in destructive flags
 
-If a destructive operation is gated behind an explicit flag (`--fix`, `--prune`, `--clean`), the user has already opted in. Don't add a `--dry-run` that previews what would happen. The user knows the consequences when they pass the flag.
-
-Exception: operations whose default behavior is destructive (e.g. a `delete` subcommand that always deletes) may warrant a `--dry-run` because there's no opt-in gate.
-
-When destructive operations need recovery, use archival tools (`rkvr rmrf` in shell, or shell out to `rkvr` from Rust/Python) rather than `--dry-run` + irreversible delete. Recoverability beats prediction.
+- If a destructive op is gated behind an explicit flag (`--fix`, `--prune`, `--clean`), the user already opted in — don't add a `--dry-run` preview
+- Exception: ops whose *default* behavior is destructive (e.g. a `delete` subcommand) may warrant `--dry-run`, since there's no opt-in gate
+- For recovery, use archival tools (`rkvr rmrf`, or shell out to `rkvr`) rather than `--dry-run` + irreversible delete — recoverability beats prediction

@@ -19,17 +19,14 @@ alwaysApply: true
 
 ## Pushing to main
 
-Before pushing to main on a `tatari-tv/*` repo, check the repo's **live** branch protection state - do not infer from local git config:
+- Before pushing to main on a `tatari-tv/*` repo, check the repo's **live** branch protection — don't infer from local git config:
 
 ```
 gh api repos/OWNER/REPO/branches/main/protection
 ```
 
-- HTTP 404 "Branch not protected" → direct push is allowed: `git push origin main`
-- Protection rules returned → PR flow is required: create a feature branch, push it, open a PR
-
-Notes:
-
-- Local `branch.main.pushremote=no_push` is a user-side guardrail against accidental `git push` with no remote specified. It is NOT proof that the remote requires PRs. Do not treat its presence as dispositive.
-- When PR flow is required, tags must be applied AFTER the PR merges to main, not before. The sequence is: commit on feature branch → push branch → open PR → merge to main → pull main → `bump` on main → push main + tag. Tagging before the merge puts the tag on a feature-branch commit that will be orphaned if the PR is squashed.
-- Never use `--force` / `--force-with-lease` on main without explicit user approval.
+- HTTP 404 "Branch not protected" → direct push allowed: `git push origin main`
+- Protection rules returned → PR flow required: create a feature branch, push it, open a PR
+- Local `branch.main.pushremote=no_push` is a user-side guardrail against accidental `git push` with no remote — NOT proof the remote requires PRs; don't treat its presence as dispositive
+- Under PR flow, tags are applied AFTER the PR merges, not before: commit on branch → push → open PR → merge → pull main → `bump` on main → push main + tag (tagging pre-merge orphans the tag if the PR is squashed)
+- Never use `--force` / `--force-with-lease` on main without explicit user approval

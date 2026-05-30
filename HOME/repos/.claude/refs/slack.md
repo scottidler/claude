@@ -3,31 +3,26 @@
 ## Identity
 
 - Slack username: `@escote` (Tatari workspace)
-- This is the work persona - same context as `escote-tatari` on GitHub
+- Work persona — same context as `escote-tatari` on GitHub
 
 ## Posting Pattern: Significant Channel Messages
 
-When posting something substantive to a channel, use a two-message structure:
+- For substantive channel posts, use a two-message structure (keeps channels scannable, full detail in-thread):
+  1. **Top-level post** — title only, prefixed with `:thread:` and signed `:giga-claude:` inline:
+     ```
+     :thread: [concise title summarizing the topic] :giga-claude:
+     ```
+  2. **Thread reply** — full body, ending with `:giga-claude:` on its own last line:
+     ```
+     [detailed content here]
 
-1. **Top-level post** - title only, prefixed with `:thread:` and signed with `:giga-claude:` inline:
-   ```
-   :thread: [concise title summarizing the topic] :giga-claude:
-   ```
-
-2. **Thread reply** - full body of the message, ending with `:giga-claude:` on its own last line:
-   ```
-   [detailed content here]
-
-   :giga-claude:
-   ```
-
-This pattern keeps channels scannable while preserving full detail in the thread.
-
-**Skip this pattern when already posting inside a thread** - just post the content directly, signed as usual.
+     :giga-claude:
+     ```
+- Skip this pattern when already posting inside a thread — just post the content directly, signed as usual
 
 ## Signing
 
-Every message must end with `:giga-claude:` alone on the last line. No exceptions.
+- Every message must end with `:giga-claude:` alone on the last line. No exceptions.
 
 ```
 [message content]
@@ -37,7 +32,7 @@ Every message must end with `:giga-claude:` alone on the last line. No exception
 
 ## Formatting (mrkdwn)
 
-Slack uses its own `mrkdwn` dialect - not standard Markdown:
+- Slack uses its own `mrkdwn` dialect, not standard Markdown:
 
 | Element | Syntax |
 |---------|--------|
@@ -55,15 +50,13 @@ Slack uses its own `mrkdwn` dialect - not standard Markdown:
 
 ## ID Reference
 
-**READ `~/repos/.claude/slack-ids.yml` immediately when any Slack work begins.**
-Do NOT call `channels_list`, `users_list`, or any list tool to find IDs — use the file.
-
-The file contains:
-- `channels:` - all workspace channels, keyed `ID: name`
-- `users:` - DM channel IDs for manager, peers, direct reports, SRE + Data Platform
-- `groups:` - MPDMs containing 2+ org members
-
-Search it with `grep` for the channel or user name you need.
+- **READ `~/repos/.claude/slack-ids.yml` immediately when any Slack work begins**
+- Do NOT call `channels_list`, `users_list`, or any list tool to find IDs — use the file
+- The file contains:
+  - `channels:` - all workspace channels, keyed `ID: name`
+  - `users:` - DM channel IDs for manager, peers, direct reports, SRE + Data Platform
+  - `groups:` - MPDMs containing 2+ org members
+- Search it with `grep` for the channel or user name you need
 
 ## Tool Usage
 

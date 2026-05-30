@@ -11,7 +11,7 @@ paths:
 
 # YAML Structure: Prefer Keyed Maps Over Lists of Dicts
 
-When a collection of named items could be written as either a list-of-dicts or a map-keyed-by-name, always prefer the keyed-map form.
+- When a collection of named items could be a list-of-dicts or a map-keyed-by-name, always prefer the keyed-map form
 
 **Wrong (list-of-dicts):**
 ```yaml
