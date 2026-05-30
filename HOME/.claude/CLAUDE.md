@@ -1,9 +1,10 @@
 # Scott Idler
 
-## Symlinked dotfiles
+## This file is a symlink — work on the real path
 
-- `~/.claude/` and `~/repos/.claude/` symlink into `~/repos/scottidler/claude/HOME/`
-- Edit the real path directly, not through the symlink
+- `~/.claude/CLAUDE.md` (and everything under `~/.claude/` and `~/repos/.claude/`) is a symlink into the `scottidler/claude` repo at `~/repos/scottidler/claude/HOME/`
+- This file's real path is `~/repos/scottidler/claude/HOME/.claude/CLAUDE.md` — edit, `git add`, and commit there, never via the `~/.claude/...` symlink
+- All commits/pushes for these files happen in the `scottidler/claude` repo
 
 ## Never estimate
 
