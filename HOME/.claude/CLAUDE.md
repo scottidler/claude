@@ -1,6 +1,6 @@
 # Scott Idler
 
-## This file is a symlink
+## This file is symlinked into place
 
 - `~/.claude/CLAUDE.md` → `~/repos/scottidler/claude/HOME/.claude/CLAUDE.md`
 - Edit/commit the real path, never the symlink
