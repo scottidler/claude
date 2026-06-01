@@ -381,7 +381,9 @@
       "WebFetch(domain:www.businessstandard.com)",
       "WebFetch(domain:www.business-standard.com)",
       "WebFetch(domain:www.davidborish.com)",
-      "Bash(mise *)"
+      "Bash(mise *)",
+      "WebFetch(domain:danielmiessler.com)",
+      "Skill(e2e)"
     ],
     "deny": [
       "Bash(git tag -d *)",
