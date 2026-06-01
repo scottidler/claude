@@ -1,15 +1,72 @@
 {
+  "advisorModel": "opus",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "autoDreamEnabled": true,
+  "effortLevel": "high",
+  "enabledPlugins": {
+    "general@tatari-skills": true,
+    "platform@tatari-skills": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "understand-anything@understand-anything": true
+  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_COLORSCHEME": "dracula",
     "ENABLE_TOOL_SEARCH": "true",
     "MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES": "3"
   },
-  "attribution": {
-    "commit": "",
-    "pr": ""
+  "extraKnownMarketplaces": {
+    "tatari-skills": {
+      "source": {
+        "path": "/home/saidler/repos/tatari-tv/tatari-skills",
+        "source": "directory"
+      }
+    },
+    "understand-anything": {
+      "source": {
+        "repo": "Lum1104/Understand-Anything",
+        "source": "github"
+      }
+    }
   },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/allow-help.sh",
+            "type": "command"
+          },
+          {
+            "command": "~/.claude/hooks/git-no-dash-c.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "claude-permit log",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  },
+  "model": "opus",
   "permissions": {
+    "additionalDirectories": [
+      "/home/saidler/repos",
+      "/home/saidler/.config"
+    ],
     "allow": [
       "Edit(bin/**/*.sh)",
       "Write(bin/**/*.sh)",
@@ -118,6 +175,8 @@
       "Bash(git show-ref:*)",
       "Bash(git show:*)",
       "Bash(git rebase:*)",
+      "Bash(git config --get:*)",
+      "Bash(git describe:*)",
       "Bash(docker ps:*)",
       "Bash(docker compose:*)",
       "Bash(docker logs:*)",
@@ -147,6 +206,9 @@
       "Bash(ps:*)",
       "Bash(pstree:*)",
       "Bash(pgrep:*)",
+      "Bash(pkill:*)",
+      "Bash(claude-permit:*)",
+      "Bash(systemctl --user:*)",
       "Bash(bump:*)",
       "Bash(ls-github-repos:*)",
       "Bash(ls-git-repos:*)",
@@ -187,14 +249,6 @@
       "Bash(gemini -p*)",
       "Bash(~/.claude/skills/architect/script.sh:*)",
       "Bash(pd:*)",
-      "Bash(pd --help:*)",
-      "Bash(pd --version:*)",
-      "Bash(pd rest:*)",
-      "Bash(pd incident-type:*)",
-      "Bash(pd priority:*)",
-      "Bash(pd incident-workflow:*)",
-      "Bash(pd trigger:*)",
-      "Bash(pd action:*)",
       "Bash(which:*)",
       "Bash(head *)",
       "Bash(/usr/bin/head *)",
@@ -253,6 +307,7 @@
       "Skill(reposlug)",
       "Skill(gha-versions)",
       "Skill(architect)",
+      "Skill(shipit)",
       "Bash(dpkg:*)",
       "Bash(apt list:*)",
       "Bash(mount:*)",
@@ -344,68 +399,11 @@
       "Bash(gh codespace delete:*)",
       "Bash(gh extension remove:*)",
       "Bash(gh run cancel:*)"
-    ],
-    "additionalDirectories": [
-      "/home/saidler/repos",
-      "/home/saidler/.config"
     ]
   },
-  "model": "opus[1m]",
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/allow-help.sh"
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/git-no-dash-c.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "claude-permit log"
-          }
-        ]
-      }
-    ]
-  },
+  "skipDangerousModePermissionPrompt": true,
   "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline.sh"
-  },
-  "enabledPlugins": {
-    "general@tatari-skills": true,
-    "platform@tatari-skills": true,
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "understand-anything@understand-anything": true
-  },
-  "extraKnownMarketplaces": {
-    "tatari-skills": {
-      "source": {
-        "source": "directory",
-        "path": "/home/saidler/repos/tatari-tv/tatari-skills"
-      }
-    },
-    "understand-anything": {
-      "source": {
-        "source": "github",
-        "repo": "Lum1104/Understand-Anything"
-      }
-    }
-  },
-  "effortLevel": "high",
-  "advisorModel": "opus",
-  "autoDreamEnabled": true,
-  "skipDangerousModePermissionPrompt": true
+    "command": "~/.claude/statusline.sh",
+    "type": "command"
+  }
 }
