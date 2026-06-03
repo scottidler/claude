@@ -116,53 +116,83 @@ src/
 
 ### Config precedence
 - CLI flags > environment variables > config file values
-- Config at `dirs::config_dir()/<project>/<project>.yml` (Linux: `~/.config/`, macOS: `~/Library/Application Support/`)
+- Config at `xdg_config_dir()/<project>/<project>.yml` - `~/.config/` (or `$XDG_CONFIG_HOME`) on every platform, macOS included (see "Platform paths" below; do NOT use `dirs::config_dir()`)
 - Config defines WHAT rules look like, not WHETHER they run - scope is controlled via CLI flags, not `enabled: true/false` in config
 
 ### Platform path testing
 
-- Every CLI project must test platform path resolution in `src/config/tests.rs`:
+- Every CLI project must test path resolution in `src/config/tests.rs` - assert the env-honoring behavior and the `$HOME` fallback, NOT a platform-specific path (no `#[cfg(target_os)]` branches, no `~/Library/Application Support` assertion):
 
 ```rust
-#[test]
-fn test_platform_config_dir_resolves() {
-    assert!(dirs::config_dir().is_some());
-}
+use std::sync::Mutex;
 
-#[cfg(target_os = "macos")]
-#[test]
-fn test_macos_config_dir_is_library_application_support() {
-    let home = std::env::var("HOME").unwrap();
-    let expected = std::path::PathBuf::from(home).join("Library").join("Application Support");
-    assert_eq!(dirs::config_dir().unwrap(), expected);
-}
+// Serialize all env-var-touching tests to prevent parallel races.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-#[cfg(target_os = "linux")]
 #[test]
-fn test_linux_config_dir_defaults_to_home_config() {
-    if std::env::var("XDG_CONFIG_HOME").is_err() {
-        let home = std::env::var("HOME").unwrap();
-        let expected = std::path::PathBuf::from(home).join(".config");
-        assert_eq!(dirs::config_dir().unwrap(), expected);
+fn test_xdg_data_dir_honors_env_and_falls_back() {
+    let guard = ENV_LOCK.lock().unwrap();
+    let prior = std::env::var("XDG_DATA_HOME").ok();
+
+    let dir = TempDir::new().unwrap();
+    unsafe { std::env::set_var("XDG_DATA_HOME", dir.path()) };
+    assert_eq!(xdg_data_dir().as_deref(), Some(dir.path()));
+
+    // Unset -> fall back to $HOME/.local/share, never ~/Library/... on mac.
+    unsafe { std::env::remove_var("XDG_DATA_HOME") };
+    assert!(xdg_data_dir().unwrap().ends_with(".local/share"));
+
+    match prior {
+        Some(v) => unsafe { std::env::set_var("XDG_DATA_HOME", v) },
+        None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
     }
+    drop(guard);
 }
 ```
 
-- Testing `Config::load()` via the platform path (not an explicit path): set `XDG_CONFIG_HOME` to a tempdir on Linux; on macOS `dirs::config_dir()` uses system APIs and ignores `$HOME` — use explicit paths for full isolation
-- Env-var mutation isn't safe with parallel tests — if a test sets `XDG_CONFIG_HOME`, run that file with `RUST_TEST_THREADS=1` or add the `serial_test` crate
-- The scaffold generates these tests automatically in `src/config/tests.rs`
+- Env-var mutation isn't safe with parallel tests - serialize every env-touching test behind a `static ENV_LOCK: Mutex<()>` (shown above), or run the file with `RUST_TEST_THREADS=1`. Edition 2024 requires `unsafe {}` around `set_var` / `remove_var`
+- The scaffold generates these tests automatically in `src/config/tests.rs` (one each for `xdg_config_dir` and `xdg_data_dir`)
 
-### Platform-native paths via `dirs` - When in Rome
+### Platform paths: XDG on every platform via helpers
 
-- Use the `dirs` crate for config and data directories — it returns platform-native paths: Linux follows XDG (`$XDG_CONFIG_HOME`/`~/.config`, `$XDG_DATA_HOME`/`~/.local/share`), macOS uses `~/Library/Application Support`; this is correct, do not override it
-- Config: `dirs::config_dir().join(project_name).join(format!("{}.yml", project_name))`
-- Logs: `dirs::data_local_dir().join(project_name).join("logs")`
-- NEVER hardcode `~/.config/` or `~/.local/share/` in user-facing strings — they're Linux-specific; error messages, `after_help` text, and log output must use the runtime `dirs` value, not a hardcoded string; a hardcoded `~/.config/` on macOS sends users to the wrong place and the code never finds it
+- Resolve config and data/log directories to the XDG layout on EVERY platform, **including macOS** - via `xdg_config_dir()` / `xdg_data_dir()` helpers, NOT the `dirs` crate's `config_dir()` / `data_local_dir()`
+- Why: `dirs::config_dir()` / `dirs::data_local_dir()` honor `$XDG_CONFIG_HOME` / `$XDG_DATA_HOME` **only on Linux**. On macOS they call system APIs and return `~/Library/Application Support`, ignoring the env vars; so a tool that advertises `~/.local/share/<proj>/logs/...` in `--help` is lying on a Mac, and config the user drops in `~/.config` is silently never found. This bit `tatari-tv/pagerduty-cli` (logs landed in `~/Library/Application Support`)
+- The scaffold generates these helpers into `src/config.rs`:
+
+```rust
+/// XDG config dir, honoring `$XDG_CONFIG_HOME` and falling back to `$HOME/.config`.
+fn xdg_config_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
+        let path = PathBuf::from(dir);
+        if path.is_absolute() {
+            return Some(path);
+        }
+    }
+    dirs::home_dir().map(|h| h.join(".config"))
+}
+
+/// XDG data dir, honoring `$XDG_DATA_HOME` and falling back to `$HOME/.local/share`.
+pub fn xdg_data_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("XDG_DATA_HOME") {
+        let path = PathBuf::from(dir);
+        if path.is_absolute() {
+            return Some(path);
+        }
+    }
+    dirs::home_dir().map(|h| h.join(".local").join("share"))
+}
+```
+
+- Config: `xdg_config_dir().join(project_name).join(format!("{}.yml", project_name))`
+- Logs: `xdg_data_dir().join(project_name).join("logs")`
+- `dirs::home_dir()` is still fine; it is correct on every platform; only `dirs::config_dir()` / `dirs::data_local_dir()` are banned
+- `after_help` SHOULD advertise the log path (`~/.local/share/<proj>/logs/<proj>.log`); the helpers make that hardcoded string true on every platform; you do NOT need to interpolate a runtime value to be "honest," the XDG path is now the real path
+- Reference implementation: `tatari-tv/pagerduty-cli` (`src/config.rs`); the `scaffold` tool itself dogfoods the same helpers
 
 ## Logging
 
 - Custom `--log-level`/`-l` CLI flag - NEVER use `RUST_LOG` env var
-- Log to `dirs::data_local_dir()/<project>/logs/<project>.log`
+- Log to `xdg_data_dir()/<project>/logs/<project>.log` (XDG on every platform, NOT `dirs::data_local_dir()`; see "Platform paths" above)
 - Use `env_logger` with file target
 
 ### Function-level instrumentation (mandatory)
