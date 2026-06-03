@@ -25,7 +25,7 @@ Commit, bump, push, and install in one shot. Default workflow for shipping chang
 - If there are no changes AND no unpushed commits, inform the user and stop
 - If there are no changes but there ARE unpushed commits, skip to Step 4 (bump) or Step 5 (push)
 - Check if this is a Rust project (has `Cargo.toml`) to determine if bump applies
-- Detect push protection: `git config --get branch.$(git branch --show-current).pushremote` - if `no_push`, note that this will go through a PR flow instead of direct push
+- Detect push protection from the LIVE remote (authoritative): `gh api repos/OWNER/REPO/branches/main/protection` - HTTP 404 "Branch not protected" means direct push; protection rules returned means PR flow. Do NOT infer protection from `branch.main.pushremote` - `no_push` is only an accidental-push guardrail, NOT proof a PR is required (per git.md)
 
 ### Step 2: Discover install command
 
@@ -67,13 +67,13 @@ bump -a -M       # major
 
 ### Step 5: Push
 
-First, detect whether the current branch has push protection:
+First, detect whether `main` is protected on the LIVE remote. This is authoritative - never infer protection from local git config:
 
 ```bash
-git config --get branch.$(git branch --show-current).pushremote
+gh api repos/OWNER/REPO/branches/main/protection
 ```
 
-If the result is `no_push` or the push remote doesn't exist, the branch is protected (common for `main` in tatari-tv/* repos). In that case, switch to the **PR flow**:
+If it returns HTTP 404 "Branch not protected", direct push is allowed - use the direct push below. If it returns protection rules, switch to the **PR flow**. (`branch.main.pushremote=no_push` is only a local accidental-push guardrail that blocks bare `git push`; it is NOT proof a PR is required, so never decide the flow from it - see git.md.) PR flow:
 
 1. Generate a branch name from the commit message (e.g., `feat/add-cli-expansion`)
 2. Create and checkout the branch: `git checkout -b <branch-name>`
@@ -137,5 +137,5 @@ For non-Rust projects (no `Cargo.toml`):
 - **Cargo workspace**: check CLAUDE.md first, then look for binary targets
 - **Push rejected**: do NOT force push - tell the user to pull/rebase first
 - **Daemon projects**: CLAUDE.md should document the full install+restart command sequence
-- **Branch protection / `no_push`**: automatically switch to PR flow - create a feature branch, push it, and open a PR. This is the common case for `tatari-tv/*` repos where `branch.main.pushremote=no_push` is set. Never ask the user about this - just detect and adapt.
+- **Branch protection**: decide from the LIVE check `gh api repos/OWNER/REPO/branches/main/protection` - protection rules returned -> PR flow (feature branch, push, open PR); HTTP 404 "Branch not protected" -> direct push. `branch.main.pushremote=no_push` is ONLY an accidental-push guardrail, NOT a PR-required signal - never infer PR flow from it (it misfires on unprotected tatari-tv repos like persona-cli). Don't ask the user; detect from live protection and adapt.
 - **Already pushed**: if `git log origin/main..HEAD` is empty and there are no local changes, everything is already shipped - say so and stop
