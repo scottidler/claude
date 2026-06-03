@@ -186,7 +186,16 @@ pub fn xdg_data_dir() -> Option<PathBuf> {
 - Config: `xdg_config_dir().join(project_name).join(format!("{}.yml", project_name))`
 - Logs: `xdg_data_dir().join(project_name).join("logs")`
 - `dirs::home_dir()` is still fine; it is correct on every platform; only `dirs::config_dir()` / `dirs::data_local_dir()` are banned
-- `after_help` SHOULD advertise the log path (`~/.local/share/<proj>/logs/<proj>.log`); the helpers make that hardcoded string true on every platform; you do NOT need to interpolate a runtime value to be "honest," the XDG path is now the real path
+- `after_help` SHOULD advertise the log path. The `xdg_*` helpers make the default `~/.local/share/<proj>/logs/<proj>.log` true on every platform (macOS included), so a **hardcoded** string is honest *only when `$XDG_DATA_HOME` / `$XDG_CONFIG_HOME` are unset*. If the user sets either, logs/config move and the hardcoded `--help` string becomes a lie - the helpers fix the *platform* divergence, not the *env-override* one
+- So render the path at runtime from the same source the logger uses, and inject it - `--help` then stays accurate under the env override and can never drift from where the logger actually writes:
+
+  ```rust
+  // one source of truth: log_dir() feeds both the logger and --help
+  let after_help = format!("Logs are written to: {}", log_dir().join("<proj>.log").display());
+  let args = Cli::from_arg_matches(&Cli::command().after_help(after_help).get_matches())?;
+  ```
+
+  A hardcoded `after_help` literal is an acceptable shortcut only for tools that will never honor `$XDG_DATA_HOME`; when in doubt, render it
 - Reference implementation: `tatari-tv/pagerduty-cli` (`src/config.rs`); the `scaffold` tool itself dogfoods the same helpers
 
 ## Logging
