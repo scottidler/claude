@@ -25,7 +25,13 @@ Commit, bump, push, and install in one shot. Default workflow for shipping chang
 - If there are no changes AND no unpushed commits, inform the user and stop
 - If there are no changes but there ARE unpushed commits, skip to Step 4 (bump) or Step 5 (push)
 - Check if this is a Rust project (has `Cargo.toml`) to determine if bump applies
-- Detect push protection from the LIVE remote (authoritative): `gh api repos/OWNER/REPO/branches/main/protection` - HTTP 404 "Branch not protected" means direct push; protection rules returned means PR flow. Do NOT infer protection from `branch.main.pushremote` - `no_push` is only an accidental-push guardrail, NOT proof a PR is required (per git.md)
+- **Sync `main` with origin BEFORE anything else.** `git fetch origin main` then `git pull --ff-only origin main` (or rebase your local commits onto it). NEVER `bump`/tag on a stale local main: `bump` tags `HEAD`, so if local main is behind origin, the tag lands on an off-main commit and is orphaned the moment you push (cr v0.1.8 was orphaned exactly this way). If the working tree is dirty, stash or commit first, sync, then continue.
+- **Determine the push flow NOW, before any bump or tag — flow decides whether you may tag at all.** Check BOTH live gates (a 404 on classic protection does NOT mean "safe to push directly"):
+  1. Classic branch protection: `gh api repos/OWNER/REPO/branches/main/protection` (protection rules returned → PR flow)
+  2. Repository + org rulesets: `gh api repos/OWNER/REPO/rulesets` — an `active` ruleset (especially a **required-workflow** ruleset like `Tatari Org Security`) forces PR flow EVEN when classic protection is 404 AND even for org admins. `enforce_admins:false` only bypasses *classic* protection; it does NOT bypass org required-workflow rulesets. claude-pricing's direct push was rejected by exactly this despite admin + 404-able classic protection.
+  - Direct-push flow ONLY if BOTH gates are clear. Otherwise PR flow.
+  - Do NOT infer protection from `branch.main.pushremote` — `no_push` is only an accidental-push guardrail, NOT proof a PR is required (per git.md).
+- **Cardinal rule for the rest of this skill: never create or push a tag before the commit it points to is confirmed on `origin/main`.** Under PR flow that means the bump+tag happen only AFTER the PR merges (Step 5), never before.
 
 ### Step 2: Discover install command
 
@@ -71,16 +77,25 @@ The invariant: **fetch + rebase happen before any tagging.** Tagging is hard to 
 
 Skip this step if `--no-bump` was passed or no `Cargo.toml` exists.
 
+**Gate on the flow decided in Step 1 — `bump` creates a tag, so WHEN you run it matters:**
+
+- **PR flow (protected / ruleset-gated main): do NOT bump or tag here.** Commit your changes on a feature branch (Step 5 PR flow), open the PR, and run `bump` only AFTER the PR merges and you've pulled the merged main. Tagging now would orphan the tag, because the squash-merged commit on main is a different SHA than your local HEAD. This is the trap that orphaned claude-pricing v0.2.0.
+- **Direct-push flow only:** bump now, then Step 5 pushes main + tag together.
+
+Bump levels (direct-push flow, or post-merge on main):
+
 - Default: patch bump (no args to `bump`)
 - If `--minor` or `-m`: run `bump -m`
 - If `--major` or `-M`: confirm with the user first ("Major bump - are you sure?"), then run `bump -M`
-- Always use `bump -a` flag for automatic commit message since we already committed in Step 3
+- Use `bump -a` for an automatic commit message if you already committed separately
 
 ```bash
 bump -a          # patch (default)
 bump -a -m       # minor
 bump -a -M       # major
 ```
+
+After bumping, before pushing the tag, verify the tag is reachable from `origin/main` (or will be by the push you're about to make): `git merge-base --is-ancestor "$(git rev-list -n1 vX.Y.Z)" origin/main`. If it is NOT and you're about to push, STOP — you're about to create an orphaned tag.
 
 ### Step 5: Push
 
@@ -90,15 +105,16 @@ First, detect whether `main` is protected on the LIVE remote. This is authoritat
 gh api repos/OWNER/REPO/branches/main/protection
 ```
 
-If it returns HTTP 404 "Branch not protected", direct push is allowed - use the direct push below. If it returns protection rules, switch to the **PR flow**. (`branch.main.pushremote=no_push` is only a local accidental-push guardrail that blocks bare `git push`; it is NOT proof a PR is required, so never decide the flow from it - see git.md.) PR flow:
+Use the flow already determined in Step 1 (both classic protection AND rulesets checked). If PR flow:
 
 1. Generate a branch name from the commit message (e.g., `feat/add-cli-expansion`)
 2. Create and checkout the branch: `git checkout -b <branch-name>`
-3. Push the branch: `git push origin <branch-name> -u && git push origin --tags`
+3. Push the branch ONLY — **never** `git push origin --tags` here. The tag does not exist yet under PR flow (Step 4 deferred it), and pushing a tag before the merge orphans it: `git push origin <branch-name> -u`
 4. Create a PR: `gh pr create --title "<title>" --body "<summary>"`
-5. Report the PR URL
+5. Report the PR URL, then STOP and wait for the PR to merge (review/CI gated). You cannot tag yet.
+6. **After the PR merges:** `git checkout main && git pull --ff-only origin main`, then run the Step 4 `bump` on the now-current main, then `git push origin main && git push origin vX.Y.Z`. The tag is created on the real merged commit, so it lands on main, not orphaned. (If the repo squash-merges and you tagged earlier anyway, the tag is already orphaned — do NOT delete it per git.md; supersede it with a fresh clean bump, or ask the user to delete+recreate.)
 
-If no push protection is detected, push directly:
+If BOTH gates were clear (direct-push flow), push directly:
 
 ```bash
 git push origin $(git branch --show-current) && git push origin --tags
@@ -154,5 +170,6 @@ For non-Rust projects (no `Cargo.toml`):
 - **Cargo workspace**: check CLAUDE.md first, then look for binary targets
 - **Push rejected**: do NOT force push - tell the user to pull/rebase first
 - **Daemon projects**: CLAUDE.md should document the full install+restart command sequence
-- **Branch protection**: decide from the LIVE check `gh api repos/OWNER/REPO/branches/main/protection` - protection rules returned -> PR flow (feature branch, push, open PR); HTTP 404 "Branch not protected" -> direct push. `branch.main.pushremote=no_push` is ONLY an accidental-push guardrail, NOT a PR-required signal - never infer PR flow from it (it misfires on unprotected tatari-tv repos like persona-cli). Don't ask the user; detect from live protection and adapt.
+- **Branch protection**: decide from TWO live checks, not one. Classic: `gh api repos/OWNER/REPO/branches/main/protection` (rules returned -> PR flow). Rulesets: `gh api repos/OWNER/REPO/rulesets` (any `active` ruleset, especially required-workflow ones -> PR flow EVEN if classic protection is 404, EVEN for admins). A 404 on classic protection alone is NOT a green light. `branch.main.pushremote=no_push` is ONLY an accidental-push guardrail, NOT a PR-required signal. Don't ask the user; detect from both live gates and adapt.
+- **Orphaned tag (tag not on main)**: happens if you tagged on a stale local main, or tagged before a protected/ruleset-gated push that then got rejected, or tagged before a squash-merge. NEVER delete the tag to fix it (git.md: only the user deletes/recreates tags). Recovery: bring main up to the right version with a fresh clean bump that lands on main (a new tag superseding the orphan), or ask the user to delete+recreate the orphan on the correct commit. Prevent it by following Step 1 (sync main, check both protection gates) and the "never tag before the commit is on origin/main" rule.
 - **Already pushed**: if `git log origin/main..HEAD` is empty and there are no local changes, everything is already shipped - say so and stop
