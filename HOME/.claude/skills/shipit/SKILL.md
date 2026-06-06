@@ -50,6 +50,23 @@ Store the discovered install command for use in Step 5. If a CLAUDE.md install c
 - Write a concise, descriptive commit message based on the actual changes
 - Commit
 
+### Step 3.5: Sync with remote BEFORE bumping (critical ordering)
+
+**`bump` creates a git tag and amends the commit locally. NEVER run it against a stale local branch.** If the remote has advanced (e.g. someone else already bumped, or CI pushed), bumping first produces a tag that collides with the remote's tag and an orphaned local commit, and the push will be rejected - leaving a stale local tag that the no-tag-deletion rule then makes painful to clean up.
+
+So, before Step 4, ALWAYS sync:
+
+```bash
+git fetch origin
+git log --oneline HEAD..origin/$(git branch --show-current)   # commits on remote not local
+```
+
+- If the remote has NO commits you lack → proceed to Step 4.
+- If the remote HAS advanced → rebase onto it FIRST: `git rebase origin/$(git branch --show-current)`. Resolve any conflicts (including a version-line conflict if the remote already bumped - pick the next-higher version so you don't collide with a tag that already exists). Re-run the build/tests. ONLY THEN proceed to Step 4.
+- If the version you're about to bump to is already a tag on the remote (`git ls-remote --tags origin`), skip past it to the next free version. Never create a local tag for a version that already exists remotely.
+
+The invariant: **fetch + rebase happen before any tagging.** Tagging is hard to undo; syncing is not.
+
 ### Step 4: Bump
 
 Skip this step if `--no-bump` was passed or no `Cargo.toml` exists.
