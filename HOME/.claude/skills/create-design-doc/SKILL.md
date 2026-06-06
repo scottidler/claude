@@ -27,8 +27,23 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
 2. **Draft** — use template below, focus on breadth
 3. **Refine** — run passes 2-5, announcing each pass and documenting changes
 4. **Converge** — when no significant changes, document is ready
+5. **Suggest the next command** — see below
 
 See [example.md](example.md) for a sample review process.
+
+## Closing: suggest the next command
+
+After convergence, end the turn with the recommended next command on its **own
+line**, with nothing after it:
+
+```
+send to the /architect for review
+```
+
+Why on its own line: Claude Code's prompt-suggestion feature predicts the next
+command from the conversation. Ending with the exact command on its own line
+makes that the predicted ghost suggestion — the user can Tab + Enter to run it.
+There is no way to set the suggestion directly; this is the lever that biases it.
 
 ## Prompts for Each Pass
 
