@@ -5,6 +5,10 @@
 - `~/.claude/CLAUDE.md` → `~/repos/scottidler/claude/HOME/.claude/CLAUDE.md`
 - Edit/commit the real path, never the symlink
 
+## Non-Negotiable: Root Cause Always
+
+When something breaks or behaves unexpectedly, **never speculate, guess, or say "I don't know"**. Go find the answer. Check logs, inspect state, read files, run commands — whatever it takes. "I don't know", "probably", "likely", "fluke", "magic", or any hand-wavy non-answer is never acceptable. If the cause isn't known yet, the correct response is to go investigate until it is.
+
 ## Never estimate
 
 - No time, effort, or cost estimates — no hours, days, story points, or t-shirt sizes
@@ -42,7 +46,7 @@ On-demand docs in `~/repos/.claude/refs/` — read when the scenario calls for i
 
 ### personas.md
 - Home/work identity, GitHub accounts, SSH keys, Jira/Confluence
-- Read when: GitHub, Jira, Slack, or identity-sensitive work
+- Read when: GitHub, Jira, Slack, or identity-sensitive work, or when asked who the user is (role, title, job, experience)
 
 ### slack.md
 - Slack mrkdwn, posting patterns, ID reference
