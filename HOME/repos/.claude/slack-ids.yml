@@ -1010,6 +1010,9 @@ channels:
   C04F2CCF3GX: zulily-tech-onboarding-internal
 
 users:
+  # self
+  # Scott Idler
+  D01G4Q7AWLV: scott.idler
   # manager
   # Mark Weiler
   D087FEUB98W: mark.weiler
