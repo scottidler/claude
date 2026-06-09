@@ -19,6 +19,16 @@ if [ -z "$PROMPT" ]; then
   exit 2
 fi
 
+# Inject the Architect persona by prepending it to the prompt. This is the only
+# reliable delivery mechanism: gemini's --policy flag loads *.toml policy-engine
+# files only and silently ignores a markdown file, and we deliberately do NOT
+# rely on the global ~/.gemini/GEMINI.md so plain `gemini` calls stay neutral.
+# Prepending also guarantees the prompt starts with non-dash text.
+PERSONA=$(cat "$SCRIPT_DIR/persona.md")
+PROMPT="$PERSONA
+
+$PROMPT"
+
 INCLUDE_ARGS=()
 if [ -n "$EXTRA_DIRS" ]; then
   INCLUDE_ARGS=(--include-directories "$EXTRA_DIRS")
@@ -26,7 +36,6 @@ fi
 
 cat "$DOC_PATH" | gemini \
   -m gemini-3.1-pro-preview \
-  --policy "$SCRIPT_DIR/persona.md" \
   --approval-mode plan \
   "${INCLUDE_ARGS[@]}" \
   --prompt="$PROMPT" \

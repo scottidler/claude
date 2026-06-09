@@ -28,7 +28,7 @@ Examples:
 
 ## Gemini Architect Background
 
-The Architect persona is defined in `persona.md` colocated with this skill and injected via `--policy` on every Gemini call. It enforces:
+The Architect persona is defined in `persona.md` colocated with this skill and injected by `script.sh`, which prepends it to the prompt on every Gemini call. (It is deliberately NOT delivered via `--policy` — that flag loads `*.toml` policy-engine files only and silently ignores markdown — nor via the global `~/.gemini/GEMINI.md`, which would force the persona onto every unrelated `gemini` call.) It enforces:
 - Strictly read-only and consultative — never plans, edits files, or runs tests
 - Highly skeptical — empirically verifies claims against the codebase before opining
 - Humble — does not assume correctness of any syntax, structure, or claim without verification
