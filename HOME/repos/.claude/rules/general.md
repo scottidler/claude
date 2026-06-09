@@ -66,6 +66,7 @@ alwaysApply: true
 - Config lives at `~/.config/<project>/<project>.yml`
 - Config precedence: CLI flags > environment variables > config file > defaults
 - Config defines WHAT rules look like, not WHETHER they run - scope is controlled via CLI flags
+  - **Carve-out: selecting which algorithm/methodology is *active* is legitimate config.** The rule above forbids gating whether a fixed *governance rule* runs (that is CLI-flag scope). It does NOT forbid choosing the system's behavior - e.g. which retrieval methods/stages a server composes for a query. Selecting the active methodology IS the shape of the config, and an explicit `enabled: true/false` per method is the clearest expression of it. This applies when there is no per-invocation CLI surface to carry the choice (e.g. an MCP server whose queries arrive over the protocol, not the command line). Reference: `second-brain/docs/design/2026-06-06-configurable-retrieval-pipeline.md`.
 
 ## Dependencies
 

@@ -118,6 +118,7 @@ src/
 - CLI flags > environment variables > config file values
 - Config at `xdg_config_dir()/<project>/<project>.yml` - `~/.config/` (or `$XDG_CONFIG_HOME`) on every platform, macOS included (see "Platform paths" below; do NOT use `dirs::config_dir()`)
 - Config defines WHAT rules look like, not WHETHER they run - scope is controlled via CLI flags, not `enabled: true/false` in config
+  - **Carve-out:** selecting which *algorithm/methodology* is active (not gating whether a fixed governance rule runs) is legitimate config, and an explicit per-method `enabled: true/false` is the clearest expression - especially when there is no per-invocation CLI surface (e.g. an MCP server). See `general.md` and `second-brain/docs/design/2026-06-06-configurable-retrieval-pipeline.md`.
 
 ### Platform path testing
 
