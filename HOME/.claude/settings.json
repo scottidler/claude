@@ -1,11 +1,4 @@
 {
-  "sandbox": {
-    "enabled": true,
-    "excludedCommands": [
-      "cargo *",
-      "otto *"
-    ]
-  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_COLORSCHEME": "dracula",
@@ -21,6 +14,7 @@
       "Edit(bin/**/*.sh)",
       "Write(bin/**/*.sh)",
       "Bash(sb:*)",
+      "Bash(nlm:*)",
       "Bash(sort:*)",
       "Bash(uniq:*)",
       "Read(**/*.yml)",
@@ -104,6 +98,7 @@
       "Bash(mkdir:*)",
       "Bash(cargo:*)",
       "Bash(cr:*)",
+      "Bash(ccu:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -360,7 +355,7 @@
       "/home/saidler/.config"
     ]
   },
-  "model": "opus",
+  "model": "fable",
   "hooks": {
     "PreToolUse": [
       {
@@ -414,8 +409,15 @@
       }
     }
   },
+  "sandbox": {
+    "enabled": true,
+    "excludedCommands": [
+      "cargo *",
+      "otto *"
+    ]
+  },
   "effortLevel": "high",
-  "advisorModel": "opus",
+  "advisorModel": "fable",
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true
