@@ -187,6 +187,12 @@ pub fn xdg_data_dir() -> Option<PathBuf> {
 - Config: `xdg_config_dir().join(project_name).join(format!("{}.yml", project_name))`
 - Logs: `xdg_data_dir().join(project_name).join("logs")`
 - `dirs::home_dir()` is still fine; it is correct on every platform; only `dirs::config_dir()` / `dirs::data_local_dir()` are banned
+
+#### Carve-out: second-brain `dirs::*_dir().expect(...)` for internal data/state paths
+
+- **second-brain (`~/repos/scottidler/second-brain`) deliberately uses `dirs::data_local_dir()` / `dirs::config_dir()` + `.expect(...)`** for its INTERNAL, non-user-facing data/state paths, centralized in `vault::paths` (`config_root`, `oracle_db_path`, `borg_signal_state_dir`, `cortex_lock_path`, …). This is the project's CLAUDE.md-sanctioned pattern and is NOT drift - stop flagging it in second-brain.
+- Why it's acceptable here: these paths are daemon-internal SQLite DBs, lock files, and ratchet state - NOT operator-edited config the user is told to find at `~/.config`. They aren't advertised in `--help`, so the macOS `~/Library/...` divergence the XDG helpers fix doesn't apply. And `.expect(...)` (not a fabricated `~/` or `.` fallback) is correct: `dirs::*_dir()` only returns `None` when both `$HOME` and `$XDG_*_HOME` are unset, an environment where nothing in the daemon works - panic-with-a-clear-message beats inventing a path.
+- The XDG-helper rule above still governs **operator-facing config + log paths** in NEW scaffolded CLIs. The carve-out is specifically for second-brain's `vault::paths` internal-data layer.
 - `after_help` SHOULD advertise the log path. The `xdg_*` helpers make the default `~/.local/share/<proj>/logs/<proj>.log` true on every platform (macOS included), so a **hardcoded** string is honest *only when `$XDG_DATA_HOME` / `$XDG_CONFIG_HOME` are unset*. If the user sets either, logs/config move and the hardcoded `--help` string becomes a lie - the helpers fix the *platform* divergence, not the *env-override* one
 - So render the path at runtime from the same source the logger uses, and inject it - `--help` then stays accurate under the env override and can never drift from where the logger actually writes:
 
