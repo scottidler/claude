@@ -355,7 +355,7 @@
       "/home/saidler/.config"
     ]
   },
-  "model": "fable",
+  "model": "sonnet[1m]",
   "hooks": {
     "PreToolUse": [
       {
