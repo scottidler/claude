@@ -7,6 +7,19 @@ description: Version bumping tool for Rust projects. Use when incrementing versi
 
 Use `bump` to increment versions, commit changes, and create git tags in one step.
 
+## TRIPWIRE: check the gates BEFORE running bump
+
+`bump` tags local HEAD the moment it runs. On a repo whose main is gated (branch
+protection or any repo/org ruleset), that SHA will never land on main (squash-merge
+rewrites it) — the tag is orphaned the moment it's pushed. So, first:
+
+```bash
+tagit gates
+```
+
+- `flow: direct` → safe; prefer `tagit release [bump args]` (runs bump, pushes main, verifies it landed, then pushes the tag by name)
+- `flow: pr` → do NOT run `bump`. Use `tagit pr` (version-bump PR, no tag) then, after it merges, `tagit tag`. (Once bump ships `--no-tag`/`--tag-only` per `bump/docs/design/2026-06-12-gated-repo-tagging.md`, those replace tagit.)
+
 ## Workflows
 
 **bump** handles three scenarios:
@@ -22,8 +35,9 @@ Use `bump` to increment versions, commit changes, and create git tags in one ste
 # 2. Run bump
 bump
 
-# 3. Push commit and tags:
-git push && git push --tags
+# 3. Push the branch FIRST and verify it lands, THEN the tag by explicit name
+#    (never `git push --tags`; push.followTags is off for the same reason):
+git push origin main && git push origin vX.Y.Z
 ```
 
 ## Agent/CI Workflow (already committed)
@@ -37,7 +51,7 @@ git commit -m "Implement feature X"
 bump -a
 # Output: Amended commit and tagged v0.1.6
 
-git push && git push --tags
+git push origin main && git push origin v0.1.6   # branch first, tag by name - never --tags
 ```
 
 ## What bump does
@@ -77,6 +91,7 @@ For Rust projects using the `/rust-cli-coder` conventions, the version set by bu
 
 ## What NOT to Do
 
-- Don't manually edit version in Cargo.toml — use `bump`
-- Don't create tags manually — `bump` creates annotated tags
-- Don't forget to push tags — always run `git push --tags` after bump
+- Don't run `bump` on a gated repo (see TRIPWIRE above) — its tag can never land on main
+- Don't manually edit version in Cargo.toml — use `bump` (exception: the gated PR flow, where `tagit pr` edits it because bump would tag prematurely)
+- Don't create tags manually — `bump`/`tagit tag` create annotated tags
+- Don't EVER run `git push --tags` — push the branch first, verify it landed, then push the tag by explicit name (`git push origin vX.Y.Z`)
