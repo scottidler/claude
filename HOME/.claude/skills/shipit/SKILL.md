@@ -26,8 +26,8 @@ Commit, bump, push, and install in one shot. Default workflow for shipping chang
 - If there are no changes but there ARE unpushed commits, skip to Step 4 (bump) or Step 5 (push)
 - Check if this is a Rust project (has `Cargo.toml`) to determine if bump applies
 - **Sync `main` with origin BEFORE anything else.** `git fetch origin main` then `git pull --ff-only origin main` (or rebase your local commits onto it). NEVER `bump`/tag on a stale local main: `bump` tags `HEAD`, so if local main is behind origin, the tag lands on an off-main commit and is orphaned the moment you push (cr v0.1.8 was orphaned exactly this way). If the working tree is dirty, stash or commit first, sync, then continue.
-- **Determine the push flow NOW, before any bump or tag — flow decides whether you may tag at all.** Run `tagit gates` — it checks BOTH live gates (classic protection AND repo/org rulesets) and prints the flow. A 404 on classic protection alone is NOT a green light; org required-workflow rulesets (e.g. "Tatari Org Security") reject direct pushes even for admins — this orphaned claude-pricing v0.2.0 and okta-auth-rs v0.2.0.
-  - `flow: direct` → direct-push flow. `flow: pr` → PR flow.
+- **Determine the push flow NOW, before any bump or tag — flow decides whether you may tag at all.** Run `bump --gates` — it checks BOTH live gates (classic protection AND repo/org rulesets) and prints the flow. A 404 on classic protection alone is NOT a green light; org required-workflow rulesets (e.g. "Tatari Org Security") reject direct pushes even for admins — this orphaned claude-pricing v0.2.0 and okta-auth-rs v0.2.0.
+  - `Gates: none (ungated)` → direct-push flow. `Gates: … (gated)` → PR flow.
   - Do NOT infer protection from `branch.main.pushremote` — `no_push` is only an accidental-push guardrail, NOT proof a PR is required (per git.md).
 - **Cardinal rule for the rest of this skill: never create or push a tag before the commit it points to is confirmed on `origin/main`.** Under PR flow that means the bump+tag happen only AFTER the PR merges (Step 5), never before.
 
@@ -75,37 +75,38 @@ The invariant: **fetch + rebase happen before any tagging.** Tagging is hard to 
 
 Skip this step if `--no-bump` was passed or no `Cargo.toml` exists.
 
-**Do NOT run `bump` by hand in either flow.** `bump` creates a tag the moment it runs, and only `tagit` knows whether that tag can ever land on `origin/main`:
+`bump` is gate-aware: plain `bump` refuses to tag on a gated repo, and `bump --tag-only`
+verifies `HEAD == origin/<default>` before tagging — so it can't orphan a tag. What you run
+depends on the flow from Step 1:
 
-- **Direct-push flow:** `bump` runs inside `tagit release` in Step 5 — nothing to do here. Decide the bump args to pass through: `-a` (you committed in Step 3), plus `-m` for `--minor`; for `--major`, confirm with the user first ("Major bump - are you sure?"), then `-M`.
-- **PR flow:** no bump at all yet. The version bump happens AFTER the feature PR merges, via `tagit pr` + `tagit tag` (Step 5). Running `bump` now would tag a SHA that squash-merge will never put on main — the trap that orphaned claude-pricing v0.2.0 and okta-auth-rs v0.2.0.
+- **Direct-push flow:** run `bump` here. `-a` (you committed in Step 3), plus `-m` for `--minor`; for `--major`, confirm with the user first ("Major bump - are you sure?"), then `-M`. `bump` bumps Cargo.toml, commits/amends, and tags local HEAD. The branch + tag get pushed (in the safe order) in Step 5.
+- **PR flow:** run `bump --no-tag` here (plus `-m`/`-M` as above). It bumps the version and commits but creates NO tag, so the bump can ride your feature branch / PR. The tag is created only AFTER the PR merges, via `bump --tag-only` (Step 5). Never run plain `bump` on a gated repo — it would refuse anyway, but `--no-tag` is the right call.
 
 ### Step 5: Push
 
-Use the flow `tagit gates` reported in Step 1 — do not re-detect by hand, and NEVER run `git push --tags` in any flow (tags are pushed by explicit name, by tagit, only after their commit is verified on origin).
+Use the flow from Step 1 — do not re-detect by hand, and NEVER run `git push --tags` in any flow (tags are pushed by explicit name, only after the commit they point to is on origin).
 
-**Direct-push flow** — one command does bump + push main + verify-it-landed + push tag by name:
+**Direct-push flow** — `bump` (Step 4) already tagged local HEAD. Push the branch FIRST, then the tag by explicit name. The `&&` ordering is the safety: if the branch push is rejected, the tag never escapes.
 
 ```bash
-tagit release -a          # patch (default)
-tagit release -a -m       # minor
-tagit release -a -M       # major (after user confirmation)
+git push origin main && git push origin vX.Y.Z
 ```
 
-If the main push is rejected, `tagit` stops before the tag escapes — report the rejection to the user; never retry variations or change repo settings.
+`vX.Y.Z` is the tag `bump` just created (`git tag --points-at HEAD --list 'v*'`). If the main push is rejected, STOP — do not push the tag, do not retry variations, do not change repo settings. Report the rejection to the user.
 
-**PR flow:**
+**PR flow** — `bump --no-tag` (Step 4) bumped the version with NO tag, so the bump rides your feature branch in a single PR:
 
-1. Generate a branch name from the commit message (e.g., `add-cli-expansion`)
-2. Create and checkout the branch: `git checkout -b <branch-name>`
-3. Push the branch ONLY: `git push --no-follow-tags -u origin <branch-name>`
-4. Create a PR: `gh pr create --title "<title>" --body "<summary>"`
-5. Report the PR URL, then STOP and wait for the PR to merge (review/CI gated). You cannot tag yet.
-6. **After the feature PR merges:** `git checkout main && git pull --ff-only origin main`, then:
-   - `tagit pr [-m|-M]` — opens the version-bump PR (no tag); get it merged
-   - `git pull --ff-only origin main && tagit tag` — creates the annotated tag on the merged commit and pushes it by name, with an on-main ancestor check first
-
-> Once `bump` ships `--no-tag` / `--tag-only` (see bump's `docs/design/2026-06-12-gated-repo-tagging.md`), the PR flow collapses to one PR (bump rides the feature branch) and `tagit` is retired.
+1. Make sure those commits are on a feature branch (generate a name from the commit message, e.g. `add-cli-expansion`; `git checkout -b <branch-name>` if you bumped on `main` locally)
+2. Push the branch ONLY: `git push --no-follow-tags -u origin <branch-name>`
+3. Create a PR: `gh pr create --title "<title>" --body "<summary>"`
+4. Report the PR URL, then STOP and wait for the PR to merge (review/CI gated). You cannot tag yet.
+5. **After the PR merges**, tag the merged commit:
+   ```bash
+   git checkout main && git pull --ff-only origin main
+   bump --tag-only            # verifies HEAD == origin/main, then creates the annotated tag
+   git push origin vX.Y.Z     # push the tag by explicit name
+   ```
+   `bump --tag-only` refuses unless HEAD is exactly `origin/main`, so the tagged commit is provably on origin before the tag exists; an existing correct tag at HEAD is a no-op, one pointing elsewhere is refused.
 
 Always push to `origin` explicitly - never rely on the default pushremote (which may be `no_push`).
 
@@ -157,6 +158,6 @@ For non-Rust projects (no `Cargo.toml`):
 - **Cargo workspace**: check CLAUDE.md first, then look for binary targets
 - **Push rejected**: do NOT force push - tell the user to pull/rebase first
 - **Daemon projects**: CLAUDE.md should document the full install+restart command sequence
-- **Branch protection**: `tagit gates` is the only detection method — it checks both live layers (classic protection AND repo/org rulesets; org rulesets are not bypassed by repo admins). Never decide from the classic endpoint alone, and never infer from `branch.main.pushremote=no_push` (that's only an accidental-push guardrail). Don't ask the user; run the probe and adapt.
-- **Orphaned tag (tag not on main)**: happens if you tagged on a stale local main, or tagged before a protected/ruleset-gated push that then got rejected, or tagged before a squash-merge. NEVER delete the tag to fix it (git.md: only the user deletes/recreates tags). Recovery: STOP and report the exact state to the user — re-pointing or superseding a live tag is their decision. Prevention is structural: `tagit` refuses to create or push any tag whose commit is not verified on `origin/main`.
+- **Branch protection**: `bump --gates` is the detection method — it checks both live layers (classic protection AND repo/org rulesets; org rulesets are not bypassed by repo admins). Never decide from the classic endpoint alone, and never infer from `branch.main.pushremote=no_push` (that's only an accidental-push guardrail). Don't ask the user; run the probe and adapt.
+- **Orphaned tag (tag not on main)**: happens if you tagged on a stale local main, or tagged before a protected/ruleset-gated push that then got rejected, or tagged before a squash-merge. NEVER delete the tag to fix it (git.md: only the user deletes/recreates tags). Recovery: STOP and report the exact state to the user — re-pointing or superseding a live tag is their decision. Prevention is structural: plain `bump` refuses on a gated repo, and `bump --tag-only` refuses to create a tag unless HEAD is exactly `origin/main`.
 - **Already pushed**: if `git log origin/main..HEAD` is empty and there are no local changes, everything is already shipped - say so and stop

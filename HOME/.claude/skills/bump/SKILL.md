@@ -7,18 +7,25 @@ description: Version bumping tool for Rust projects. Use when incrementing versi
 
 Use `bump` to increment versions, commit changes, and create git tags in one step.
 
-## TRIPWIRE: check the gates BEFORE running bump
+## Gated repos: bump checks the gates itself
 
-`bump` tags local HEAD the moment it runs. On a repo whose main is gated (branch
-protection or any repo/org ruleset), that SHA will never land on main (squash-merge
-rewrites it) — the tag is orphaned the moment it's pushed. So, first:
+`bump` tags local HEAD the moment it runs. On a repo whose default branch is gated (classic
+branch protection or any repo/org ruleset), that SHA will never land on main (squash-merge
+rewrites it) — the tag would be orphaned the moment it's pushed. `bump` now **detects this
+and refuses to tag** by default, printing the gated flow instead. To see the verdict and the
+recommended flow up front:
 
 ```bash
-tagit gates
+bump --gates
 ```
 
-- `flow: direct` → safe; prefer `tagit release [bump args]` (runs bump, pushes main, verifies it landed, then pushes the tag by name)
-- `flow: pr` → do NOT run `bump`. Use `tagit pr` (version-bump PR, no tag) then, after it merges, `tagit tag`. (Once bump ships `--no-tag`/`--tag-only` per `bump/docs/design/2026-06-12-gated-repo-tagging.md`, those replace tagit.)
+- `Gates: none (ungated)` → `bump [-m|-M]`, then `git push origin main && git push origin vX.Y.Z`
+- `Gates: … (gated)` → `bump --no-tag [-m|-M]` (the version bump rides your PR branch); after
+  the PR merges, on updated main: `bump --tag-only`, then `git push origin vX.Y.Z`
+
+If `gh` is missing or unauthenticated, `bump` can't verify gates: it warns and proceeds as
+ungated (tagging is local and recoverable — the push is the dangerous step). `--no-verify`
+skips the probe deliberately.
 
 ## Workflows
 
@@ -54,6 +61,27 @@ bump -a
 git push origin main && git push origin v0.1.6   # branch first, tag by name - never --tags
 ```
 
+## Gated Workflow (PR required)
+
+On a gated default branch the version bump must ride a PR, and the tag is created only
+after the merge — `bump` enforces this (plain `bump` refuses; `--tag-only` verifies first).
+
+```bash
+# On your feature branch: bump the version WITHOUT tagging
+bump --no-tag                         # (or --no-tag -m / -M)
+git push origin my-feature            # open a PR, get it merged
+
+# After the PR merges, on the merged default branch:
+git checkout main && git pull --ff-only origin main
+bump --tag-only                       # verifies HEAD == origin/main, then tags
+git push origin vX.Y.Z                # push the tag by explicit name
+```
+
+`bump --tag-only` refuses unless the tree is clean, you're on the remote default branch,
+and HEAD is **exactly** `origin/<default>` — so it can't tag an unmerged or stale commit.
+An existing tag already at HEAD is a no-op; one pointing elsewhere is refused (manual tag
+surgery, never bump's job).
+
 ## What bump does
 
 1. Updates version in Cargo.toml (patch bump by default)
@@ -73,6 +101,10 @@ bump -M            # Major bump (X.0.0)
 bump -n            # Dry run - preview without applying
 bump -a            # Automatic commit message
 bump --message "X" # Custom commit message
+bump --gates       # Report gate status + recommended flow, then exit
+bump --no-tag      # Bump + commit, but create NO tag (gated repos; rides a PR branch)
+bump --tag-only    # Tag the merged commit (post-merge step for gated repos)
+bump --no-verify   # Skip the gate probe (treat repo as ungated)
 ```
 
 ## Commit Message Behavior
@@ -91,7 +123,7 @@ For Rust projects using the `/rust-cli-coder` conventions, the version set by bu
 
 ## What NOT to Do
 
-- Don't run `bump` on a gated repo (see TRIPWIRE above) — its tag can never land on main
-- Don't manually edit version in Cargo.toml — use `bump` (exception: the gated PR flow, where `tagit pr` edits it because bump would tag prematurely)
-- Don't create tags manually — `bump`/`tagit tag` create annotated tags
+- Don't try to force a tag on a gated repo — plain `bump` refuses by design; use `bump --no-tag` then `bump --tag-only` after merge (see Gated Workflow above)
+- Don't manually edit version in Cargo.toml — use `bump` (on gated repos, `bump --no-tag` does the edit without tagging)
+- Don't create tags manually — `bump` / `bump --tag-only` create annotated tags
 - Don't EVER run `git push --tags` — push the branch first, verify it landed, then push the tag by explicit name (`git push origin vX.Y.Z`)

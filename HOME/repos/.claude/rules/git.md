@@ -31,13 +31,13 @@ gh api repos/OWNER/REPO/rules/branches/main        # rulesets (repo + org level)
 - Local `branch.main.pushremote=no_push` is a user-side guardrail against accidental `git push` with no remote — NOT proof the remote requires PRs; don't treat its presence as dispositive
 - Never use `--force` / `--force-with-lease` on main without explicit user approval
 
-## Tagging / releases — use `tagit`, never hand-run the flow
+## Tagging / releases — use `bump`, let it gate-check for you
 
-**The one invariant: never create or push a tag until the exact commit it points to is confirmed on `origin/main`.** The `tagit` script (`~/bin/tagit`, source in claude repo `HOME/.claude/bin/tagit`) enforces this mechanically — gate detection, push-verify-then-tag ordering, orphan refusal. Do NOT improvise the flow with raw `git push`/`git tag`/`bump` sequencing.
+**The one invariant: never create or push a tag until the exact commit it points to is confirmed on `origin/main`.** `bump` (v0.2.0+) enforces this: it detects branch-protection gates itself, plain `bump` REFUSES to tag on a gated default branch, and `bump --tag-only` verifies `HEAD == origin/<default>` before creating the tag. `bump` never pushes — it prints the exact push commands; you run them in the safe order (branch first, then the tag by explicit name).
 
-- `tagit gates` — shows both gates and which flow applies (run this first if unsure)
-- Ungated repo: `tagit release [bump args]` — runs `bump`, pushes main, VERIFIES it landed, then pushes the tag by name
-- Gated repo: `tagit pr [-m|-M]` (version-bump PR, no tag) → merge it → `tagit tag` (annotated tag on merged main, pushed by name)
-- `bump` directly is fine ONLY on ungated repos where you'll immediately `tagit release` semantics anyway; on gated repos NEVER run `bump` — it tags a commit that squash-merge will never put on main
+- `bump --gates` — shows both gates (classic protection AND repo/org rulesets) and the recommended flow (run this first if unsure)
+- Ungated repo: `bump [-m|-M]` (tags local HEAD), then `git push origin main && git push origin vX.Y.Z` — branch first; the `&&` means a rejected branch push never lets the tag escape
+- Gated repo: `bump --no-tag [-m|-M]` (version bump rides your PR branch, no tag) → open PR → merge → on updated main `bump --tag-only` (tags the merged commit) → `git push origin vX.Y.Z`
+- Never run plain `bump` on a gated repo — it will refuse anyway, but `--no-tag` is the right call; `--tag-only` is the post-merge tag step
 - Never `git push --tags`; `push.followTags` is `false` in dotfiles because a followTags push lands the tag even when the branch push is rejected (this orphaned okta-auth-rs v0.2.0)
 - If a push to main is ever rejected after a tag exists locally: STOP. Do not push the tag, do not retry variations, do not change repo settings (merge methods, protection, rulesets). Report the exact rejection to the user.
