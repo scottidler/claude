@@ -11,6 +11,25 @@ optional sub-resource, and method.
 
 **This is always the CLI, never the Workspace product itself.**
 
+## Personas
+
+Two Google accounts, selected by the config dir env var
+(`GOOGLE_WORKSPACE_CLI_CONFIG_DIR`). Wrapper scripts live in dotfiles
+(`HOME/bin/`); pick the right one for the account context:
+
+- `gws-work` (and bare `gws`) → `scott.idler@tatari.tv`
+  - config dir `~/.config/gws/work`; this is the default, exported in `.zshenv`
+- `gws-home` → `scott.a.idler@gmail.com`
+  - config dir `~/.config/gws/home`; uses `GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file`
+
+Notes:
+- Bare `gws` always means **work** — never assume it's home; use `gws-home` explicitly.
+- Tokens are **per-machine** (not synced/committed). A new machine re-auths via
+  `gws auth login`; the OAuth client (`client_secret.json`) is the only reusable bit.
+- Headless/SSH login: `gws auth login` prints a URL and serves the OAuth redirect on
+  a `localhost:<port>` on that machine. If the browser is on a different box, forward
+  that port (`ssh -L <port>:localhost:<port> <host>`) before approving.
+
 ## Form
 
 ```
