@@ -3,3 +3,62 @@ link:
   HOME: $HOME
   dirs:
     HOME/.claude/skills: $HOME/.claude/skills
+
+github:
+  mattpocock/skills:
+    link:
+      skills/productivity/grill-me: ~/.claude/skills/grill-me
+      skills/productivity/handoff: ~/.claude/skills/handoff
+  kepano/obsidian-skills:
+    link:
+      skills/obsidian-bases: ~/.claude/skills/obsidian-bases
+      skills/json-canvas: ~/.claude/skills/json-canvas
+      skills/obsidian-cli: ~/.claude/skills/obsidian-cli
+      skills/obsidian-markdown: ~/.claude/skills/obsidian-markdown
+      skills/defuddle: ~/.claude/skills/defuddle
+  crafter-station/skills:
+    link:
+      context-engineering/intent-layer: ~/.claude/skills/intent-layer
+  mvanhorn/last30days-skill:
+    link:
+      skills/last30days: ~/.claude/skills/last30days
+
+# Claude tooling installed as isolated CLIs on PATH.
+pipx:
+  items:
+  # Google Slides MCP server (entry point: gslides-mcp). Not on PyPI; install
+  # from git. Registered at user scope by the mcp-servers script step below.
+  - git+https://github.com/jemmanuele/gslide-mcp.git
+
+script:
+  # gslide-mcp reuses the gws "home" profile's Desktop OAuth client instead of a
+  # separate Google Cloud client. Link gws's client_secret.json as gslide-mcp's
+  # credentials.json (same account/client/project; APIs already enabled). The
+  # first MCP tool call mints token.json next to it via a one-time browser
+  # consent. Idempotent; safe to re-run. Requires `gws` home login to exist.
+  gslides-creds: |
+    mkdir -p ~/.gslides-mcp/creds
+    ln -sf ~/.config/gws/home/client_secret.json ~/.gslides-mcp/creds/credentials.json
+    echo "gslides-mcp credentials linked from gws home profile"
+
+  # Global MCP servers, managed together at USER scope (available in every project).
+  # This is the source of truth: ~/.claude.json is the opaque deploy target and is
+  # NOT version-controlled, and Claude Code has no tracked-file / --mcp-config path
+  # for global servers, so we re-register idempotently via `claude mcp add-json`.
+  # Single-quoted JSON keeps ${VAR} literal for Claude Code's launch-time expansion.
+  # Assumes each server's binary is already on PATH (gslides-mcp, uvx, npx, the
+  # cloned slack/persona MCP repos under ~/repos). Safe to re-run.
+  # NOTE: oracle is intentionally NOT here - it is vault-specific and lives in
+  # second-brain/.mcp.json (project scope), so it only loads inside the vault.
+  mcp-servers: |
+    claude mcp remove atlassian -s user 2>/dev/null || true; claude mcp add-json atlassian '{"type":"http","url":"https://mcp.atlassian.com/v1/mcp"}' -s user
+    claude mcp remove multi-account-github -s user 2>/dev/null || true; claude mcp add-json multi-account-github '{"type":"stdio","command":"multi-account-github-mcp","args":["serve"],"env":{}}' -s user
+    claude mcp remove slack -s user 2>/dev/null || true; claude mcp add-json slack '{"type":"stdio","command":"/home/saidler/repos/slack-mcp-server/slack-mcp-server","args":["--transport","stdio"],"env":{"SLACK_MCP_XOXP_TOKEN":"${SLACK_XOXP_TOKEN}","SLACK_MCP_ADD_MESSAGE_TOOL":"true"}}' -s user
+    claude mcp remove pagerduty -s user 2>/dev/null || true; claude mcp add-json pagerduty '{"type":"stdio","command":"uvx","args":["pagerduty-mcp","--enable-write-tools"],"env":{"PAGERDUTY_USER_API_KEY":"${PAGERDUTY_API_KEY}","PAGERDUTY_API_HOST":"https://api.pagerduty.com"}}' -s user
+    claude mcp remove obsidian -s user 2>/dev/null || true; claude mcp add-json obsidian '{"type":"stdio","command":"npx","args":["-y","obsidian-mcp","/home/saidler/repos/scottidler/obsidian"],"env":{}}' -s user
+    claude mcp remove jcodemunch -s user 2>/dev/null || true; claude mcp add-json jcodemunch '{"type":"stdio","command":"uvx","args":["jcodemunch-mcp"],"env":{}}' -s user
+    claude mcp remove supabase -s user 2>/dev/null || true; claude mcp add-json supabase '{"type":"http","url":"https://mcp.supabase.com/mcp"}' -s user
+    claude mcp remove persona -s user 2>/dev/null || true; claude mcp add-json persona '{"type":"stdio","command":"uv","args":["run","--directory","/home/saidler/repos/tatari-tv/persona-mcp","python","-m","app.server"],"env":{}}' -s user
+    claude mcp remove semble -s user 2>/dev/null || true; claude mcp add-json semble '{"type":"stdio","command":"uvx","args":["--from","semble[mcp]","semble"],"env":{}}' -s user
+    claude mcp remove gslides -s user 2>/dev/null || true; claude mcp add-json gslides '{"type":"stdio","command":"gslides-mcp","args":[]}' -s user
+    echo "registered 10 MCP servers at user scope"
