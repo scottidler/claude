@@ -9,6 +9,7 @@ github:
     link:
       skills/productivity/grill-me: ~/.claude/skills/grill-me
       skills/productivity/handoff: ~/.claude/skills/handoff
+      skills/productivity/teach: ~/.claude/skills/teach
   kepano/obsidian-skills:
     link:
       skills/obsidian-bases: ~/.claude/skills/obsidian-bases
