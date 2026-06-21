@@ -28,12 +28,12 @@ Examples:
 
 ## agy Architect Background
 
-The Architect runs on **Antigravity (`agy`)** using its latest Gemini Pro reasoning model. The persona is defined in `persona.md` colocated with this skill and injected by `script.sh`, which prepends it to the prompt (along with the inlined design doc) on every `agy` call. The persona is the **sole** enforcer of read-only behavior — unlike the old gemini path there is no `--approval-mode plan` hard-block, so the script relies on agy auto-granting read tools while gating writes, plus the persona's instructions. It enforces:
+The Architect runs on **Antigravity (`agy`)** using its latest Gemini Pro reasoning model. The persona is defined in `persona.md` colocated with this skill and injected by `script.sh`, which prepends it to the prompt (along with the inlined design doc) on every `agy` call. The persona is the **sole** enforcer of read-only behavior — unlike the old gemini path there is no `--approval-mode plan` hard-block (agy has no headless read-only mode; open feature request [#45](https://github.com/google-antigravity/antigravity-cli/issues/45)), so the script relies on agy auto-granting read tools while gating writes, plus the persona's instructions. It enforces:
 - Strictly read-only and consultative — never plans, edits files, runs tests, or executes shell commands
 - Highly skeptical — empirically verifies claims against the codebase before opining
 - Humble — does not assume correctness of any syntax, structure, or claim without verification
 
-**How the model is selected:** agy reads its model only from `~/.gemini/antigravity-cli/settings.json` (the `--model` flag is silently ignored in `-p` print mode). `script.sh` scopes the Pro model to each call — it snapshots that file, forces the model label, runs agy, and restores the original on exit — so your global agy default is left untouched. Because settings.json is global state for the duration of a call, **do not run two Architect consultations concurrently.**
+**How the model is selected:** `script.sh` drives the model via `~/.gemini/antigravity-cli/settings.json` — it snapshots that file, forces the model label, runs agy, and restores the original on exit — so your global agy default is left untouched. (agy *did* add a `--model` flag in 1.0.5, per [#83](https://github.com/google-antigravity/antigravity-cli/issues/83), but it takes the **exact display label** and **silently falls back to the default model** on any mismatch — so the script pins the label in settings.json rather than trusting the flag.) Because settings.json is global state for the duration of a call, **do not run two Architect consultations concurrently.** See `agy-failure-log.md` for the full, cited list of agy print-mode pathologies (buffering/hang #76, model-label downgrade #83, `--print-timeout` #266).
 
 ## Step 1: Resolve the Design Doc
 
