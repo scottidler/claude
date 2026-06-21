@@ -63,3 +63,16 @@ script:
     claude mcp remove semble -s user 2>/dev/null || true; claude mcp add-json semble '{"type":"stdio","command":"uvx","args":["--from","semble[mcp]","semble"],"env":{}}' -s user
     claude mcp remove gslides -s user 2>/dev/null || true; claude mcp add-json gslides '{"type":"stdio","command":"gslides-mcp","args":[]}' -s user
     echo "registered 10 MCP servers at user scope"
+
+  # Daily relocation of Rust build artifacts onto the dedicated drive. The engine
+  # lives in the relocate-targets skill (single source of truth); this puts it on
+  # PATH as ~/bin/relocate-targets and installs the cron. Idempotent: a healthy
+  # day only pre-links freshly-cloned repos. Runs at 02:00, before the 03:00
+  # sweep-repos watermark cron -- relocation keeps the OS disk empty of build
+  # output, the sweep keeps the dedicated drive from growing without bound.
+  relocate-targets-cron: |
+    mkdir -p /home/saidler/bin /home/saidler/.cache
+    ln -sf "$HOME/.claude/skills/relocate-targets/scripts/relocate-targets" "$HOME/bin/relocate-targets"
+    LINE='0 2 * * * /home/saidler/bin/relocate-targets >> /home/saidler/.cache/relocate-targets.log 2>&1'
+    (crontab -l 2>/dev/null | grep -vE "relocate-targets-cron|/bin/relocate-targets"; echo "$LINE") | crontab -
+    echo "relocate-targets daily cron installed"

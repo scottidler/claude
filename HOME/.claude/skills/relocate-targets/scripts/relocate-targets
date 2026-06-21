@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+# relocate-targets: keep Rust build artifacts off a space-constrained drive by
+# storing each repo's target/ on a dedicated drive and leaving a symlink behind.
+#
+# THE PROBLEM THIS SOLVES: build output (target/) piles onto whatever disk holds
+# your repos. For a workstation whose OS disk is also the repo disk, a few hot
+# repos rebuilding 100G+ of debug/release artifacts fills the disk and wedges
+# the machine. Sweeping *stale* artifacts (cargo-sweep) can't keep up with repos
+# you build daily. The durable fix is to stop writing build output to the
+# constrained disk at all: relocate target/ onto a dedicated drive and symlink
+# it back, so cargo, rust-analyzer, and any build tool keep working unchanged.
+#
+# WHY PER-REPO DIRS (not one shared CARGO_TARGET_DIR): cargo takes a build lock
+# per target directory, so a single shared target serializes concurrent
+# cross-repo builds. Each repo keeps its own target/ (physically on the SSD via
+# its own symlink) -> parallel builds run with zero lock contention.
+#
+# WHY SYMLINKS (not a shell-set CARGO_TARGET_DIR): a symlink lives in the
+# filesystem, so the build lands on the dedicated drive no matter who launches
+# it -- your shell, a task runner, an orchestrator, cron, an IDE. An env var only
+# applies in shells where it was set, which silently regresses to the OS disk the
+# moment a tool builds without it.
+#
+# WHY THE WHOLE target/ (not one profile): target/debug and target/release both
+# live under target/. Relocating target/ itself moves debug AND release in one
+# move and keeps future builds of both on the dedicated drive.
+#
+# Idempotent: a target/ already symlinked into DEST is skipped, so this is safe
+# to re-run from cron to catch newly-cloned repos.
+#
+# Managed in the relocate-targets skill (scottidler/claude). The cron + ~/bin
+# symlink point at THIS file (single source of truth).
+set -euo pipefail
+
+ROOT="${HOME}/repos"
+DEST="/media/saidler/intel-480gb-ssd/cargo-target"
+REPO=""                 # single-repo mode when set
+REMOTE=""               # user@host for cross-machine DEST
+DRY_RUN=0
+
+usage() {
+  cat >&2 <<'EOF'
+usage: relocate-targets [--root DIR | --repo DIR] [--dest DIR] [--remote USER@HOST] [--dry-run]
+  --root DIR        sweep every repo under DIR (default: ~/repos)
+  --repo DIR        relocate a single repo (its repo-root dir, the one with Cargo.toml)
+  --dest DIR        destination root on the dedicated drive
+                    (default: /media/saidler/intel-480gb-ssd/cargo-target)
+  --remote USER@HOST  DEST lives on this host; migrate over ssh (implies rsync transport)
+  --dry-run         report what would happen; touch nothing
+
+Replaces <repo>/target with a symlink to <dest>/<reposlug>/target. A brand-new
+repo with no target/ yet is pre-linked so its first build lands on the drive.
+Transport is auto-selected: same-filesystem -> rename; local cross-fs -> tar
+pipe (fastest, hardlink-safe); cross-machine -> rsync -aHX over ssh.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root)    ROOT="$2"; shift 2 ;;
+    --repo)    REPO="$2"; shift 2 ;;
+    --dest)    DEST="$2"; shift 2 ;;
+    --remote)  REMOTE="$2"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "relocate-targets: unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+# DRY_RUN is 0/1, so ${DRY_RUN:+...} would always expand ("0" is non-empty).
+# Build the human label once via an arithmetic test instead.
+DRY_LABEL=""; (( DRY_RUN )) && DRY_LABEL=" (dry-run)"
+
+log()  { echo "relocate-targets: $*" >&2; }
+toast() {
+  command -v notify-send >/dev/null 2>&1 || return 0
+  local urgency="$1"; shift
+  DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" \
+    notify-send -a relocate-targets -u "${urgency}" "$@" >/dev/null 2>&1 || true
+}
+
+# st_dev of a path's nearest existing ancestor (DEST may not exist on first run).
+dev_of() {
+  local p="$1"
+  while [[ ! -e "${p}" && "${p}" != "/" ]]; do p="$(dirname "${p}")"; done
+  stat -c %d "${p}" 2>/dev/null || echo "?"
+}
+
+# Refuse to run unless DEST is on a DIFFERENT filesystem than the repos. This is
+# the real guard: the entire point is to move build output OFF the repo disk, so
+# a DEST on the same filesystem is either pointless (same disk) or -- the
+# dangerous case -- the dedicated drive is UNMOUNTED and DEST has silently fallen
+# back to an empty dir on the OS disk under the mountpoint. Either way, abort
+# loudly. (Checking `mountpoint` on a df-derived path is useless: df always
+# resolves to *some* mounted fs, so that test can never fail.)
+require_dest_mounted() {
+  [[ -n "${REMOTE}" ]] && return 0          # remote: the remote side owns mounting
+  local dest_dev repo_dev
+  dest_dev="$(dev_of "${DEST}")"
+  repo_dev="$(dev_of "${ROOT:-$HOME}")"
+  if [[ "${dest_dev}" == "?" || "${dest_dev}" == "${repo_dev}" ]]; then
+    log "ERROR ${DEST} is on the same filesystem as your repos (dedicated drive not mounted?); refusing to relocate onto the OS disk"
+    toast critical "relocate-targets: drive not mounted" "DEST is on the OS disk (drive not mounted?). Build artifacts would land on the OS disk again. Aborting."
+    exit 1
+  fi
+}
+
+# True if SRC and DST_PARENT are on the same filesystem (a rename will work).
+same_fs() {
+  local a b
+  a="$(stat -c %d "$1" 2>/dev/null || echo x)"
+  b="$(stat -c %d "$2" 2>/dev/null || echo y)"
+  [[ "${a}" == "${b}" && "${a}" != "x" ]]
+}
+
+# Migrate a real directory SRC to DST, fastest correct transport, then leave SRC
+# gone (the move half of a move). Returns non-zero without touching SRC on any
+# copy failure, so the caller never symlinks over an incomplete copy.
+#
+# Correctness keystone: cargo target/ dirs are full of HARDLINKS (a dep's .rlib
+# is hardlinked to the final artifact). A copy that doesn't preserve them
+# silently inflates size and breaks cargo's fingerprinting. Every transport
+# below is hardlink-preserving; rsync MUST carry -H or it shatters them.
+migrate() {
+  local src="$1" dst="$2" dstparent
+  dstparent="$(dirname "${dst}")"
+
+  if [[ -n "${REMOTE}" ]]; then
+    log "  transport: rsync -aHX over ssh -> ${REMOTE}:${dst}"
+    (( DRY_RUN )) && return 0
+    ssh "${REMOTE}" "mkdir -p '${dstparent}'" || return 1
+    # -H preserves hardlinks (mandatory), -A/-X acls/xattrs, --remove-source-files
+    # then prune empties = a clean move that can resume if the link drops.
+    rsync -aHAX --remove-source-files -e ssh "${src}/" "${REMOTE}:${dst}/" || return 1
+    find "${src}" -depth -type d -empty -delete
+    return 0
+  fi
+
+  mkdir -p "${dstparent}"
+  if same_fs "${src}" "${dstparent}"; then
+    log "  transport: rename (same filesystem)"
+    (( DRY_RUN )) && return 0
+    mv "${src}" "${dst}"
+    return 0
+  fi
+
+  # Local cross-filesystem: tar pipe is ~2x faster than rsync/mv for many small
+  # files and preserves hardlinks; no compression (CPU cost, no slow link to
+  # amortize it against locally). Verify before dropping the source.
+  log "  transport: tar pipe (local cross-fs)"
+  (( DRY_RUN )) && return 0
+  mkdir -p "${dst}"
+  if ! tar -C "${src}" -cf - . | tar -C "${dst}" -xpf - ; then
+    local st=("${PIPESTATUS[@]}")
+    log "  ERROR tar pipe failed (read=${st[0]} write=${st[1]}); leaving source in place"
+    return 1
+  fi
+  # Verify the copy looks complete (entry counts match) before removing source.
+  local n_src n_dst
+  n_src="$(find "${src}" | wc -l)"
+  n_dst="$(find "${dst}" | wc -l)"
+  if [[ "${n_src}" -ne "${n_dst}" ]]; then
+    log "  ERROR entry-count mismatch (src=${n_src} dst=${n_dst}); leaving source in place"
+    return 1
+  fi
+  # Source is now a verified duplicate of DST. Removing it is the move's second
+  # half (cf. rkvr safety rule: this is not a user delete, it's the tail of a
+  # verified migration -- the data survives intact at DST).
+  rm -rf "${src}"
+}
+
+# Relocate one repo's target/ to the dedicated drive and symlink it back.
+relocate_one() {
+  local repo="$1" tgt rel ssd
+  tgt="${repo}/target"
+  rel="${repo#"${ROOT}"/}"; [[ "${rel}" == "${repo}" ]] && rel="$(basename "${repo}")"
+  ssd="${DEST}/${rel}/target"
+
+  if [[ -L "${tgt}" ]]; then
+    local cur; cur="$(readlink -f "${tgt}" 2>/dev/null || true)"
+    case "${cur}" in
+      "${DEST}"/*) return 0 ;;                                  # already done
+      *) log "WARN ${tgt} -> ${cur} (not into DEST); leaving alone"; WARN=$((WARN+1)); return 0 ;;
+    esac
+  fi
+
+  # Brand-new repo: no target/ yet. Pre-link so the FIRST build (debug or
+  # release) lands on the drive instead of growing on the OS disk.
+  if [[ ! -e "${tgt}" ]]; then
+    log "[${rel}] no target yet -> pre-linking to drive"
+    if (( ! DRY_RUN )); then
+      if [[ -n "${REMOTE}" ]]; then ssh "${REMOTE}" "mkdir -p '${ssd}'"; else mkdir -p "${ssd}"; fi
+      ln -s "${ssd}" "${tgt}"
+    fi
+    LINKED=$((LINKED+1)); return 0
+  fi
+
+  [[ -d "${tgt}" ]] || return 0           # a file named target? not ours.
+
+  # A leftover dest (e.g. an interrupted prior run) would make tar merge into it;
+  # skip and let a human resolve rather than risk a half-merged target. (Local
+  # only -- statting the remote per-repo isn't worth the ssh round-trip.)
+  if [[ -z "${REMOTE}" && -e "${ssd}" ]]; then
+    log "WARN dest already exists, leaving ${rel} on OS disk: ${ssd}"; WARN=$((WARN+1)); return 0
+  fi
+
+  local size; size="$(du -sh "${tgt}" 2>/dev/null | cut -f1)"
+  log "[${rel}] migrating ${size} -> drive"
+  if migrate "${tgt}" "${ssd}"; then
+    (( ! DRY_RUN )) && ln -s "${ssd}" "${tgt}"
+    MOVED=$((MOVED+1))
+  else
+    log "WARN migration failed for ${rel}; left in place"; WARN=$((WARN+1))
+  fi
+}
+
+require_dest_mounted
+
+LINKED=0 MOVED=0 WARN=0
+if [[ -n "${REPO}" ]]; then
+  [[ -f "${REPO}/Cargo.toml" ]] || { log "ERROR ${REPO} has no Cargo.toml"; exit 2; }
+  log "single-repo mode: ${REPO} -> ${DEST}${REMOTE:+ on ${REMOTE}}${DRY_LABEL}"
+  relocate_one "${REPO%/}"
+else
+  log "sweep mode: root=${ROOT} dest=${DEST}${REMOTE:+ on ${REMOTE}}${DRY_LABEL}"
+  while IFS= read -r -d '' manifest; do
+    relocate_one "$(dirname "${manifest}")"
+  done < <(find "${ROOT}" -mindepth 3 -maxdepth 3 -name Cargo.toml -type f -print0 2>/dev/null | sort -z)
+fi
+
+log "done: pre-linked=${LINKED} migrated=${MOVED} warnings=${WARN}"
