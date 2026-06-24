@@ -1,32 +1,32 @@
 ---
-name: sdv-verify
+name: sdv-probe
 description: >-
   Report a Tatari hosted site's standard endpoints - Status, Deployed, Version
   (sdv) - for ANY *.tatari.dev / *.tatari.tv URL, via the `sdv` CLI
-  (`sdv verify <url>`). Use when asked what version is live, is it up, did the
+  (`sdv probe <url>`). Use when asked what version is live, is it up, did the
   rollout land, check test/prod, or to confirm a deploy. This is ONE command - do
   NOT cold-start, do NOT reach for aws-vault/kubectl/port-forward, do NOT build a
   verifier skill. (To verify a non-deployed code change at its runtime surface, use
   the generic `verify` skill.)
 ---
 
-# sdv-verify
+# sdv-probe
 
 ## Run the `sdv` CLI
 
 For anything served at a Tatari URL (`*.tatari.dev`, `*.tatari.tv`
 - marquee, persona, any platform service), the answer is the `sdv` CLI
-(`~/.cargo/bin/sdv`, source `~/repos/tatari-tv/sdv`). The `sdv verify <url>`
+(`~/.cargo/bin/sdv`, source `~/repos/tatari-tv/sdv`). The `sdv probe <url>`
 subcommand probes the standard `/status`, `/deployed`, `/version` endpoints at the
 host root and reports them. It carries its own Okta token, so it works from OUTSIDE
 the cluster - no aws-vault, no `kubectl`, no port-forward.
 
 ```bash
-sdv verify https://marquee.test.tatari.dev   # report status/deployed/version (yaml on tty, json piped)
+sdv probe https://marquee.test.tatari.dev   # report status/deployed/version (yaml on tty, json piped)
 sdv whoami                                     # cached auth email (is a token live?)
 sdv login --device                             # headless Okta for SSH/agent shells: prints code+URL, approve anywhere
 sdv token                                      # print a bearer for raw curl/scripts
-sdv verify https://marquee.test.tatari.dev --format json | jq -r '.version.body.version'  # just the live version
+sdv probe https://marquee.test.tatari.dev --format json | jq -r '.version.payload.version'  # just the live version
 ```
 
 - The public URL 302s to `tatari.okta.com` for a bare `curl` - that is expected;
@@ -40,14 +40,17 @@ That is the whole task. Paste the CLI's output as the evidence - don't paraphras
 
 ## Reading the output
 
-`sdv verify` returns a `status`/`deployed`/`version` block per endpoint. The fields
-that usually matter:
+`sdv probe` returns a `status`/`deployed`/`version` block per endpoint, each with a
+`state` and the server's `payload` (passed through untouched). When a payload carries
+RFC-3339 timestamps, sdv adds a sibling `local` block rendering them in your machine's
+timezone. The fields that usually matter:
 
-- `version.body.version` - the live build (`v1.6.1` clean tag vs `v1.6.0-2-gSHA`
-  means N commits past the last tag at build time); `git_sha`/`branch` should match
+- `version.payload.version` - the live build (`v1.6.1` clean tag vs `v1.6.0-2-gSHA`
+  means N commits past the last tag at build time); `revision`/`branch` should match
   the commit you expect live.
-- `deployed.body` - `deployed_at`, `deployer`, `environment`.
-- `status.body` - `status` + `uptime` (a tiny uptime right after a rollout is the
+- `deployed.payload` - `deployed_at`, `deployer`, `environment` (with
+  `deployed.local.deployed_at` for the deploy time in your timezone).
+- `status.payload` - `status` + `uptime` (a tiny uptime right after a rollout is the
   new pod; a large one means you may be hitting the OLD binary).
 
 A non-`ok` `state` on any endpoint, or a version/sha that doesn't match what you
