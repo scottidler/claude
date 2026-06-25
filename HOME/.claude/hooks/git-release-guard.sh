@@ -52,8 +52,14 @@ check_stmt() {
   fi
 
   # ---- bump: release flow (rules/git.md release section + Scott's workflow) ----
-  if printf '%s' "$s" | grep -Eq '\bbump\b' \
-     && ! printf '%s' "$s" | grep -Eq '\bbump\b.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
+  # Match `bump` ONLY in command position — the first token of the statement
+  # (after optional leading env-assignments and an optional path prefix). This is
+  # the fix for the substring false-positive that blocked unrelated commands
+  # merely *mentioning* bump: `git commit -m "...bump..."`, a `bump-*` branch
+  # name, `echo bump`, etc. A statement is already split on && || ; |, so the
+  # command word is unambiguous here.
+  if printf '%s' "$s" | grep -Eq '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*([^[:space:]]*/)?bump([[:space:]]|$)' \
+     && ! printf '%s' "$s" | grep -Eq 'bump.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
     if [ -n "$branch" ] && [ "$branch" != "main" ] && [ "$branch" != "master" ]; then
       deny "Release flow: NEVER bump on a feature branch (you are on '$branch'). Scott's flow is PR -> merge -> bump OFF main. Open/merge the PR, switch to main, pull, then bump. A skill's 'finalize/ship' step does NOT authorize this."
     fi

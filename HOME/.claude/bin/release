@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# release — deterministic release driver. Removes LLM discretion from the one
+# layer that keeps failing: gate detection + tag/push ordering.
+#
+# The whole release problem is binary (Scott's framing, and it really is):
+#
+#   1. main is GATED   -> bump --no-tag on main, move the commit to a release-*
+#                         branch, reset main, open a PR; AFTER it merges, tag the
+#                         merged tip of main and push the tag by name.
+#   2. main is UNGATED -> bump (tags local HEAD), push branch then tag by name.
+#
+# This script is the mechanical executor of exactly the commands the bump/shipit
+# skills document — same `bump` calls, same safe push order — but with NO room
+# for the model to "rationalize" a wrong path mid-flow. Every HALL-OF-SHAME entry
+# is the model exercising discretion at a decision point; this deletes the
+# decision points.
+#
+# IMPORTANT: this runs `bump`/`git push` as SUBPROCESSES, so the PreToolUse
+# git-release-guard hook never sees them. The safety therefore lives HERE:
+#   - never `git push --tags` (tag pushed by explicit name, only after the
+#     branch/commit is confirmed on origin)
+#   - never bump a dirty tree (refuse unless the tree is clean)
+#   - never tag a gated repo before the merge (bump --no-tag / bump --tag-only)
+#   - never force-push, never delete tags
+#
+# Contract: the CODE CHANGE IS ALREADY COMMITTED (clean tree, on the default
+# branch, unpushed). The caller owns the diff-reading judgment (what to commit,
+# the message). This driver owns everything mechanical from there.
+#
+# Usage:
+#   release [-m|-M] [--install "<cmd>"|--no-install] [-n]   # start a release
+#   release --finish [--install "<cmd>"|--no-install] [-n]  # gated: resume after PR merge
+#
+set -euo pipefail
+
+# ---- args ---------------------------------------------------------------------
+LEVEL=""          # "", "-m", or "-M" passed through to bump
+INSTALL_CMD=""    # explicit install command (caller usually reads CLAUDE.md)
+NO_INSTALL=0
+DRYRUN=0
+FINISH=0
+
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -m|--minor)   LEVEL="-m" ;;
+    -M|--major)   LEVEL="-M" ;;
+    --install)    INSTALL_CMD="${2:-}"; shift ;;
+    --no-install) NO_INSTALL=1 ;;
+    -n|--dry-run) DRYRUN=1 ;;
+    --finish)     FINISH=1 ;;
+    -h|--help)    usage 0 ;;
+    *) echo "release: unknown argument: $1" >&2; usage 1 ;;
+  esac
+  shift
+done
+
+# ---- helpers ------------------------------------------------------------------
+die()  { echo "release: $*" >&2; exit 1; }
+say()  { printf '\033[1;36m▶ %s\033[0m\n' "$*"; }
+run()  { if [ "$DRYRUN" = 1 ]; then echo "  [dry-run] $*"; else echo "  + $*"; eval "$@"; fi; }
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git repo"
+
+DEFAULT=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || true)
+if [ -z "$DEFAULT" ]; then
+  if   git rev-parse --verify --quiet main   >/dev/null; then DEFAULT=main
+  elif git rev-parse --verify --quiet master >/dev/null; then DEFAULT=master
+  else die "cannot determine default branch (no origin/HEAD, no main/master)"; fi
+fi
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# install step — shared by both modes
+do_install() {
+  if [ "$NO_INSTALL" = 1 ]; then say "install: skipped (--no-install)"; return; fi
+  local cmd="$INSTALL_CMD"
+  if [ -z "$cmd" ]; then
+    if [ -f Cargo.toml ]; then cmd="cargo install --path ."
+    else say "install: no command given and not a Rust crate — skipped"; return; fi
+  fi
+  say "install: $cmd"
+  run "$cmd"
+}
+
+# ---- FINISH mode: gated post-merge tag+push -----------------------------------
+if [ "$FINISH" = 1 ]; then
+  say "finish (gated post-merge): tag the merged tip of $DEFAULT and push it by name"
+  run "git checkout $DEFAULT"
+  run "git fetch origin $DEFAULT"
+  run "git pull --ff-only origin $DEFAULT"
+  # bump --tag-only refuses unless HEAD == origin/<default>, so it physically
+  # cannot orphan a tag. This is the whole okta-auth-rs guard, mechanized.
+  run "bump --tag-only"
+  if [ "$DRYRUN" = 0 ]; then
+    VER=$(git tag --points-at HEAD --list 'v*' | head -1)
+    [ -n "$VER" ] || die "bump --tag-only produced no v* tag at HEAD — STOP, inspect manually"
+    run "git push origin $VER"
+  else
+    echo "  [dry-run] git push origin <vX.Y.Z from bump --tag-only>"
+  fi
+  do_install
+  say "done — gated release finished, tag on origin/$DEFAULT"
+  exit 0
+fi
+
+# ---- START mode: preconditions ------------------------------------------------
+[ "$BRANCH" = "$DEFAULT" ] || die "must run from the default branch ($DEFAULT); you are on '$BRANCH'. (Release happens off $DEFAULT — see git.md.)"
+[ -z "$(git status --porcelain)" ] || die "tree is dirty. Commit your real code change first (specific files, good message); the driver only does the mechanical release on a CLEAN tree (this is how the marquee asset-sweep was avoided)."
+
+run "git fetch origin $DEFAULT"
+BEHIND=$(git rev-list --count "HEAD..origin/$DEFAULT" 2>/dev/null || echo 0)
+[ "$BEHIND" = 0 ] || die "$DEFAULT is $BEHIND commit(s) behind origin/$DEFAULT — pull/rebase before releasing (tagging a stale main is how cr v0.1.8 was orphaned)."
+AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
+[ "$AHEAD" -gt 0 ] || die "nothing to release: HEAD == origin/$DEFAULT and tree is clean. Commit a change first."
+
+# Target version — parse bump's own dry-run so the number is bump's, not ours.
+PREVIEW=$(bump -n $LEVEL 2>&1 || true)
+TAG=$(printf '%s\n' "$PREVIEW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+[ -n "$TAG" ] || die "could not parse target version from 'bump -n $LEVEL':"$'\n'"$PREVIEW"
+
+# Gate detection — bump checks BOTH layers (classic protection AND repo/org
+# rulesets). This is the single source of truth; never infer gates by hand.
+GATES=$(bump --gates 2>&1 || true)
+echo "$GATES"
+if printf '%s\n' "$GATES" | grep -qiE 'Gates:[[:space:]]*none|ungated'; then
+  GATED=0
+elif printf '%s\n' "$GATES" | grep -qiE 'not a github remote'; then
+  # No GitHub remote -> no GitHub ruleset can gate it. Safe to treat as ungated.
+  GATED=0
+elif printf '%s\n' "$GATES" | grep -qiE 'gated'; then
+  GATED=1
+else
+  # gh unauthenticated / API error / genuinely indeterminate on a GitHub repo.
+  # REFUSE rather than guess — guessing "ungated" here is exactly how a gated
+  # repo gets a tag pushed straight at it and orphaned.
+  die "gate status is UNKNOWN for a GitHub repo — refusing to guess. Run 'gh auth status' and retry. Output was:"$'\n'"$GATES"
+fi
+
+# ---- UNGATED: bump tags HEAD, push branch then tag by name --------------------
+if [ "$GATED" = 0 ]; then
+  say "UNGATED release of $TAG on $DEFAULT"
+  run "bump $LEVEL"
+  # Use the tag bump ACTUALLY created (not the -n prediction) — defensive.
+  if [ "$DRYRUN" = 0 ]; then
+    TAG=$(git tag --points-at HEAD --list 'v*' | head -1)
+    [ -n "$TAG" ] || die "bump created no v* tag at HEAD — STOP, inspect manually (did bump refuse?)"
+  fi
+  # branch FIRST, and only if it lands does the tag follow (the && is the safety)
+  run "git push origin $DEFAULT && git push origin $TAG"
+  do_install
+  say "done — $TAG pushed; tag on origin/$DEFAULT"
+  exit 0
+fi
+
+# ---- GATED: bump --no-tag, ride a release-* branch through a PR ----------------
+RELBR="release-${TAG#v}"   # release-X.Y.Z — never bump-* (that false-trips the hook)
+say "GATED release of $TAG — version bump must ride a PR (no tag until merged)"
+run "bump --no-tag $LEVEL"             # bumps + commits on $DEFAULT, NO tag (hook allows bump on $DEFAULT)
+run "git branch $RELBR"                # capture the bump commit on the release branch
+run "git reset --hard origin/$DEFAULT" # leave $DEFAULT identical to origin (tree is clean here)
+run "git checkout $RELBR"
+run "git push --no-follow-tags -u origin $RELBR"
+if [ "$DRYRUN" = 0 ]; then
+  run "gh pr create --title 'Release $TAG' --body 'Version bump to $TAG. Auto-generated by the release driver.' --head $RELBR --base $DEFAULT"
+  PRURL=$(gh pr view "$RELBR" --json url -q .url 2>/dev/null || true)
+  echo
+  say "PR opened${PRURL:+: $PRURL}"
+  echo "  This is a GATED repo — the tag cannot exist until the PR merges."
+  echo "  After it merges (CI + review), run:   release --finish${NO_INSTALL:+ --no-install}${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
+else
+  echo "  [dry-run] gh pr create --head $RELBR --base $DEFAULT  (then, after merge: release --finish)"
+fi
+say "paused — waiting on PR merge for $TAG"

@@ -65,6 +65,15 @@ script:
     claude mcp remove gslides -s user 2>/dev/null || true; claude mcp add-json gslides '{"type":"stdio","command":"gslides-mcp","args":[]}' -s user
     echo "registered 10 MCP servers at user scope"
 
+  # Put the deterministic release driver on PATH. The script itself lives at
+  # HOME/.claude/bin/release (mirrored to ~/.claude/bin/release by the recursive
+  # HOME link above); ~/.claude/bin is not on PATH, so symlink it into ~/bin so
+  # `release` is callable bare. Idempotent. See skills/bump + agents/release-driver.
+  release-on-path: |
+    mkdir -p /home/saidler/bin
+    ln -sf "$HOME/.claude/bin/release" "$HOME/bin/release"
+    echo "release driver linked onto PATH (~/bin/release)"
+
   # Daily relocation of Rust build artifacts onto the dedicated drive. The engine
   # lives in the relocate-targets skill (single source of truth); this puts it on
   # PATH as ~/bin/relocate-targets and installs the cron. Idempotent: a healthy
