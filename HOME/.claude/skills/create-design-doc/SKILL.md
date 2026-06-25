@@ -23,7 +23,14 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
 
 ## Process
 
-1. **Gather context** — understand problem, explore codebase, research if needed
+1. **Gather context** — understand the problem and explore the codebase.
+   **Default: delegate the dig to the `design-research` agent** (pass it the
+   artifact path — shakedown/bullets/issue — plus the repo root). It runs the
+   heavy investigation in its own context and returns a brief: verified root
+   cause, the affected `path:line` surface, prior art/constraints, and a draft
+   phased plan with model tags. Draft from that brief.
+   *Fallback:* if no agent is available or the artifact is trivial, research
+   inline as before — the rest of this skill is unchanged either way.
 2. **Draft** — use template below, focus on breadth
 3. **Refine** — run passes 2-5, announcing each pass and documenting changes
 4. **Converge** — when no significant changes, document is ready

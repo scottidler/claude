@@ -3,6 +3,7 @@ link:
   HOME: $HOME
   dirs:
     HOME/.claude/skills: $HOME/.claude/skills
+    HOME/.claude/agents: $HOME/.claude/agents
 
 github:
   mattpocock/skills:

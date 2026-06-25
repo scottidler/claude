@@ -13,6 +13,12 @@ Summon a Staff Engineer persona (running on OpenAI Codex) to review a design doc
 
 This is the codex-backed sibling of `/architect` (which runs on Gemini). Use `/staff-engineer` when you want a pragmatic, implementation-grounded reviewer that **verifies by executing** read-only `rg`/`git`/file reads, or a second independent opinion alongside `/architect`.
 
+> **Running both reviewers?** When you want the Staff Engineer *and* the
+> Architect on the same doc (the usual case), invoke the `review-panel` agent
+> instead — it resolves doc/mode/dirs once, fans out both reviewers in parallel
+> with monitoring, and returns one reconciled findings list. This skill remains
+> the way to consult the Staff Engineer *alone* or to drive multi-round follow-up.
+
 **Announce at start:** "Consulting the Staff Engineer via Codex. Detecting mode..."
 
 ## Trigger

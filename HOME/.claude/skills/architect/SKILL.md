@@ -11,6 +11,12 @@ Summon Gemini's Architect persona to review a design document. Two modes:
 - **Design Review**: Evaluate whether the design is sound before implementation begins
 - **Implementation Audit**: Judge whether the implementation actually delivered the spec
 
+> **Running both reviewers?** When you want the Architect *and* the Staff
+> Engineer on the same doc (the usual case), invoke the `review-panel` agent
+> instead — it resolves doc/mode/dirs once, fans out both reviewers in parallel
+> with monitoring, and returns one reconciled findings list. This skill remains
+> the way to consult the Architect *alone* or to drive multi-round follow-up.
+
 **Announce at start:** "Consulting the Architect via Gemini. Detecting mode..."
 
 ## Trigger

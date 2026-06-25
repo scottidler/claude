@@ -7,6 +7,34 @@ description: Execute a phased implementation plan from a design document. Implem
 
 A systematic workflow for implementing multi-phase design documents created with the Rule of Five methodology.
 
+## Execution Mode
+
+Pick one. Both produce the same result — per-phase commits, `otto ci` green,
+implementation notes, then finalization. They differ only in *who* implements
+each phase.
+
+- **Delegated (default).** For each phase, spawn the `phase-implementer` agent
+  with that phase's **annotated model** (the `**Model:**` tag in the design
+  doc — sonnet/opus/fable). Pass it the doc path, the phase, and the prior
+  phase's commit SHA. It implements the phase in its own context and returns a
+  report (commit SHA, CI status, notes appended, deviations, open questions).
+  **You (the skill) stay the orchestrator:** sequence the phases, gate the next
+  phase on the prior report being green, own the implementation-notes file's
+  coherence, and run finalization once after the last phase. This is the only
+  mode that actually honors per-phase model tags, and it mirrors the
+  per-phase-per-context pattern by hand — but automated and in one session.
+  - *Fallback if delegation isn't available* (no agent, or you'd rather drive
+    it directly): just run the Inline mode below. Nothing else changes.
+
+- **Inline (the original loop).** Implement every phase yourself in this
+  context, exactly as the rest of this document describes. This is the proven
+  path; use it whenever you want full visibility or the delegated path misbehaves.
+
+Everything below — the loop steps, the commit format, the notes discipline, the
+finalization sequence — applies to **both** modes. In Delegated mode the
+`phase-implementer` agent performs steps 1-6 per phase and you perform step 7
+(sequencing) and the finalization; in Inline mode you perform all of it.
+
 ## Prerequisites
 
 Before using this skill, you must have:
@@ -385,3 +413,15 @@ project is not Rust, substitute the equivalent install command.
 
 **CRITICAL: Do NOT ask the user before running these steps.** The user invoked
 this skill expecting the full pipeline - implement, validate, ship.
+
+## Closing: suggest the audit
+
+After finalization, the natural next step is the **Implementation Audit** — the
+doc is now `Status: Implemented`, so the reviewers run in Mode 2 and walk every
+Implementation Plan bullet against the committed code. End the turn with the
+recommended command on its **own line**, nothing after it, so Claude Code's
+prompt predictor offers it as the ghost suggestion (Tab + Enter to run):
+
+```
+send to the review-panel agent for an implementation audit
+```
