@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# mina-session — attach to the persistent mina chat living in tmux on mini.lan.
+#
+# Attaches to the long-running `mina` tmux session (your conversation persists
+# across detach/reattach). If that session ever died, it is recreated on the
+# spot, so this never errors out. No hermes runs on desk.
+#
+# Detach with your tmux prefix + d  (your prefix is C-q, so: C-q d).
+#
+# Usage:
+#   mina-session
+set -euo pipefail
+
+host="mini.lan"
+tmux_bin="/opt/homebrew/bin/tmux"
+hermes="/Users/saidler/.local/bin/hermes"
+session="mina"
+
+exec ssh "$host" -t "$tmux_bin new-session -A -s $session '$hermes -p mina chat'"

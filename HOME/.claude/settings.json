@@ -1,15 +1,72 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "autoDreamEnabled": true,
+  "effortLevel": "high",
+  "enabledPlugins": {
+    "general@tatari-skills": true,
+    "marquee@tatari-skills": true,
+    "platform@tatari-skills": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "understand-anything@understand-anything": true
+  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_COLORSCHEME": "dracula",
     "ENABLE_TOOL_SEARCH": "true",
     "MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES": "3"
   },
-  "attribution": {
-    "commit": "",
-    "pr": ""
+  "extraKnownMarketplaces": {
+    "tatari-skills": {
+      "source": {
+        "path": "/home/saidler/repos/tatari-tv/tatari-skills",
+        "source": "directory"
+      }
+    },
+    "understand-anything": {
+      "source": {
+        "repo": "Lum1104/Understand-Anything",
+        "source": "github"
+      }
+    }
   },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/allow-help.sh",
+            "type": "command"
+          },
+          {
+            "command": "~/.claude/hooks/git-no-dash-c.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "claude-permit log",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  },
+  "model": "sonnet[1m]",
   "permissions": {
+    "additionalDirectories": [
+      "/home/saidler/repos",
+      "/home/saidler/.config"
+    ],
     "allow": [
       "Edit(bin/**/*.sh)",
       "Write(bin/**/*.sh)",
@@ -197,7 +254,6 @@
       "Bash(~/.claude/skills/staff-engineer/script.sh:*)",
       "Bash(pd:*)",
       "Bash(which:*)",
-      "Bash(head *)",
       "Bash(/usr/bin/head *)",
       "Bash(tail *)",
       "Bash(/usr/bin/tail *)",
@@ -331,7 +387,21 @@
       "WebFetch(domain:www.davidborish.com)",
       "Bash(mise *)",
       "WebFetch(domain:danielmiessler.com)",
-      "Skill(e2e)"
+      "Skill(e2e)",
+      "Read(/home/saidler/.claude/data/tatari-repos/*)",
+      "Read(/tmp/repos_query.py)",
+      "Read(/private/tmp/repos_query.py)",
+      "Bash(curl*)",
+      "Bash(for *)",
+      "Bash(base64 *)",
+      "Write(/tmp/*)",
+      "Write(/private/tmp/*)",
+      "Bash(marquee:*)",
+      "Bash(verify:*)",
+      "Bash(head:*)",
+      "Bash(cut:*)",
+      "WebFetch(domain:r.jina.ai)",
+      "WebFetch(domain:developers.gamma.app)"
     ],
     "deny": [
       "Bash(git tag -d *)",
@@ -349,65 +419,7 @@
       "Bash(gh codespace delete:*)",
       "Bash(gh extension remove:*)",
       "Bash(gh run cancel:*)"
-    ],
-    "additionalDirectories": [
-      "/home/saidler/repos",
-      "/home/saidler/.config"
     ]
-  },
-  "model": "sonnet[1m]",
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/allow-help.sh"
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/git-no-dash-c.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "claude-permit log"
-          }
-        ]
-      }
-    ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline.sh"
-  },
-  "enabledPlugins": {
-    "general@tatari-skills": true,
-    "platform@tatari-skills": true,
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "understand-anything@understand-anything": true
-  },
-  "extraKnownMarketplaces": {
-    "tatari-skills": {
-      "source": {
-        "source": "directory",
-        "path": "/home/saidler/repos/tatari-tv/tatari-skills"
-      }
-    },
-    "understand-anything": {
-      "source": {
-        "source": "github",
-        "repo": "Lum1104/Understand-Anything"
-      }
-    }
   },
   "sandbox": {
     "enabled": true,
@@ -416,9 +428,10 @@
       "otto *"
     ]
   },
-  "effortLevel": "high",
-  "advisorModel": "fable",
-  "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
-  "skipWorkflowUsageWarning": true
+  "skipWorkflowUsageWarning": true,
+  "statusLine": {
+    "command": "~/.claude/statusline.sh",
+    "type": "command"
+  }
 }

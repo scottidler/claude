@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# mina — ask the mina agent (hermes on mini.lan) a one-shot question, from desk.lan.
+#
+# No hermes runs on desk; this is pure SSH remote control of the mina profile
+# living on mini.lan (/Users/saidler/.local/bin/hermes -p mina).
+#
+# Usage:
+#   mina what is the weather in oakland
+#   mina "summarize the last thing we talked about"
+#   echo "long prompt" | mina        # prompt from stdin if no args
+set -euo pipefail
+
+host="mini.lan"
+hermes="/Users/saidler/.local/bin/hermes"
+
+if [ "$#" -gt 0 ]; then
+  prompt="$*"
+else
+  prompt="$(cat)"
+fi
+
+# Single-quote the prompt for the remote shell, escaping embedded single quotes.
+esc=$(printf "%s" "$prompt" | sed "s/'/'\\\\''/g")
+
+exec ssh "$host" "$hermes -p mina -z '$esc'"
