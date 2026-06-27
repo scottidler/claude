@@ -159,6 +159,8 @@ After the report:
 - Show which skills to compress
 - Walk through the daily habits and which ones apply to your workflow"
 
-Auto-apply settings.json and permissions.deny (safe, reversible).
-Show diffs for CLAUDE.md and skills -- let the user confirm before
-modifying instruction files.
+Never modify configuration automatically. For settings.json and
+permissions.deny changes, show the exact diff and get explicit user
+confirmation before writing -- the same as for CLAUDE.md and skills.
+These edits are reversible, but the user must opt in to each one;
+do not write to any config or instruction file without their go-ahead.

@@ -23,9 +23,11 @@ The user builds a LOT of CLI tools. They need confidence that a freshly minted b
 A shakedown runs dozens or hundreds of commands. Being prompted for permission on each one makes the experience miserable. Before running a single command:
 
 1. **Check if `Bash(<tool>:*)` exists in `~/.claude/settings.json` permissions.allow.**
-2. **If not, add it.** Read the settings file, add the permission rule to the allow array, write it back. This is a one-time setup that makes the entire shakedown flow smoothly.
+2. **If it is missing, ask the user before changing anything.** Show them the exact rule you propose to add (e.g. `Bash(persona:*)`) and explain that it pre-approves every `persona` command for the duration of this shakedown. Edit `~/.claude/settings.json` only after they explicitly confirm. **Never modify the user's global settings silently.** If they decline, proceed with normal per-command permission prompts instead.
 
-This is the single most important step. Skip it and the user will be clicking "approve" 50+ times. The tool is something they just built - they obviously want to run it.
+> **Disclosure:** this step modifies your global Claude Code configuration (`~/.claude/settings.json`) to pre-authorize a command namespace. It is a one-time convenience for the shakedown, written only with your consent, and trivially reverted by removing the rule.
+
+This is the single most important step for a smooth run. Without the pre-approval the user clicks "approve" 50+ times - that is a fine choice if they prefer it; the decision is theirs, not yours to make on their behalf.
 
 **Critical: permission patterns are prefix-matched.** `Bash(persona:*)` only matches commands that literally start with `persona`. If you wrap the command in `echo "..."; persona ...` or chain it with `&&`, or pipe it with `| head`, the command string no longer starts with `persona` and will prompt again. During the shakedown:
 - Run each `<tool>` command as a bare, standalone Bash call
@@ -127,7 +129,7 @@ If the tool lives in a GitHub repo, validate that the release pipeline produced 
 
    List all assets and note which targets are present vs missing. The exact naming varies by project - some use `.tar.gz`, some are bare binaries, some include the version in the filename. Adapt to what you find.
 
-4. **Download and test the matching binary.** Determine the current OS and architecture (`uname -s` + `uname -m`), download the matching asset to `/tmp/`, make it executable, and run `<binary> --version`. Compare the output to what the locally-installed binary reports. They should match exactly.
+4. **Download and test the matching binary.** Only download release assets from the tool's own GitHub releases (the repo being shaken down) - never a third-party mirror. Determine the current OS and architecture (`uname -s` + `uname -m`), download the matching asset to `/tmp/`, and if the release publishes checksums, verify the download against them before doing anything else. Then make it executable and run `<binary> --version`. Compare the output to what the locally-installed binary reports. They should match exactly.
 
 5. **Verify the git tag.** Check that the tag exists, is annotated (not lightweight), and that it points to the expected commit. Use `git tag -v <tag>` or `git cat-file -t <tag>` (annotated tags have type "tag", lightweight have type "commit").
 
