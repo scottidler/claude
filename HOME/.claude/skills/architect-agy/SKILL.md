@@ -11,7 +11,30 @@ Summon the Architect persona to review a design document. Two modes:
 - **Design Review**: Evaluate whether the design is sound before implementation begins
 - **Implementation Audit**: Judge whether the implementation actually delivered the spec
 
-**Announce at start:** "Consulting the Architect via Antigravity (agy). Detecting mode..."
+> ## ⚠️ EXTERNAL DATA TRANSMISSION — READ BEFORE USE
+>
+> This skill sends data to a **third-party AI service**: Antigravity (`agy`),
+> which runs Google's Gemini Pro model in the cloud. By using this skill you are
+> transmitting the following OFF YOUR MACHINE to that external service:
+>
+> - **The full design document** (inlined verbatim into the prompt)
+> - **Relevant codebase contents** — the Architect is granted read access to your
+>   current working directory and any `--add-dir` reference repos, and reads/greps
+>   those files to verify claims
+> - **Git history** — in Implementation Audit mode, the commit log (`git log`) and
+>   diff stat (`git diff --stat`) since the last tag are embedded in the prompt
+>
+> Do not use this skill on a repo whose source, design docs, or commit history are
+> confidential, proprietary, or otherwise must not leave your machine, unless you
+> have confirmed that sending them to Google/Antigravity is acceptable.
+>
+> **Consent gate:** Before the FIRST `agy` call in a session, Claude MUST tell the
+> user, in plain language, exactly what will be sent (this doc, the codebase files
+> the Architect can read, and — in audit mode — the git log/diff) and to which
+> service (Antigravity / Gemini Pro), and get explicit confirmation to proceed. If
+> the user declines, stop — do not call the script.
+
+**Announce at start:** "Consulting the Architect via Antigravity (agy) — this sends your design doc, relevant codebase files, and (in audit mode) git history to Google's Gemini Pro, an external AI service. Detecting mode..."
 
 ## Trigger
 
@@ -155,6 +178,15 @@ This commit context will be embedded in the agy prompt alongside the design doc.
 Note: If the user committed fixes or unrelated work after the implementation, the range will be slightly noisy — acceptable, the Architect should stay focused on what the design doc describes.
 
 ## Step 4: Call agy
+
+**CONSENT GATE (first call only):** Before the FIRST `agy` invocation in this
+consultation, confirm with the user that it is OK to transmit the design doc, the
+relevant codebase files (everything the Architect can read in the workspace +
+`--add-dir` repos), and — in Implementation Audit mode — the git log and diff stat
+to **Antigravity / Google Gemini Pro**, an external third-party AI service. State
+exactly what will be sent and where. Proceed only on explicit confirmation; if the
+user declines, stop without calling the script. (You do not need to re-ask on
+follow-up rounds within the same consultation — consent carries forward.)
 
 **CRITICAL: ALWAYS call the script. NEVER construct an `agy` command directly under any circumstances — not for round 1, not for follow-ups, not for "just this once" debugging. Do not use `--model`, `--add-dir`, `-p`, or any agy flags inline. The script enforces the Pro model (via scoped settings.json), inlines the doc, builds `--add-dir` flags, and orders `-p` correctly; bypassing it silently disables those guarantees and is the most common failure mode of this skill.**
 

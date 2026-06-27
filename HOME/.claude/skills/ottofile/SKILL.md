@@ -1,6 +1,6 @@
 ---
 name: ottofile
-description: Create or standardize a .otto.yml file for any project. Auto-detects project type (Rust crate/workspace/service, Python package/service, full-stack, TypeScript/JavaScript) and generates best-practice CI configuration. Use when setting up a new repo or auditing an existing ottofile.
+description: Guides Claude to create or standardize a .otto.yml file for any project. This skill is instructions plus bundled, non-executable templates — Markdown reference templates (references/*.md) and otto-task body snippets (bash/*.sh, bash/*.yml). It is NOT a program and runs none of those files; the bash/ snippets (including the Rust coverage snippets rust-cov.sh and cov-report.sh) exist only to be pasted verbatim into the cov/cov-report tasks of the generated .otto.yml. Claude reads the repo, picks the matching template (Rust crate/workspace/service, Python package/service, full-stack, TypeScript/JavaScript), and writes the .otto.yml using its own Read/Write/Edit tools. Use when setting up a new repo or auditing an existing ottofile.
 user-invocable: true
 allowed-tools: [Bash, Read, Write, Edit, Glob, Grep, Agent]
 argument-hint: "[--type <rust-crate|rust-workspace|rust-service|python-package|python-service|fullstack|typescript>] [--frontend-dir <path>]"
@@ -9,6 +9,12 @@ argument-hint: "[--type <rust-crate|rust-workspace|rust-service|python-package|p
 # Ottofile
 
 Create or standardize `.otto.yml` files following established conventions.
+
+This skill is a set of instructions plus the bundled reference templates under
+`references/`. It contains no executable program; Claude does the work, using its
+Read/Write/Edit tools to detect the project type, select the matching template, and
+write out the `.otto.yml`. The detection rules and templates below describe what Claude
+should produce, not steps run by a compiled tool.
 
 ## Arguments
 
@@ -55,7 +61,7 @@ Based on the detected type, discover:
 
 Read the appropriate reference file for the detected type, then generate the `.otto.yml`.
 
-The `bash/` directory contains reusable snippets (bash and YAML). Templates reference them with `{{inline:bash/filename}}` markers. When generating the `.otto.yml`, read the referenced file and paste its contents in place of the marker. These are templates for inlining only - never copy them as standalone files into the user's repo.
+The `bash/` directory contains reusable otto-task body snippets (bash and YAML). These are NOT scripts this skill runs — they are template fragments. `rust-cov.sh` and `cov-report.sh` are the bodies of the generated `.otto.yml`'s `cov` and `cov-report` tasks (Rust code-coverage reporting), and `dual-target-routing.sh` / `dual-target-params.yml` are the backend/frontend routing helper for full-stack templates. Templates reference them with `{{inline:bash/filename}}` markers. When generating the `.otto.yml`, read the referenced file and paste its contents in place of the marker so the snippet ends up inside the user's `.otto.yml`, where otto (not this skill) eventually runs it. These are templates for inlining only - never copy them as standalone files into the user's repo, and this skill never executes them itself.
 
 Reference files:
 

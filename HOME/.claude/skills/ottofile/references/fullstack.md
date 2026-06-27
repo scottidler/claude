@@ -132,7 +132,7 @@ tasks:
     help: "Start development server"
     before: [dev]
     bash: |
-      uv run uvicorn {{PACKAGE_NAME}}.main:app --reload --host 0.0.0.0 --port 8000
+      uv run uvicorn {{PACKAGE_NAME}}.main:app --reload --host 127.0.0.1 --port 8000
 
   up:
     help: "Start services with docker compose"
@@ -165,13 +165,22 @@ tasks:
         [ "${docker}" = "true" ] && run_docker=true
       fi
       if [ "${run_backend}" = "true" ]; then
-        rm -rf build/ dist/ .venv/ .mypy_cache/ .pytest_cache/ .ruff_cache/ htmlcov/
-        rm -rf *.egg-info .coverage
-        find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
-        find . -name '*.pyc' -delete 2>/dev/null || true
+        cd "$(git rev-parse --show-toplevel)" || exit 1
+        rm -rf "build/" "dist/" ".venv/" ".mypy_cache/" ".pytest_cache/" ".ruff_cache/" "htmlcov/"
+        rm -rf *.egg-info ".coverage"
+        find . -maxdepth 4 -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+        find . -maxdepth 4 -name '*.pyc' -delete 2>/dev/null || true
       fi
       if [ "${run_frontend}" = "true" ]; then
-        cd {{FRONTEND_DIR}} && rm -rf dist/ node_modules/ .vite/
+        # {{FRONTEND_DIR}} must resolve within the project root; reject traversal
+        root="$(git rev-parse --show-toplevel)" || exit 1
+        front="$(realpath -m "${root}/{{FRONTEND_DIR}}")"
+        case "${front}/" in
+          "${root}/"*) : ;;
+          *) echo "FRONTEND_DIR escapes project root: ${front}" >&2; exit 1 ;;
+        esac
+        cd "${front}" || exit 1
+        rm -rf "dist/" "node_modules/" ".vite/"
       fi
       if [ "${run_docker}" = "true" ]; then
         docker compose down -v --remove-orphans

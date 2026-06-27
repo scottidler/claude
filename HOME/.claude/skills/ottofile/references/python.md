@@ -62,9 +62,13 @@ tasks:
       uv build
 
   publish:
-    help: "Publish package"
+    help: "Publish package to PyPI - IRREVERSIBLE, confirm version first (opt-in, never wired into ci)"
     bash: |
-      uv publish
+      read -r -p "Publish to PyPI? This is irreversible. [y/N] " reply
+      case "${reply}" in
+        [Yy]*) uv publish ;;
+        *) echo "Aborted."; exit 1 ;;
+      esac
 
   clean:
     help: "Clean build artifacts"
@@ -156,15 +160,16 @@ tasks:
     help: "Start development server with auto-reload"
     before: [dev]
     bash: |
-      uv run uvicorn {{PACKAGE_NAME}}.main:app --reload --host 0.0.0.0 --port 8000
+      uv run uvicorn {{PACKAGE_NAME}}.main:app --reload --host 127.0.0.1 --port 8000
 
   clean:
     help: "Clean build artifacts and caches"
     bash: |
-      rm -rf build/ dist/ .venv/ .mypy_cache/ .pytest_cache/ .ruff_cache/ htmlcov/
-      rm -rf *.egg-info .coverage
-      find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
-      find . -name '*.pyc' -delete 2>/dev/null || true
+      cd "$(git rev-parse --show-toplevel)" || exit 1
+      rm -rf "build/" "dist/" ".venv/" ".mypy_cache/" ".pytest_cache/" ".ruff_cache/" "htmlcov/"
+      rm -rf *.egg-info ".coverage"
+      find . -maxdepth 4 -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+      find . -maxdepth 4 -name '*.pyc' -delete 2>/dev/null || true
 ```
 
 **Variations**:

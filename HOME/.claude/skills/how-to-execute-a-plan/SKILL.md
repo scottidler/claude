@@ -332,7 +332,7 @@ If a phase cannot be completed:
 | `/create-design-doc` | Creates the design doc this skill executes |
 | `/rust-cli-coder` | Coding conventions for Rust implementations |
 | `/otto` | CI validation tool |
-| `/bump` | Version bumping after all phases complete |
+| `/bump` | Version bumping after all phases complete — only after the user approves at the finalization confirmation checkpoint |
 
 ## What NOT to Do
 
@@ -343,14 +343,18 @@ If a phase cannot be completed:
 - Don't combine multiple phases in one commit
 - Don't deviate from the design doc without updating it first
 - Don't gold-plate - implement exactly what the phase specifies
-- Don't push to remote until the user requests it
+- **Don't push, tag, bump, or install without the finalization confirmation checkpoint** - these are irreversible/externally-visible and require explicit user approval first
 - Don't finish the final phase without updating the design doc status to "Implemented"
 - Don't leave the design doc out of the final phase commit
 
 ## After All Phases Complete
 
-When the final phase is committed and CI is green, execute the finalization sequence
-without pausing or asking. This is part of the workflow, not a separate step.
+When the final phase is committed and CI is green, prepare the finalization
+sequence. The per-phase loop (implement → test → CI → **local commit**) runs
+without pausing because every step is local and reversible. Finalization is
+different: it bumps the version, **pushes to remote**, **creates/pushes tags**,
+and **installs a binary** — all irreversible or externally visible. Those steps
+require an explicit user confirmation checkpoint (see step 3a) before they run.
 
 ### 0. Surface implementation notes
 
@@ -374,12 +378,36 @@ git add docs/design/<design-doc>.md
 git commit -m "docs: mark <feature> design doc as implemented"
 ```
 
-### 2. Bump version
+### 3. Confirmation checkpoint (REQUIRED before any irreversible action)
+
+The remaining steps — bump, push, tag, install — are irreversible or externally
+visible. **Stop here and get explicit user approval before running any of them.**
+
+Display a summary of exactly what is pending, then wait for the user to confirm:
+
+```
+Ready to finalize. The following IRREVERSIBLE / EXTERNALLY-VISIBLE actions are pending:
+
+  - Version bump: <current version> → <proposed version> (<patch|minor|major>)
+  - git push (commits to <remote>/<branch>)
+  - git push tags (tag <vX.Y.Z> to <remote>)
+  - cargo install --path . (installs binary into ~/.cargo/bin)
+
+Reply to approve. You may approve all, a subset (e.g. "bump and push, skip install"),
+or decline. I will run ONLY what you approve.
+```
+
+Do not proceed past this point without an explicit affirmative response. If the
+user declines or does not respond, stop — the per-phase commits are already
+safely in local history and nothing is lost. Run only the actions the user
+approved, in the order below.
+
+### 4. Bump version (only if approved)
 
 Use the `/bump` skill to increment the version. Default to `patch` unless the
 design doc describes a breaking change (then `minor` or `major`).
 
-### 3. Push
+### 5. Push (only if approved)
 
 Push all commits and tags to the remote:
 
@@ -387,7 +415,7 @@ Push all commits and tags to the remote:
 git push && git push --tags
 ```
 
-### 4. Install
+### 6. Install (only if approved)
 
 Build and install the release binary locally:
 
@@ -404,15 +432,19 @@ project is not Rust, substitute the equivalent install command.
 ┌──────────────────────────────────────────────────┐
 │  0. Surface implementation notes (non-blocking)  │
 │  1. Update design doc status to "Implemented"    │
-│  2. Commit the status change                     │
-│  3. /bump (patch by default)                     │
-│  4. git push && git push --tags                  │
-│  5. cargo install --path .                       │
+│  2. Commit the status change (local, reversible) │
+│  3. CONFIRMATION CHECKPOINT — get user approval  │
+│     for the irreversible actions below           │
+│  4. /bump (patch by default)        [if approved]│
+│  5. git push && git push --tags     [if approved]│
+│  6. cargo install --path .          [if approved]│
 └──────────────────────────────────────────────────┘
 ```
 
-**CRITICAL: Do NOT ask the user before running these steps.** The user invoked
-this skill expecting the full pipeline - implement, validate, ship.
+**The per-phase loop runs without pausing** (local commits only). But steps 4-6
+push, tag, and install — those are gated behind the step 3 confirmation
+checkpoint and run ONLY with explicit user approval. Never bump, push, tag, or
+install without it.
 
 ## Closing: suggest the audit
 

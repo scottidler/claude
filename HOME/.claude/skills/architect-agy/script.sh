@@ -137,7 +137,23 @@ mkdir -p "$(dirname "$SETTINGS")"
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
 BACKUP="$(mktemp "${SETTINGS}.architect-bak.XXXXXX")"
 cp "$SETTINGS" "$BACKUP"
-restore_settings() { cp "$BACKUP" "$SETTINGS" 2>/dev/null && rm -f "$BACKUP"; rm -f "$PIDFILE"; }
+
+# Cleanup on any exit path (normal, error, interrupt). Each step is gated and
+# guarded individually rather than chained with `&&`/`;`, so a failure in one
+# step can never silently skip a later one and so each operation is explicit:
+#   1. Restore the user's original settings.json from the backup we took.
+#   2. Remove our backup file (only if it still exists).
+#   3. Remove the pidfile so its absence signals "process gone" to a babysitter.
+# All paths are quoted; we only ever delete files this script itself created
+# (the mktemp backup and our own pidfile), never user data.
+restore_settings() {
+  if [ -f "$BACKUP" ]; then
+    cp "$BACKUP" "$SETTINGS" 2>/dev/null || \
+      echo "warn: could not restore settings.json from $BACKUP" >&2
+    rm -f "$BACKUP"
+  fi
+  rm -f "$PIDFILE"
+}
 trap restore_settings EXIT INT TERM
 
 python3 - "$SETTINGS" "$MODEL_LABEL" <<'PY'
