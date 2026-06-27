@@ -1,6 +1,6 @@
 ---
 description: Start a coordinated change across multiple repositories
-allowed-tools: Bash(gx:*), Bash(gh:*)
+allowed-tools: Bash(gx create:*), Bash(gx review:*), Bash(gx cleanup:*), Bash(gx rollback:*), Bash(gx status:*), Bash(gx --help), Bash(gx --version)
 argument-hint: <description of change>
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: gx
 description: Multi-repo Git operations - bulk changes, PRs, and cleanup across many repositories
-allowed-tools: Bash(gx:*), Bash(gh:*)
+allowed-tools: Bash(gx create:*), Bash(gx review:*), Bash(gx cleanup:*), Bash(gx rollback:*), Bash(gx status:*), Bash(gx --help), Bash(gx --version)
 tier: 1
 triggers:
   - multi-repo
