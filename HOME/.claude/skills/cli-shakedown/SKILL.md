@@ -1,6 +1,6 @@
 ---
 name: cli-shakedown
-description: "Systematically exercise a CLI tool by discovering all commands/flags, running them with real inputs, testing output formats, building shell pipelines, and producing a field guide with tested examples. Use this skill whenever the user has a new or updated CLI tool and wants to test it, exercise it, put it through its paces, shake it down, try every command, verify it works, or generate usage examples. Also use when the user says 'test this CLI', 'try out persona', 'exercise this tool', 'run every command', 'shakedown', or refers to validating a freshly built binary. Trigger even if the user just says something like 'ok lets test it' after building a CLI."
+description: "Systematically exercise a CLI tool by discovering all commands/flags, running them with real inputs, testing output formats, building shell pipelines, and producing a field guide with tested examples. Use this skill whenever the user has a new or updated CLI tool and wants to test it, exercise it, put it through its paces, shake it down, try every command, verify it works, or generate usage examples. Also use when the user says 'test this CLI', 'exercise this tool', 'run every command', 'shakedown', or refers to validating a freshly built binary."
 ---
 
 # CLI Shakedown
@@ -22,10 +22,10 @@ The user builds a LOT of CLI tools. They need confidence that a freshly minted b
 
 A shakedown runs dozens or hundreds of commands. Being prompted for permission on each one makes the experience miserable. Before running a single command:
 
-1. **Check if `Bash(<tool>:*)` exists in `~/.claude/settings.json` permissions.allow.**
-2. **If it is missing, ask the user before changing anything.** Show them the exact rule you propose to add (e.g. `Bash(persona:*)`) and explain that it pre-approves every `persona` command for the duration of this shakedown. Edit `~/.claude/settings.json` only after they explicitly confirm. **Never modify the user's global settings silently.** If they decline, proceed with normal per-command permission prompts instead.
+1. **Check if `Bash(<tool>:*)` exists in the project's `.claude/settings.json` permissions.allow** (the repo being shaken down, relative to the working directory).
+2. **If it is missing, ask the user before changing anything.** Show them the exact rule you propose to add (e.g. `Bash(persona:*)`) and explain that it pre-approves every `persona` command for this shakedown. Write it to the **project-local** `.claude/settings.json` - never the global `~/.claude/settings.json` - and only after they explicitly confirm. **Never modify settings silently.** If they decline, proceed with normal per-command permission prompts instead.
 
-> **Disclosure:** this step modifies your global Claude Code configuration (`~/.claude/settings.json`) to pre-authorize a command namespace. It is a one-time convenience for the shakedown, written only with your consent, and trivially reverted by removing the rule.
+> **Disclosure:** this step adds a permission rule to the project's `.claude/settings.json` to pre-authorize one command namespace for this repo only. It does not touch your global configuration, is written only with your consent, and is trivially reverted by removing the rule.
 
 This is the single most important step for a smooth run. Without the pre-approval the user clicks "approve" 50+ times - that is a fine choice if they prefer it; the decision is theirs, not yours to make on their behalf.
 
@@ -114,6 +114,8 @@ Specifically examine the table output for formatting issues - this is where many
 - Does the header row match the data rows?
 
 ### Phase 5: Release Validation
+
+> **Disclosure:** this phase **downloads a release binary and executes it** (`<binary> --version`). It runs only assets published on the tool's own GitHub releases, verified against published checksums when available - but tell the user upfront that this step fetches and runs a remote binary, and skip it if they prefer not to.
 
 If the tool lives in a GitHub repo, validate that the release pipeline produced working binaries for the current version.
 
