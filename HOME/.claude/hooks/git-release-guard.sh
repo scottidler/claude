@@ -29,6 +29,22 @@ branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
 porcelain=$(git status --porcelain 2>/dev/null)
 untracked=$(printf '%s\n' "$porcelain" | grep -c '^??')
 
+# Effective worktree a `bump` in this command will actually run in. Scott's release
+# flow is `cd <main-worktree> && bump`, but this hook runs once at the SESSION CWD
+# (often a feature-branch worktree), so a branch read there falsely denies a bump
+# that targets main. Honor a `cd <dir>` in the same command chain (the LAST one wins)
+# and evaluate the branch + tree state in THAT directory. No cd -> the session CWD,
+# so a bare `bump` on a real feature branch is still correctly blocked.
+bump_dir="."
+cd_target=$(printf '%s\n' "$cmd" \
+  | grep -oE '\bcd[[:space:]]+("[^"]+"|'"'"'[^'"'"']+'"'"'|[^[:space:]&|;]+)' \
+  | tail -n1 | sed -E 's/^cd[[:space:]]+//; s/^["'"'"']//; s/["'"'"']$//')
+if [ -n "$cd_target" ] && [ "$cd_target" != "-" ] && [ -d "$cd_target" ]; then
+  bump_dir="$cd_target"
+fi
+bump_branch=$(git -C "$bump_dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
+bump_porcelain=$(git -C "$bump_dir" status --porcelain 2>/dev/null)
+
 check_stmt() {
   local s="$1"
 
@@ -60,12 +76,12 @@ check_stmt() {
   # command word is unambiguous here.
   if printf '%s' "$s" | grep -Eq '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*([^[:space:]]*/)?bump([[:space:]]|$)' \
      && ! printf '%s' "$s" | grep -Eq 'bump.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
-    if [ -n "$branch" ] && [ "$branch" != "main" ] && [ "$branch" != "master" ]; then
-      deny "Release flow: NEVER bump on a feature branch (you are on '$branch'). Scott's flow is PR -> merge -> bump OFF main. Open/merge the PR, switch to main, pull, then bump. A skill's 'finalize/ship' step does NOT authorize this."
+    if [ -n "$bump_branch" ] && [ "$bump_branch" != "main" ] && [ "$bump_branch" != "master" ]; then
+      deny "Release flow: NEVER bump on a feature branch (the bump's target worktree '$bump_dir' is on '$bump_branch'). Scott's flow is PR -> merge -> bump OFF main. Open/merge the PR, then bump on main (e.g. 'cd <main-worktree> && bump'). A skill's 'finalize/ship' step does NOT authorize this."
     fi
     if ! printf '%s' "$s" | grep -Eq '\bbump\b.*--tag-only'; then
-      if [ -n "$porcelain" ]; then
-        deny "bump stages everything (git add -A) and your tree is dirty — it would sweep untracked/modified files into the version commit (this is exactly how scratch jpgs got committed). Commit your real changes, then 'rkvr rmrf' or stash the strays, THEN bump on a clean tree."
+      if [ -n "$bump_porcelain" ]; then
+        deny "bump stages everything (git add -A) and the target worktree '$bump_dir' is dirty — it would sweep untracked/modified files into the version commit (this is exactly how scratch jpgs got committed). Commit your real changes, then 'rkvr rmrf' or stash the strays, THEN bump on a clean tree."
       fi
     fi
   fi
