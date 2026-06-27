@@ -12,10 +12,10 @@ Subcommands:
   create --name NAME --tracks FILE [--public] [--description DESC]
                            Create a playlist and add the resolved tracks.
 
-The gotcha this tool exists to handle: creating a playlist requires a USER access
-token with playlist-modify scope. A client-credentials (app) token CANNOT do it.
-We get a user token by refreshing SPOTIFY_REFRESH_TOKEN (no browser needed once
-bootstrapped). Access tokens last ~1h, so we always mint a fresh one per run.
+The gotcha this tool exists to handle: creating a playlist requires a USER bearer
+token (OAuth) with playlist-modify scope. A client-credentials (app) token CANNOT
+do it. We mint a user token by refreshing SPOTIFY_REFRESH_TOKEN (no browser needed
+once bootstrapped). Bearer tokens last ~1h, so we always mint a fresh one per run.
 
 Tracks file is JSON: a list of objects with "title" (required) and optional
 "artist". Order is preserved in the playlist.
@@ -105,16 +105,30 @@ def cmd_exchange(args):
                       form=True)
     if code != 200 or "refresh_token" not in data:
         sys.exit(f"exchange failed: {code} {data}")
-    log("refresh token obtained. Store it as a secret, e.g.:")
-    log("  cd ~/repos/scottidler/secrets/.secrets && \\")
-    log("  manifest age encrypt SPOTIFY_REFRESH_TOKEN=<value> -o . && \\")
-    log("  mv spotify-refresh-token.age . && git add spotify-refresh-token.age && git commit -m 'add spotify refresh token'")
-    # Print ONLY the refresh token to stdout so it can be captured/piped.
-    print(data["refresh_token"])
+
+    # The refresh token is a long-lived credential. NEVER print it to stdout —
+    # that lands it in shell history, terminal recordings, and agent transcripts.
+    # Write it to a 0600 file and print only the (non-sensitive) path.
+    out_dir = os.path.join(os.path.expanduser("~"), ".config", "spotify")
+    os.makedirs(out_dir, mode=0o700, exist_ok=True)
+    out_path = os.path.join(out_dir, "refresh-token")
+    fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(data["refresh_token"])
+
+    log(f"refresh token written to {out_path} (mode 0600).")
+    log("It is a long-lived credential — do NOT cat/echo it into chat or logs.")
+    log("Encrypt it into the secret store, then shred the plaintext, e.g.:")
+    log(f"  cd ~/repos/scottidler/secrets/.secrets && \\")
+    log(f"  manifest age encrypt \"SPOTIFY_REFRESH_TOKEN=$(cat {out_path})\" -o . && \\")
+    log("  git add spotify-refresh-token.age && git commit -m 'add spotify refresh token' && \\")
+    log(f"  shred -u {out_path}")
+    # stdout carries only the path, never the secret.
+    print(out_path)
 
 
 def access_token():
-    """Mint a fresh user access token from the stored refresh token."""
+    """Mint a fresh user bearer token from the stored refresh credential."""
     rt = os.environ.get("SPOTIFY_REFRESH_TOKEN")
     if not rt:
         sys.exit("SPOTIFY_REFRESH_TOKEN not set. Run the one-time bootstrap: "
