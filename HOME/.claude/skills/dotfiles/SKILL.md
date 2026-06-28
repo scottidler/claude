@@ -27,6 +27,9 @@ The filepath can be absolute or relative to the current working directory.
 5. **Move the file** into `~/.../HOME/...`
 6. **Commit** in the `~/...` repo with a message like: `add HOME/repos/CLAUDE.md`
 7. **Run `manifest --link '<substring>' | bash`** in `~/...` to create the symlink, where `<substring>` is a substring matching the filename (e.g. `CLAUDE` for `CLAUDE.md`)
+   - `manifest --link` only *generates* the bash script to stdout; it does **nothing** until piped to `bash`. Always pipe.
+   - The pattern is a PLAIN substring (manifest fuzzy-matches Exact→IgnoreCase→Prefix→Contains), NOT a glob. `cargo` works; `*cargo*` matches nothing and emits an empty links section.
+   - If you moved the file (step 5) there is no `.orig`. If you *copied* it instead (leaving the original real file in place), `manifest`'s `linker()` backs the original up to `<path>.orig` before symlinking — clean those up with `rkvr rmrf <path>.orig` after verifying the symlink target is byte-identical.
 8. **Verify** the original path is now a symlink pointing to the dotfiles repo
 
 ## Example
