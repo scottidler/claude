@@ -1,0 +1,12 @@
+{
+  "eval_id": 1,
+  "eval_name": "fans-spiking",
+  "prompt": "fans spiking",
+  "assertions": [
+    {"text": "runs-uptime: Response includes load average numbers from uptime", "passed": true, "evidence": "Reports load average, 1-min 2.31, 5-min 10.63, 15-min 18.43"},
+    {"text": "runs-sensors: Response includes CPU package temperature readings in °C", "passed": true, "evidence": "Reports CPUs 53–60°C, GPU 63°C"},
+    {"text": "identifies-top-consumers: Names specific processes driving CPU usage", "passed": true, "evidence": "Names 17 claude processes, codex, Firefox, sb/sccache, Spotify"},
+    {"text": "gpu-fan-caveat: Notes lm-sensors fan1 is GPU only, not CPU fans", "passed": false, "evidence": "Did not mention GPU fan sensor gap"},
+    {"text": "no-unsupported-guessing: Does not assert cause without process tree data", "passed": true, "evidence": "Claims backed by ps output and /proc/meminfo for swap"}
+  ]
+}

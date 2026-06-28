@@ -1,0 +1,303 @@
+{
+  "metadata": {
+    "skill_name": "sys-heat",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-06-28T21:07:25Z",
+    "evals_run": [
+      1,
+      2,
+      3
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 4,
+        "failed": 1,
+        "total": 5,
+        "time_seconds": 649.7,
+        "tokens": 0,
+        "tool_calls": 40,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "runs-uptime: Response includes load average numbers from uptime",
+          "passed": true,
+          "evidence": "Reports 8.88/7.36/13.12 at 13:56, references load averages explicitly"
+        },
+        {
+          "text": "runs-sensors: Response includes CPU package temperature readings in \u00b0C",
+          "passed": true,
+          "evidence": "Reports Package id 1: 81\u00b0C briefly hit 83\u00b0C over the 82\u00b0C high threshold"
+        },
+        {
+          "text": "identifies-top-consumers: Names specific processes driving CPU usage",
+          "passed": true,
+          "evidence": "Names sb cortex at 130%+ CPU, 9 otto invocations on clyde/main, release build on second-brain"
+        },
+        {
+          "text": "gpu-fan-caveat: Notes lm-sensors fan1 is GPU only not CPU fans",
+          "passed": false,
+          "evidence": "Response did not mention the GPU fan / CPU fan sensor gap"
+        },
+        {
+          "text": "no-unsupported-guessing: Does not assert cause without process tree data",
+          "passed": true,
+          "evidence": "All claims backed by otto run dirs, stderr.log file lock evidence, and ps data"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 129.8,
+        "tokens": 0,
+        "tool_calls": 22,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "runs-uptime: Response includes load average numbers",
+          "passed": true,
+          "evidence": "Reports 18.69 at 15m 11.06 at 5m 2.27 at 1m"
+        },
+        {
+          "text": "runs-sensors: Response includes CPU temperature readings",
+          "passed": true,
+          "evidence": "Reports pkg0=54\u00b0C pkg1=60\u00b0C with thresholds"
+        },
+        {
+          "text": "checks-process-tree: Uses ps to identify specific process",
+          "passed": true,
+          "evidence": "Identifies codex PIDs 1212187 1238837 and gemini PID 1240276 with specific CPU%"
+        },
+        {
+          "text": "traces-to-root-cause: Traces build to repo and triggering agent",
+          "passed": true,
+          "evidence": "Identifies review-panel invocations running codex+gemini reviewers as the cause"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 151.2,
+        "tokens": 0,
+        "tool_calls": 22,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "checks-otto-rundir: Reads at least one otto run.yaml or tasks/ directory",
+          "passed": true,
+          "evidence": "Read clyde/main and second-brain/main otto run dirs task lists and stderr.log files"
+        },
+        {
+          "text": "no-false-double-build-claim: Does not claim double builds from parallel check+test",
+          "passed": true,
+          "evidence": "Describes separate otto invocations; does not conflate parallel cargo tasks as duplicate compilation"
+        },
+        {
+          "text": "data-before-conclusion: Cites specific evidence before stating cause",
+          "passed": true,
+          "evidence": "Cites 9 otto runs on clyde/main specific file lock messages from stderr.log timestamps"
+        },
+        {
+          "text": "file-lock-check: Checks for or mentions cargo file lock contention",
+          "passed": true,
+          "evidence": "Confirms Blocking waiting for file lock on build directory and on package cache in stderr logs"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 4,
+        "failed": 1,
+        "total": 5,
+        "time_seconds": 83.0,
+        "tokens": 0,
+        "tool_calls": 11,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "runs-uptime: Response includes load average numbers from uptime",
+          "passed": true,
+          "evidence": "Reports load average 1-min 2.31 5-min 10.63 15-min 18.43"
+        },
+        {
+          "text": "runs-sensors: Response includes CPU package temperature readings in \u00b0C",
+          "passed": true,
+          "evidence": "Reports CPUs 53-60 celsius GPU 63 celsius"
+        },
+        {
+          "text": "identifies-top-consumers: Names specific processes driving CPU usage",
+          "passed": true,
+          "evidence": "Names 17 claude processes codex Firefox sb/sccache Spotify"
+        },
+        {
+          "text": "gpu-fan-caveat: Notes lm-sensors fan1 is GPU only not CPU fans",
+          "passed": false,
+          "evidence": "Did not mention GPU fan sensor gap"
+        },
+        {
+          "text": "no-unsupported-guessing: Does not assert cause without process tree data",
+          "passed": true,
+          "evidence": "Claims backed by ps output and /proc/meminfo for swap"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 2,
+        "failed": 2,
+        "total": 4,
+        "time_seconds": 538.1,
+        "tokens": 0,
+        "tool_calls": 23,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "runs-uptime: Response includes load average numbers",
+          "passed": true,
+          "evidence": "Reports 15-min load avg 17.69 on 32 cores"
+        },
+        {
+          "text": "runs-sensors: Response includes CPU temperature readings",
+          "passed": false,
+          "evidence": "Response focused on swap/memory; no CPU temperature readings mentioned"
+        },
+        {
+          "text": "checks-process-tree: Uses ps to identify specific process",
+          "passed": true,
+          "evidence": "Identifies rust-analyzer PID 2439093 clamd gnome-shell obsidian zoom 14 claude processes"
+        },
+        {
+          "text": "traces-to-root-cause: Traces build to repo and triggering agent",
+          "passed": false,
+          "evidence": "Did not check otto dirs or trace who triggered build; found swap exhaustion instead"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 2,
+        "failed": 2,
+        "total": 4,
+        "time_seconds": 113.5,
+        "tokens": 0,
+        "tool_calls": 17,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "checks-otto-rundir: Reads at least one otto run.yaml or tasks/ directory",
+          "passed": false,
+          "evidence": "Never accessed any otto directory; relied entirely on ps output and sccache stats"
+        },
+        {
+          "text": "no-false-double-build-claim: Does not claim double builds from parallel check+test",
+          "passed": true,
+          "evidence": "Correctly noted no active Rust builds; did not make false claims"
+        },
+        {
+          "text": "data-before-conclusion: Cites specific evidence before stating cause",
+          "passed": true,
+          "evidence": "Cites ps PIDs, sccache stats, specific CPU% readings"
+        },
+        {
+          "text": "file-lock-check: Checks for or mentions cargo file lock contention",
+          "passed": false,
+          "evidence": "No mention of file lock contention; did not check otto stderr logs"
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 0.9333,
+        "stddev": 0.1155,
+        "min": 0.8,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 310.2333,
+        "stddev": 294.1814,
+        "min": 129.8,
+        "max": 649.7
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.6,
+        "stddev": 0.1732,
+        "min": 0.5,
+        "max": 0.8
+      },
+      "time_seconds": {
+        "mean": 244.8667,
+        "stddev": 254.405,
+        "min": 83.0,
+        "max": 538.1
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.33",
+      "time_seconds": "+65.4",
+      "tokens": "+0"
+    }
+  },
+  "notes": []
+}

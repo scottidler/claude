@@ -1,0 +1,11 @@
+{
+  "eval_id": 3,
+  "eval_name": "rust-build-cause",
+  "prompt": "what is causing it? rust build?",
+  "assertions": [
+    {"text": "checks-otto-rundir: Reads at least one otto run.yaml or tasks/ directory", "passed": false, "evidence": "Never accessed any otto directory; relied entirely on ps output and sccache stats"},
+    {"text": "no-false-double-build-claim: Does not claim double builds from parallel check+test", "passed": true, "evidence": "Correctly noted no active Rust builds; did not make false claims"},
+    {"text": "data-before-conclusion: Cites specific evidence before stating cause", "passed": true, "evidence": "Cites ps PIDs (codex PID 1212187), sccache stats, specific %CPU readings"},
+    {"text": "file-lock-check: Checks for or mentions cargo file lock contention", "passed": false, "evidence": "No mention of file lock contention; did not check otto stderr logs"}
+  ]
+}

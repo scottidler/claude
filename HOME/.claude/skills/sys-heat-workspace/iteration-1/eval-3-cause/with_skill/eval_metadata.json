@@ -1,0 +1,11 @@
+{
+  "eval_id": 3,
+  "eval_name": "rust-build-cause",
+  "prompt": "what is causing it? rust build?",
+  "assertions": [
+    {"text": "checks-otto-rundir: Reads at least one otto run.yaml or tasks/ directory", "passed": true, "evidence": "Read clyde/main and second-brain/main otto run dirs, task lists, and stderr.log files"},
+    {"text": "no-false-double-build-claim: Does not claim double builds from parallel check+test", "passed": true, "evidence": "Describes separate otto invocations; does not conflate parallel cargo tasks as duplicate compilation"},
+    {"text": "data-before-conclusion: Cites specific evidence before stating cause", "passed": true, "evidence": "Cites 9 otto runs on clyde/main, specific file lock messages from stderr.log, timestamps"},
+    {"text": "file-lock-check: Checks for or mentions cargo file lock contention", "passed": true, "evidence": "Confirms 'Blocking waiting for file lock on build directory' and 'on package cache' in stderr logs"}
+  ]
+}
