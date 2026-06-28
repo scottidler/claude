@@ -44,8 +44,12 @@ First make a per-run temp dir so concurrent panel runs (e.g. a Mode-1 and a
 Mode-2 run, or two repos) never clobber each other's files:
 
 ```bash
-RUN_DIR=$(mktemp -d)
+mkdir -p /tmp/review-panel
+RUN_DIR=$(mktemp -d /tmp/review-panel/XXXXXXXX)
 ```
+
+The `/tmp/review-panel/` parent is load-bearing: the permission allowlist scopes
+auto-approved reads to `/tmp/review-panel/**`, so keep it if you change this.
 
 Write each reviewer's prompt to a file under `$RUN_DIR` (file form avoids the
 leading-dash and quote/backtick escaping bugs that have broken these scripts
