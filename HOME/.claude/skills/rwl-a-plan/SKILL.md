@@ -61,9 +61,11 @@ Loop through each phase sequentially. For each phase:
 
 3. **Check the outcome** when the background task completes:
    - **Exit 0 (complete)** - Phase succeeded. Report iteration count, move to next phase.
-   - **Exit 1 (max-iterations)** - Phase exhausted its budget. Read `.rwl/progress.txt` to diagnose. Report to user and **stop**.
+   - **Exit 1 (max-iterations)** - Phase exhausted its iteration budget. Read `.rwl/progress.txt` to diagnose. Report to user and **stop**.
    - **Exit 2 (stopped)** - User hit Ctrl-C. Report and **stop**.
-   - **Exit 3+ (error)** - Runtime error. Report and **stop**.
+   - **Exit 3 (error)** - Runtime error. Report and **stop**.
+   - **Exit 4 (setup error / fail-closed containment refusal)** - rwl refused to run a permission-bypassed agent against an uncontained working tree. The message names the safe options (`isolation: worktree`, install a sandbox, or `--unsafe`). Report and **stop**.
+   - **Exit 5 (budget-exceeded)** - the wall-clock cap (`budget.max-total-minutes`) was hit. Report elapsed vs cap and **stop**.
 
 4. **Report phase result** before moving on:
    ```
@@ -72,6 +74,15 @@ Loop through each phase sequentially. For each phase:
    ```
 
 If any phase fails, stop execution and report which phase failed and why. Do not continue to subsequent phases.
+
+> **Isolation is the default.** As of the containment-and-backpressure work, `rwl run`
+> executes in a throwaway git worktree (`safety.isolation: worktree`) on a branch named
+> `rwl/<plan-slug>-<timestamp>`, and prints a `branch: <name>` line on every terminal
+> outcome. The agent's commits land on that branch in the shared object store, so after a
+> run you **review/merge the branch from the real repo** even though the /tmp worktree is
+> gone. Surface the `branch:` line to the user when reporting phase results. Use
+> `--isolation none` (with `--unsafe` if permissions are bypassed and no OS sandbox is
+> present) only when you deliberately want edits in the live tree.
 
 ### Step 4: Finalize
 
