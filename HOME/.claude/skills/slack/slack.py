@@ -517,6 +517,33 @@ def cmd_search(args):
             print(f"    {m['permalink']}")
 
 
+def self_dm_id(data):
+    """Resolve (and cache) the caller's own self-DM channel id.
+
+    Bootstrap opens the self-DM once (needs im:write); the id is cached under the
+    'self' key so every later preview posts with chat:write alone.
+    """
+    cached = (data.get("self") or {}).get("dm")
+    if cached:
+        return cached
+    me = api_get("auth.test", {}).get("user_id")
+    log(f"self_dm_id: opening self-DM for {me} (one-time; needs im:write)")
+    did = api_post("conversations.open", {"users": me})["channel"]["id"]
+    data.setdefault("self", {})["dm"] = did
+    save_ids(data)
+    return did
+
+
+def cmd_preview(args):
+    data = load_ids()
+    did = self_dm_id(data)
+    text = args.text if args.raw else to_mrkdwn(args.text)
+    log(f"cmd_preview: self-DM {did} raw={args.raw} chars={len(text)}")
+    resp = api_post("chat.postMessage", {"channel": did, "text": text})
+    log(f"preview done: self-DM {did} ts={resp.get('ts')}")
+    print(resp.get("ts", ""))
+
+
 def cmd_export(args):
     channel_id, channel_name = resolve_channel(args.channel)
     oldest = parse_duration(args.duration)
@@ -632,6 +659,11 @@ def main():
     psr.add_argument("query", help="search query (Slack search syntax works, e.g. in:#foo from:@bar)")
     psr.add_argument("--count", type=int, default=20, help="max results (default 20)")
     psr.set_defaults(func=cmd_search)
+
+    pp = sub.add_parser("preview", help="render a message to your OWN self-DM, to check mrkdwn before sending for real")
+    pp.add_argument("text", help="message text (markdown; auto-converted unless --raw)")
+    pp.add_argument("--raw", action="store_true", help="send verbatim; skip markdown -> mrkdwn conversion")
+    pp.set_defaults(func=cmd_preview)
 
     pr = sub.add_parser("refresh", help="cache the channels you belong to (--all for the whole workspace)")
     pr.add_argument("--all", action="store_true", help="pull every public+private channel in the workspace, not just yours")

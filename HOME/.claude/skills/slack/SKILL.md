@@ -24,6 +24,7 @@ S=~/.claude/skills/slack/slack.py
 python3 $S export CHANNEL DURATION [--outdir DIR] [--files-only]
 python3 $S read   CHANNEL [--limit N] [--since 7d] [--thread TS]   # recent messages / a thread
 python3 $S send   CHANNEL "text"  [--thread TS] [--raw]            # post (markdown auto-converted)
+python3 $S preview "text"         [--raw]                         # render to your OWN self-DM first
 python3 $S search QUERY   [--count N]                              # keyword search messages
 python3 $S refresh [--all]         # cache channels you belong to (--all = whole workspace)
 python3 $S add    CHANNEL          # add/update one channel in the cache (by ID or name)
@@ -80,6 +81,12 @@ script, not left to the caller): `**bold**`->`*bold*`, `*italic*`->`_italic_`,
 `~~strike~~`->`~strike~`, `[label](url)`->`<url|label>`, `#` headings->`*bold*` lines,
 `-`/`*`/`+` bullets->`•`. Code spans/fences pass through untouched. `--raw` skips
 conversion and posts verbatim. `--thread <ts>` replies in a thread.
+
+### preview TEXT [--raw]
+Same as `send` (including markdown->mrkdwn conversion), but always posts to **your own
+self-DM** - a safe sandbox to eyeball how a message will render before sending it to a
+real channel. Opens the self-DM once via `im:write`, caches its id, then posts via
+`chat:write`. No channel argument.
 
 ### search QUERY [--count N]
 Keyword search across the workspace (Slack search syntax works: `in:#foo from:@bar`).

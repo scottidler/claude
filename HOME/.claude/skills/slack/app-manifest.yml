@@ -7,18 +7,14 @@
 # invited to every private channel and still couldn't search or read DMs; a user
 # token sees exactly what the authorizing user can, which is the correct boundary.
 #
-# The 10 user scopes below are exactly what the 5 verbs use:
-#   export  -> channels:history groups:history im:history users:read files:read
-#              channels:read groups:read
-#   read    -> (same history/read scopes) + users:read
-#   send    -> chat:write
-#   search  -> search:read
-#   find/add/refresh -> channels:read groups:read (conversations.list/info)
-# Intentionally EXCLUDED: all bot scopes; mpim:* (group DMs, not supported);
-# files:write / im:write / mpim:write (unused - chat:write covers posting).
+# SCOPE PRINCIPLE: match the scopes the user actually has in use - do NOT trim to
+# "what the current code path needs." The feature surface grows (e.g. `preview`
+# needs im:write to open the self-DM), and speculative trimming just forces
+# painful re-installs. The list below is Scott's working user-scope set plus
+# search:read (which search.messages requires and was the only one missing).
 display_information:
   name: Tatari Slack Toolkit
-  description: Export, read, send, and search Slack on your behalf via your own user token.
+  description: Export, read, send, search, and preview Slack on your behalf via your own user token.
 oauth_config:
   redirect_urls:
     - https://example.com/slack/oauth/callback   # PLACEHOLDER - swap for the vending endpoint before distributing
@@ -26,13 +22,18 @@ oauth_config:
     user:
       - channels:history
       - channels:read
+      - chat:write
+      - files:read
+      - files:write
       - groups:history
       - groups:read
       - im:history
       - im:read
+      - im:write
+      - mpim:history
+      - mpim:read
+      - mpim:write
       - users:read
-      - files:read
-      - chat:write
       - search:read
 settings:
   org_deploy_enabled: false
