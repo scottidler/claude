@@ -381,6 +381,37 @@ def enrich_inline_files(file_index, outdir):
         json.dump(msgs, fh, indent=2)
 
 
+def _md_transform(t):
+    """Convert the non-code parts of markdown to Slack mrkdwn."""
+    t = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<\2|\1>", t)   # image -> labeled link
+    t = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", t)     # [label](url) -> <url|label>
+    t = re.sub(r"(?m)^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$", "\x01\\1\x01", t)  # heading -> bold line (sentinel)
+    t = re.sub(r"(?m)^(\s*)[-*+]\s+", r"\1• ", t)            # bullet -> •
+    t = re.sub(r"(\*\*|__)(.+?)\1", "\x01\\2\x01", t)        # **bold**/__bold__ -> sentinel
+    t = re.sub(r"~~(.+?)~~", r"~\1~", t)                     # ~~strike~~ -> ~strike~
+    t = re.sub(r"(?<!\w)\*(?=\S)(.+?)(?<=\S)\*(?!\w)", r"_\1_", t)  # *italic* -> _italic_
+    return t.replace("\x01", "*")                            # sentinel -> *bold*
+
+
+def to_mrkdwn(md):
+    """Best-effort markdown -> Slack mrkdwn, leaving code spans/fences untouched.
+
+    Handles the common cases Claude emits: **bold**->*bold*, *italic*->_italic_,
+    ~~strike~~->~strike~, [label](url)-><url|label>, # headings->*bold* lines,
+    -/*/+ bullets->•. Slack has no headings/tables/nested lists, so those flatten.
+    """
+    protected = []
+
+    def stash(m):
+        protected.append(m.group(0))
+        return f"\x00{len(protected) - 1}\x00"
+
+    tmp = re.sub(r"```.*?```", stash, md, flags=re.DOTALL)   # fenced code
+    tmp = re.sub(r"`[^`\n]+`", stash, tmp)                   # inline code
+    tmp = _md_transform(tmp)
+    return re.sub(r"\x00(\d+)\x00", lambda m: protected[int(m.group(1))], tmp)
+
+
 def token_scopes():
     req = urllib.request.Request(API + "auth.test", headers={"Authorization": f"Bearer {TOKEN}"})
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -460,8 +491,9 @@ def cmd_read(args):
 
 def cmd_send(args):
     cid, cname = resolve_channel(args.channel)
-    log(f"cmd_send: {cname}({cid}) thread={args.thread} chars={len(args.text)}")
-    params = {"channel": cid, "text": args.text}
+    text = args.text if args.raw else to_mrkdwn(args.text)   # markdown -> Slack mrkdwn by default
+    log(f"cmd_send: {cname}({cid}) thread={args.thread} raw={args.raw} chars={len(text)}")
+    params = {"channel": cid, "text": text}
     if args.thread:
         params["thread_ts"] = args.thread
     resp = api_post("chat.postMessage", params)
@@ -589,10 +621,11 @@ def main():
     prd.add_argument("--thread", default=None, help="a parent message ts to read that thread instead")
     prd.set_defaults(func=cmd_read)
 
-    ps = sub.add_parser("send", help="post a message to a channel (or reply in a thread)")
+    ps = sub.add_parser("send", help="post a message (converts markdown -> Slack mrkdwn by default; --raw to skip)")
     ps.add_argument("channel", help="channel name (with/without #) or ID (Cxxxx)")
-    ps.add_argument("text", help="message text")
+    ps.add_argument("text", help="message text (markdown; auto-converted to Slack mrkdwn)")
     ps.add_argument("--thread", default=None, help="parent message ts to reply under")
+    ps.add_argument("--raw", action="store_true", help="send text verbatim; skip markdown -> mrkdwn conversion")
     ps.set_defaults(func=cmd_send)
 
     psr = sub.add_parser("search", help="keyword search messages across the workspace")

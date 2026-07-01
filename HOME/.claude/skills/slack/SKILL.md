@@ -22,7 +22,10 @@ no bot to invite. Pure stdlib: no venv, no `uv`, no deps - run it with `python3`
 ```bash
 S=~/.claude/skills/slack/slack.py
 python3 $S export CHANNEL DURATION [--outdir DIR] [--files-only]
-python3 $S refresh                 # rebuild the channel id<->name cache from the API
+python3 $S read   CHANNEL [--limit N] [--since 7d] [--thread TS]   # recent messages / a thread
+python3 $S send   CHANNEL "text"  [--thread TS] [--raw]            # post (markdown auto-converted)
+python3 $S search QUERY   [--count N]                              # keyword search messages
+python3 $S refresh [--all]         # cache channels you belong to (--all = whole workspace)
 python3 $S add    CHANNEL          # add/update one channel in the cache (by ID or name)
 python3 $S find   SUBSTR           # fuzzy-search the local cache -> id (no API, no token)
 ```
@@ -65,6 +68,22 @@ fine to launch in the background and poll the log.
 Feed it an **ID** (always safe to paste, commit, or share) or a **name** (resolved by
 your own token, never written into this repo). Examples use only IDs and public
 channels on purpose: a private channel's **name** is confidential; its ID is not.
+
+### read CHANNEL [--limit N] [--since DUR] [--thread TS]
+Prints recent messages readably (mentions resolved to names, `<url|label>` unwrapped,
+thread reply counts shown). `--limit` (default 50) or `--since 7d` for a window;
+`--thread <ts>` reads a single thread instead.
+
+### send CHANNEL TEXT [--thread TS] [--raw]
+Posts a message. **By default it converts markdown to Slack mrkdwn** (encoded in the
+script, not left to the caller): `**bold**`->`*bold*`, `*italic*`->`_italic_`,
+`~~strike~~`->`~strike~`, `[label](url)`->`<url|label>`, `#` headings->`*bold*` lines,
+`-`/`*`/`+` bullets->`•`. Code spans/fences pass through untouched. `--raw` skips
+conversion and posts verbatim. `--thread <ts>` replies in a thread.
+
+### search QUERY [--count N]
+Keyword search across the workspace (Slack search syntax works: `in:#foo from:@bar`).
+Prints `[time] #channel user: text` + permalink per hit. Needs `search:read`.
 
 ### refresh [--all]
 Default: `users.conversations` - only the channels **you belong to** (fast, personal,
