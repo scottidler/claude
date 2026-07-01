@@ -79,7 +79,7 @@ Slack usernames at Tatari are typically the local part of the work email:
 - `calvin@tatari.tv` -> `@calvin`
 - `patrick.shelby@tatari.tv` -> `@patrick.shelby`
 
-DM channel IDs for org members are in `.claude/slack-ids.yml`.
+DM channel IDs for org members are in `.claude/slack-ids.json`.
 
 ## Output Fields (JSON)
 

@@ -1,0 +1,40 @@
+# Slack app manifest for "Tatari Slack Toolkit" - the app that mints the user
+# tokens this skill runs on. This file is the SINGLE SOURCE OF TRUTH for the
+# app's scopes; do not re-type them from memory. To change scopes, edit here,
+# then paste into the app's App Manifest editor and reinstall.
+#
+# USER-TOKEN ONLY by design: no bot_user, no bot scopes. A bot would have to be
+# invited to every private channel and still couldn't search or read DMs; a user
+# token sees exactly what the authorizing user can, which is the correct boundary.
+#
+# The 10 user scopes below are exactly what the 5 verbs use:
+#   export  -> channels:history groups:history im:history users:read files:read
+#              channels:read groups:read
+#   read    -> (same history/read scopes) + users:read
+#   send    -> chat:write
+#   search  -> search:read
+#   find/add/refresh -> channels:read groups:read (conversations.list/info)
+# Intentionally EXCLUDED: all bot scopes; mpim:* (group DMs, not supported);
+# files:write / im:write / mpim:write (unused - chat:write covers posting).
+display_information:
+  name: Tatari Slack Toolkit
+  description: Export, read, send, and search Slack on your behalf via your own user token.
+oauth_config:
+  redirect_urls:
+    - https://example.com/slack/oauth/callback   # PLACEHOLDER - swap for the vending endpoint before distributing
+  scopes:
+    user:
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - users:read
+      - files:read
+      - chat:write
+      - search:read
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

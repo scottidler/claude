@@ -50,13 +50,15 @@
 
 ## ID Reference
 
-- **READ `~/repos/.claude/slack-ids.yml` immediately when any Slack work begins**
+- **READ `~/repos/.claude/slack-ids.json` immediately when any Slack work begins**
 - Do NOT call `channels_list`, `users_list`, or any list tool to find IDs — use the file
-- The file contains:
-  - `channels:` - all workspace channels, keyed `ID: name`
-  - `users:` - DM channel IDs for manager, peers, direct reports, SRE + Data Platform
-  - `groups:` - MPDMs containing 2+ org members
-- Search it with `grep` for the channel or user name you need
+- The file is JSON with three keys:
+  - `channels` - all workspace channels, `{ID: name}`
+  - `users` - DM channel IDs for manager, peers, direct reports, SRE + Data Platform
+  - `groups` - MPDMs containing 2+ org members, `{ID: [members]}`
+- Fastest channel lookup: `python3 ~/.claude/skills/slack/slack.py find <substr>` (prints `id  name`)
+- Or `grep`/`jq` the file directly for the channel or user name you need
+- Cache stale/missing a channel? `slack.py refresh` (bulk) or `slack.py add <id|name>` (one-off)
 
 ## Tool Usage
 
