@@ -48,8 +48,9 @@ mkdir -p /tmp/review-panel
 RUN_DIR=$(mktemp -d /tmp/review-panel/XXXXXXXX)
 ```
 
-The `/tmp/review-panel/` parent is load-bearing: the permission allowlist scopes
-auto-approved reads to `/tmp/review-panel/**`, so keep it if you change this.
+The `/tmp/review-panel/` parent is load-bearing: `settings.json` scopes both the
+permission allowlist (`Read(/tmp/review-panel/**)`) and the sandbox FS allowlist
+(`sandbox.filesystem.allowRead`/`allowWrite`) to it. Change this path → update both.
 
 Write each reviewer's prompt to a file under `$RUN_DIR` (file form avoids the
 leading-dash and quote/backtick escaping bugs that have broken these scripts

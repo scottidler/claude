@@ -15,6 +15,7 @@
       "Write(bin/**/*.sh)",
       "Bash(sb:*)",
       "Bash(nlm:*)",
+      "Bash(dashify:*)",
       "Bash(sort:*)",
       "Bash(uniq:*)",
       "Edit(**/*.rs)",
@@ -90,10 +91,7 @@
       "WebSearch",
       "Bash(mkdir:*)",
       "Bash(cargo:*)",
-      "Bash(cr:*)",
-      "Bash(ccu:*)",
       "Bash(clyde:*)",
-      "Bash(klod:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -195,7 +193,6 @@
       "Bash(pstree:*)",
       "Bash(pgrep:*)",
       "Bash(pkill:*)",
-      "Bash(claude-permit:*)",
       "Bash(systemctl --user:*)",
       "Bash(bump:*)",
       "Bash(release:*)",
@@ -376,6 +373,10 @@
       "Bash(base64 *)",
       "Write(/tmp/*)",
       "Write(/private/tmp/*)",
+      "Write(/tmp/**)",
+      "Edit(/tmp/**)",
+      "Write(/private/tmp/**)",
+      "Edit(/private/tmp/**)",
       "Read(/tmp/review-panel/**)",
       "Read(/private/tmp/review-panel/**)",
       "Bash(marquee:*)",
@@ -548,7 +549,6 @@
       "/tmp/review-panel"
     ]
   },
-  "model": "sonnet[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -627,6 +627,14 @@
   },
   "sandbox": {
     "enabled": true,
+    "filesystem": {
+      "allowWrite": [
+        "/tmp/review-panel"
+      ],
+      "allowRead": [
+        "/tmp/review-panel"
+      ]
+    },
     "excludedCommands": [
       "cargo *",
       "otto *",
