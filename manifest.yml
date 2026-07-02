@@ -50,8 +50,12 @@ script:
   # Single-quoted JSON keeps ${VAR} literal for Claude Code's launch-time expansion.
   # Assumes each server's binary is already on PATH (gslides-mcp, uvx, npx, the
   # cloned slack/persona MCP repos under ~/repos). Safe to re-run.
-  # NOTE: oracle is intentionally NOT here - it is vault-specific and lives in
-  # second-brain/.mcp.json (project scope), so it only loads inside the vault.
+  # NOTE: oracle WAS intentionally project-scoped (second-brain/.mcp.json only),
+  # but that kept vault retrieval out of every other Claude session. Decision
+  # reversed 2026-07-02: oracle resolves its vault from ~/.config/sb/oracle.yml
+  # regardless of CWD, so it registers at user scope like everything else. The
+  # project-scope entry in second-brain/.mcp.json stays (project scope wins by
+  # name inside that repo, so no duplicate server runs).
   mcp-servers: |
     claude mcp remove atlassian -s user 2>/dev/null || true; claude mcp add-json atlassian '{"type":"http","url":"https://mcp.atlassian.com/v1/mcp"}' -s user
     claude mcp remove multi-account-github -s user 2>/dev/null || true; claude mcp add-json multi-account-github '{"type":"stdio","command":"multi-account-github-mcp","args":["serve"],"env":{}}' -s user
@@ -63,7 +67,8 @@ script:
     claude mcp remove persona -s user 2>/dev/null || true; claude mcp add-json persona '{"type":"stdio","command":"uv","args":["run","--directory","/home/saidler/repos/tatari-tv/persona-mcp","python","-m","app.server"],"env":{}}' -s user
     claude mcp remove semble -s user 2>/dev/null || true; claude mcp add-json semble '{"type":"stdio","command":"uvx","args":["--from","semble[mcp]","semble"],"env":{}}' -s user
     claude mcp remove gslides -s user 2>/dev/null || true; claude mcp add-json gslides '{"type":"stdio","command":"gslides-mcp","args":[]}' -s user
-    echo "registered 10 MCP servers at user scope"
+    claude mcp remove oracle -s user 2>/dev/null || true; claude mcp add-json oracle '{"type":"stdio","command":"sb","args":["oracle","serve"],"env":{}}' -s user
+    echo "registered 11 MCP servers at user scope"
 
   # Put the deterministic release driver on PATH. The script itself lives at
   # HOME/.claude/bin/release (mirrored to ~/.claude/bin/release by the recursive
