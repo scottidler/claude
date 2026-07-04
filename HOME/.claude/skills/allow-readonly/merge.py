@@ -10,20 +10,21 @@ Reads candidate rules from stdin (one per line, as emitted by
   - additive     : existing allow entries are never removed or reordered
   - scoped       : it only touches permissions.allow; deny/ask are never read
                    or modified
-  - safe on shape: creates permissions/allow if absent, preserves 2-space
-                   indentation and a trailing newline
+  - safe on shape: creates permissions/allow if absent, normalizes the file to
+                   2-space indent with a trailing newline
+
+No backup file is written: the intended target (the user's global settings.json)
+lives in the git-tracked scottidler/claude repo, so `git` is the backout. The
+merge is additive-only, so recovery is just `git checkout`.
 
 Usage:
     discover.py <cli> --seed "..." --rules-only | merge.py <settings.json>
 
-Prints a summary of what was added vs. already present. Makes a timestamped
-`.bak` next to the settings file before writing.
+Prints a summary of what was added vs. already present.
 """
 import json
 import os
-import shutil
 import sys
-import time
 
 
 def main():
@@ -52,12 +53,9 @@ def main():
             added.append(rule)
 
     if added:
-        bak = f"{path}.{time.strftime('%Y%m%d-%H%M%S')}.bak"
-        shutil.copy2(path, bak)
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
             f.write("\n")
-        print(f"backup: {bak}")
 
     print(f"added {len(added)}, already present {len(already)}")
     for r in added:

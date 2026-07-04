@@ -67,9 +67,11 @@ The user is annoyed — the whole point is one command, then done.
    existing entry untouched, and NEVER writes to `deny`/`ask`. It prints what it
    added and what was already present.
 
-5. **Also allow obvious top-level read commands** the walk can't bucket — e.g.
-   `gws schema ...` (schema inspection), `<cli> version`, `<cli> help`. Add
-   these by hand as `Bash(<cli> schema:*)` etc. only when clearly read-only.
+5. **Also allow group-position read commands** the wildcard rule can't reach.
+   The rules key off the *final verb*, so a read command that lives at the *top
+   level* (e.g. `gws schema ...`, `<cli> version`) needs the wildcard in the
+   wrong slot — `Bash(gws * schema:*)` puts `*` before `schema`, not after. Add
+   these by hand as `Bash(<cli> schema:*)` etc. when clearly read-only.
 
 6. **Report** the added rules and the skipped (mutating + un-confirmed
    ambiguous) counts. **Tell the user the allowlist may only take effect in a
