@@ -39,6 +39,7 @@ EOF
 
 ## Rules
 
+- Content composed by Claude (not user-provided verbatim text) is going out as Scott: keep it terse, direct, Slack-native, and free of em-dashes.
 - Write standard markdown. pandoc handles the HTML conversion.
 - Tables, headers, bold, italic, code blocks, links, lists all work.
 - Do NOT use Slack mrkdwn syntax (`*bold*`). Use standard markdown (`**bold**`).

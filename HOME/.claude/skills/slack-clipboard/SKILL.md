@@ -22,6 +22,7 @@ Only run when the user explicitly invokes `/slack-clipboard` (or one of the trig
 
 ## Rules
 
+- If Claude composes or reworks the content (anything beyond verbatim relay), it goes out as Scott: keep it terse, direct, Slack-native, and free of em-dashes.
 - Mandatory confirmation: never call the Slack MCP before completing steps 2 and 3 and receiving an explicit yes.
 - Default to the most recent relevant snippet only; widen the selection solely on the user's request.
 - Before sending, remind the user that anything posted leaves the local context and lands in a persistent Slack channel; let them redact secrets, credentials, or private content first.

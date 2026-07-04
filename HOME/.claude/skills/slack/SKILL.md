@@ -31,6 +31,12 @@ python3 $S add    CHANNEL          # add/update one channel in the cache (by ID 
 python3 $S find   SUBSTR           # fuzzy-search the local cache -> id (no API, no token)
 ```
 
+## Voice
+
+Anything composed by Claude and posted via `send`/`preview` goes out as Scott.
+Before drafting message text (not verbatim user text), keep it Slack-native:
+lowercase where natural, terse, direct, no em-dashes, and no filler.
+
 ## Why this exists
 
 The Slack MCP resolves channel IDs live on every call and burns tokens doing it. The
@@ -40,9 +46,19 @@ the table current in bulk; `add` handles one-offs (e.g. a channel you just found
 
 ## Prerequisites
 
-- `TATARI_SLACK_TOOLKIT_API_TOKEN` in the environment (a user token from the "Tatari
-  Slack Toolkit" Slack app; falls back to `SLACK_XOXP_TOKEN`). `find` alone needs no token -
-  it only reads the local cache.
+- **Token: use `SLACK_XOXP_TOKEN`** - a personal Slack user token (xoxp) on the Tatari
+  workspace, scoped to Scott (`@escote`). This is the only token that actually works today.
+  > NOTE: The "Tatari Slack Toolkit" Slack app **does not exist yet** - it is aspirational.
+  > `TATARI_SLACK_TOOLKIT_API_TOKEN` is checked first only as a future hook and is currently
+  > unset; the script falls back to `SLACK_XOXP_TOKEN`, which is what does the work. Do not
+  > tell anyone to "add a scope to the Tatari Slack Toolkit app" - there is no such app.
+  `find` alone needs no token - it only reads the local cache.
+- Granted scopes on `SLACK_XOXP_TOKEN` today: `channels:history` `groups:history`
+  `im:history` `mpim:history` `channels:read` `groups:read` `im:read` `mpim:read`
+  `users:read` `files:read` `chat:write` `files:write` `im:write` `mpim:write`.
+  Notably **missing `usergroups:read`**, so listing the members of a Slack usergroup
+  (`<!subteam^…>` / `@group` mentions) returns `missing_scope`. Add `usergroups:read` to
+  the app backing this token if usergroup enumeration is needed.
 - For file **bytes** on `export`, the token must carry the **`files:read`** scope.
   Without it, messages/threads still export fully and file metadata + links are
   recorded; the script warns and you can re-run `export ... --files-only` once scoped.
