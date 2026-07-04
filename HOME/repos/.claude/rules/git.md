@@ -13,6 +13,23 @@ alwaysApply: true
 - ONLY create tags on `main` or `master`. NEVER tag dev, feature, or any other branch. No exceptions.
 - NEVER introduce a per-crate or multi-scheme tag strategy (e.g. `taskstore-v0.3.0` + `taskstore-traits-v0.1.0`). Always use a single flat `v*` tag for the whole repo/workspace. If a design doc says otherwise, ASK the user before creating any tags.
 
+## Branches (opposite of tags: delete merged ones freely, no asking)
+
+- Branch safety protects **unmerged work, and nothing else**. Once a branch's
+  contents are on `origin/main` (its PR is MERGED, or its commits / their
+  squashed equivalent are in main), the branch ref is pure clutter with zero
+  unique work to lose.
+- **DELETE merged/superseded branches (local AND stale remote) as routine
+  cleanup WITHOUT asking.** Do not pose "want these gone?" — a merged branch has
+  nothing to protect, so confirming is a time-wasting dumbass question. Just
+  yeet it. (Scott, furious, 2026-07-03.)
+- To classify before deleting: `git rev-list --left-right --count origin/main...<branch>` +
+  the PR state. Merged / closed-superseded / commits-already-in-main -> delete
+  silently. Only **stop and ask** when a branch has commits NOT in main
+  (genuinely unmerged or abandoned work that a delete would destroy).
+- This is the exact scope of "protect unmerged work"; it does NOT extend to tags
+  (tags are never deleted, ever) or to unmerged branches.
+
 ## Working Directory
 
 - `git -C /some/path` is ONLY valid when targeting a repo that is NOT the current working directory. If CWD is already the repo, run `git` directly. Never use `-C` as a "safety" anchor when you're already there.
