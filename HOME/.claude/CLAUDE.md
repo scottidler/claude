@@ -70,6 +70,10 @@ On-demand docs in `~/repos/.claude/refs/` — read when the scenario calls for i
 - Bulk search-and-replace with the `replace` shell function
 - Read when: mechanical cross-file renames
 
+### voice
+- Scott's writing-voice profile: `~/Claude/writing/VOICE.md` (real file, not a repo doc)
+- Read when: drafting prose as Scott — email, Slack, Confluence, design docs, announcements
+
 ## graphify
 
 - Skill at `~/.claude/skills/graphify/SKILL.md` — turns any input into a knowledge graph
