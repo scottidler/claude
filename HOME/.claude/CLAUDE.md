@@ -23,6 +23,7 @@ Auto-loaded from `~/repos/.claude/rules/`, grouped by purpose.
 
 Conventions — how I write code & config:
 - `general` — naming, files, config, deps, CI, version control (always-on)
+- `taste` — design/review judgment: pipeline discipline, quality bar, architecture & security instincts, phasing, evidence standards (always-on; mined from all sessions 2026-05..07)
 - `cli` — CLI flag behavior: space-separated, no commas (always-on)
 - `logging` — function-level debug logging (always-on)
 - `python` / `rust` / `js-ts` / `yaml` — language-specific (path-scoped)
@@ -33,6 +34,7 @@ Tool rules — hard constraints on specific tools:
 
 Safety:
 - `safety` — file deletion; applies to all files (path-scoped `**/*`)
+- `secrets` — age-encrypted secrets via `manifest age`; gh token picked by repo org (home vs work persona) (always-on)
 
 @~/.claude/tools.md
 
@@ -55,6 +57,10 @@ On-demand docs in `~/repos/.claude/refs/` — read when the scenario calls for i
 ### jira.md
 - Jira issue types, ticket naming, acceptance criteria
 - Read when: working on Jira tickets
+
+### design-exemplars.md
+- Worked examples of my design/review judgment with verbatim quotes + session provenance
+- Read when: authoring or reviewing a design doc, running an implementation audit, or making a judgment call `rules/taste.md` doesn't settle
 
 ### dealing-with-large-files.md
 - Safe decomposition of large source files
