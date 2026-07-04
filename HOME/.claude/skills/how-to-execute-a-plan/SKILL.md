@@ -43,6 +43,20 @@ Before using this skill, you must have:
 2. **Phased implementation plan** - the design doc must have distinct phases
 3. **Otto configured** - `.otto.yml` must exist for CI validation
 
+**Ready-to-build gate (check before phase 1, HARD STOP on failure):** Scott
+never builds with open questions or disputes. Verify in the doc:
+
+- **Open Questions is empty** (or every remaining item is explicitly gated on a
+  named external dependency)
+- **Review-panel consensus reached** - findings folded in or pushed back with
+  rationale; no unresolved pushbacks
+- **Acceptance criteria present** - falsifiable overall asserts, and success
+  criteria per phase (flag their absence; older docs may predate them)
+
+If any check fails, STOP and report exactly what is unresolved instead of
+starting phase 1. Building anyway is the process violation this gate exists
+to prevent.
+
 ## The Execution Loop
 
 For each phase in the design document:
@@ -369,6 +383,14 @@ Implementation notes: docs/design/<feature>-implementation-notes.md
 - Phase 3 open questions: none
 ```
 
+### 0.5 Verify acceptance criteria
+
+Before flipping the status, walk the doc's Acceptance Criteria section and
+verify each assert against the actual code/behavior. Report pass/fail per
+criterion. A criterion you cannot verify is reported as UNVERIFIED with the
+reason - never silently assumed. If any criterion FAILS, the work is not done:
+stop and surface it instead of proceeding to finalization.
+
 ### 1. Update design doc status and commit
 
 Change the design doc's `**Status:**` from `Draft` to `Implemented`, then commit:
@@ -425,6 +447,18 @@ cargo install --path .
 
 This step assumes a Rust CLI project (which is ~99% of what we build). If the
 project is not Rust, substitute the equivalent install command.
+
+### 7. Done means live (only after approved push/install)
+
+Merged is not shipped. After the approved finalization actions complete,
+verify at the runtime surface:
+
+- Deployed service: `/sdv-probe` (or `verify`) until the new version lands,
+  then exercise the affected endpoints hunting for defects
+- Local CLI: run the installed binary against its real surface; for a new or
+  reshaped interface, suggest `/cli-shakedown`
+- Report what you exercised and what you observed - "green CI" and "pushed"
+  are not evidence the feature works
 
 ### Finalization summary
 

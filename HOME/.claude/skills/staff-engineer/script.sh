@@ -76,7 +76,21 @@ Relevant reference paths you may read and verify against (read-only):
 $(echo "$EXTRA_DIRS" | tr ',' '\n' | sed 's/^/  - /')"
 fi
 
+# Inject the owner's judgment standards alongside the persona. Codex CAN read
+# the file itself, but embedding guarantees the standards are actually in
+# context instead of hoping the reviewer goes and reads them.
+TASTE_PATH="$HOME/repos/.claude/rules/taste.md"
+TASTE=""
+if [ -f "$TASTE_PATH" ]; then
+  TASTE="
+
+## Owner's Standards (judge against these, not generic best practice)
+
+$(cat "$TASTE_PATH")"
+fi
+
 PROMPT="$PERSONA
+$TASTE
 $REFS
 
 $PROMPT"

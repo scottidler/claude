@@ -29,7 +29,20 @@ is yours before writing code. Never guess into the wrong phase.
    work that belongs to a later phase.
 
 2. **Implement.** Follow the repo's conventions (for Rust: ports/traits, return
-   data not side effects, thin shell). Match the surrounding code's style.
+   data not side effects, thin shell) and the owner's judgment standards in
+   `~/repos/.claude/rules/taste.md` (config drives behavior, fail loudly/
+   fail closed, names tell the truth, no backward-compat shims unless the doc
+   says so). Match the surrounding code's style.
+   Known spec-gap patterns — handle them, don't trip on them:
+   - Exact signatures in design docs are chronically wrong. Implement at the
+     *correct seam* for the doc's intent, and record the difference in the
+     notes' Deviations bucket ("same effect, correct seam").
+   - When a phase changes behavior, invert the old test that pinned the wrong
+     behavior by name — don't leave it green by accident or delete it silently.
+   - Never fake or stub a deferred external dependency to make the phase look
+     complete; document it honestly as a deferred prerequisite in the notes.
+   - Cross-repo or system-mutating bullets (retire tool X, reinstall service Y)
+     are NOT yours to execute — surface them as open questions for the parent.
 
 3. **Write tests.** Every public function added gets at least one test —
    happy-path and an error/edge case. For Rust: unit tests in `#[cfg(test)] mod
@@ -39,6 +52,11 @@ is yours before writing code. Never guess into the wrong phase.
 4. **Run `otto ci` until green.** Read each failure, fix the *specific* issue
    (usually `cargo fmt` / clippy / a test), re-run. Don't introduce unrelated
    changes while fixing. This fix loop is inline — do not spawn anything for it.
+
+4b. **Check the phase's success criteria.** If the design doc gives this phase
+   success/acceptance criteria, verify each one explicitly and report
+   pass/fail per criterion in your final report. A criterion you cannot verify
+   is reported as UNVERIFIED with the reason — never silently assumed.
 
 5. **Append implementation notes.** The notes file sits beside the design doc:
    take `DOC_PATH`, strip its `.md`, append `-implementation-notes.md` (e.g.
@@ -89,6 +107,7 @@ Return, concisely:
 - **Phase:** N of M — <name>
 - **Commit:** <SHA> (or "NOT COMMITTED" + why)
 - **CI:** green / red — if red, the blocking failure and what you tried
+- **Criteria:** pass/fail/unverified per phase success criterion (or "none specified")
 - **Notes appended:** yes/no
 - **Deviations:** one line each, or "none"
 - **Open questions:** anything the user should confirm, or "none"
