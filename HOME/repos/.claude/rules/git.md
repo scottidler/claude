@@ -37,7 +37,9 @@ gh api repos/OWNER/REPO/rules/branches/main        # rulesets (repo + org level)
 
 - `bump --gates` — shows both gates (classic protection AND repo/org rulesets) and the recommended flow (run this first if unsure)
 - Ungated repo: `bump [-m|-M]` (tags local HEAD), then `git push origin main && git push origin vX.Y.Z` — branch first; the `&&` means a rejected branch push never lets the tag escape
-- Gated repo: `bump --no-tag [-m|-M]` (version bump rides your PR branch, no tag) → open PR → merge → on updated main `bump --tag-only` (tags the merged commit) → `git push origin vX.Y.Z`
+- Gated repo: `bump --no-tag [-m|-M]` on the FEATURE branch (version bump rides the feature PR, no tag) → open PR → merge → on updated main `bump --tag-only` (tags the merged commit) → `git push origin vX.Y.Z`
 - Never run plain `bump` on a gated repo — it will refuse anyway, but `--no-tag` is the right call; `--tag-only` is the post-merge tag step
+- NEVER create a bump-only release branch (`release-X.Y.Z` carrying just a version commit). The bump belongs INSIDE the feature PR. If a PR already merged without its bump: STOP and ask Scott — the default is to fold the bump into the next feature PR, not to invent a branch.
+- A tag created on a branch is burnt and lost forever — squash-merge rewrites the SHA. On a feature branch the ONLY legal bump form is `bump --no-tag` (the git-release-guard hook enforces this).
 - Never `git push --tags`; `push.followTags` is `false` in dotfiles because a followTags push lands the tag even when the branch push is rejected (this orphaned okta-auth-rs v0.2.0)
 - If a push to main is ever rejected after a tag exists locally: STOP. Do not push the tag, do not retry variations, do not change repo settings (merge methods, protection, rulesets). Report the exact rejection to the user.

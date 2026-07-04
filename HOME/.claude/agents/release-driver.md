@@ -33,11 +33,17 @@ file or run raw `git tag`/`git push --tags`, STOP — that is the failure mode.
 
 `release` is `~/.claude/bin/release` — the deterministic two-scenario sequencer:
 
-- **Ungated:** `bump` (tags HEAD) → `git push origin <default> && git push origin vX.Y.Z`.
-- **Gated:** `bump --no-tag` on the default branch → move the commit to a
-  `release-X.Y.Z` branch → reset the default branch → push branch → open a PR, then
-  **pause**. After merge, `release --finish` tags the merged tip (`bump --tag-only`
+- **Ungated:** `bump` (tags HEAD) on the default branch → `git push origin <default> && git push origin vX.Y.Z`.
+- **Gated:** the version bump RIDES THE FEATURE PR. From the feature branch (code
+  committed): `bump --no-tag` → push the branch → open the PR, then **pause**. (If
+  commits are stranded on local main, the driver moves them to a feature branch
+  named after the change first — a version commit cannot land on gated main except
+  via PR.) After merge, `release --finish` tags the merged tip (`bump --tag-only`
   verifies `HEAD == origin/<default>`, so it cannot orphan) and pushes the tag by name.
+  **Never a bump-only release branch; never a tag on a branch** — squash-merge
+  rewrites the SHA, so a branch tag is burnt forever. If a PR already merged
+  WITHOUT its bump, STOP and report — folding it into the next feature PR is
+  Scott's call, not yours.
 
 It runs `bump`/`git` as subprocesses, so the git-release-guard hook does not see
 them — the safety lives inside `release` itself, and it is verified. Trust it; do
@@ -45,8 +51,10 @@ not second-guess its gate verdict or re-implement its steps by hand.
 
 ## The loop
 
-1. **Orient.** `cd` to REPO. Confirm it's a git repo and you're on the default
-   branch. Read CLAUDE.md (repo root, then `.claude/CLAUDE.md`) for an install
+1. **Orient.** `cd` to REPO. Confirm it's a git repo. Stay on whatever branch the
+   work is on — ungated releases run from the default branch; gated releases run
+   from the feature branch (the bump rides the PR); `release` enforces this.
+   Read CLAUDE.md (repo root, then `.claude/CLAUDE.md`) for an install
    command if INSTALL wasn't given — look in Quick Reference / Install / Build &
    Install. Note daemon restarts (`systemctl --user restart …`) as part of it.
 

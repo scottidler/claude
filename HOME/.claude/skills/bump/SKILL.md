@@ -5,91 +5,84 @@ description: Bump a version and create/push a git tag via the deterministic `rel
 
 # Releasing — `release` decides, you don't
 
-The release problem is binary, and the `release` driver (`~/.claude/bin/release`)
-makes the call mechanically so you can't pick the wrong path:
+## /bump vs /shipit — pick the right one
 
-```
-ungated  ->  bump tags HEAD          ->  push branch, then tag by name
-gated    ->  bump --no-tag rides a PR ->  after merge, tag the merged tip by name
-```
+- **/shipit** — there are UNCOMMITTED changes to ship end-to-end: commit → version → tag → push → install.
+- **/bump** (this skill) — the code is already committed (or already merged); you need the version bump + tag done correctly.
 
-Every release failure in `~/HALL-OF-SHAME.md` is the model choosing wrong at one of
-those decision points. Don't re-derive the flow from prose — run the driver.
+Both funnel into the same two flows. **There are exactly two flows and no third.**
+Which one applies is decided by whether the default branch is protected — and the
+`release` driver (`~/.claude/bin/release`) / `bump --gates` makes that call
+mechanically. Never infer gates yourself; every failure in `~/HALL-OF-SHAME.md`
+is the model choosing wrong at one of these decision points.
 
-## Default path: hand it off
+## FLOW 1 — UNGATED (main accepts direct pushes)
 
-For anything beyond a trivial local bump, give the whole release to the
-**release-driver agent** — it commits the code, runs `release`, babysits a gated PR
-to merge, finishes the tag, and verifies it isn't orphaned. That's the safe default.
-
-Or run the driver yourself, on a **clean tree, on the default branch, code already
-committed**:
+On main, code committed, clean tree. Tag HEAD, then push the branch AND the tag
+together:
 
 ```bash
-release [-m|-M] [--install "<cmd>"|--no-install]   # ungated: ships; gated: opens PR + pauses
-release --finish                                    # gated: after the PR merges
+bump [-m|-M]                                    # bumps Cargo.toml + commits + tags HEAD
+git push origin main && git push origin vX.Y.Z  # branch first; && keeps the tag from escaping a rejected push
 ```
 
-## `bump` directly — the primitive `release` calls
+## FLOW 2 — GATED (main requires a PR)
 
-`release` is just a deterministic sequencer over `bump`. Reach for `bump` directly
-only for a one-off the driver doesn't fit. `bump` is gate-aware and refuses to
-orphan a tag:
-
-```bash
-bump --gates     # which flow applies (checks classic protection AND repo/org rulesets)
-bump [-m|-M]     # UNGATED: bumps Cargo.toml + commits/amends + tags HEAD
-bump --no-tag    # GATED: bumps + commits, NO tag (rides a PR branch)
-bump --tag-only  # GATED post-merge: tags the merged tip (verifies HEAD == origin/<default>)
-```
-
-### Manual gated flow — bump runs ONLY on the default branch
-
-The `git-release-guard` hook **blocks `bump` on any non-main branch**, so NEVER
-bump on the feature branch. The flow:
+**The version bump rides the FEATURE PR. The tag is cut only AFTER the merge, on
+updated main.** A tag created on a branch is burnt and lost forever — squash-merge
+rewrites the SHA — which is why `bump` and the hook both refuse it.
 
 ```bash
-# on main, code already committed, CLEAN tree:
-bump --no-tag [-m|-M]               # version commit on main, no tag
-git branch release-X.Y.Z            # capture it — name it release-* NEVER bump-* (bump-* trips the hook)
-git reset --hard origin/main        # main back to identical-with-origin (tree is clean here)
-git checkout release-X.Y.Z
-git push -u origin release-X.Y.Z    # open a PR, get it merged
+# on the FEATURE branch, code committed, BEFORE the PR merges:
+bump --no-tag [-m|-M]        # version commit joins the feature PR — NO tag exists yet
+git push origin <branch>     # PR → CI → review → merge
+
 # after the PR merges:
 git checkout main && git pull --ff-only origin main
-bump --tag-only && git push origin vX.Y.Z   # tag by explicit name
+bump --tag-only              # refuses unless HEAD == origin/main — physically cannot orphan
+git push origin vX.Y.Z       # by explicit name — NEVER --tags
 ```
 
-### Manual ungated flow
+## FORBIDDEN — no exceptions
 
-```bash
-bump [-m|-M]                                   # tags local HEAD
-git push origin main && git push origin vX.Y.Z # branch FIRST; the && keeps the tag from escaping a rejected push
-```
-
-## Rules that never bend (see rules/git.md)
-
-- **Never** `git push --tags` / `--follow-tags` — the tag lands even if the branch
-  push is rejected (this orphaned okta-auth-rs v0.2.0). Push the branch, confirm it
-  landed, then the tag by explicit name.
-- **Never** hand-edit a `version =` line — `bump` owns it (on gated repos `bump
-  --no-tag` does the edit without tagging).
+- **Never create a bump-only release branch** (`release-X.Y.Z` carrying just a
+  version commit). The bump belongs INSIDE the feature PR. If a PR already merged
+  without its bump: **STOP and ask Scott** — the default is to fold the bump into
+  the next feature PR, not to invent a branch.
+- **Never tag on a branch, never `bump`/`bump -m`/`bump -M` on a branch.** The
+  only legal bump off main is `bump --no-tag` (the hook enforces this).
+- **Never** `git push --tags` / `--follow-tags` — the tag lands even if the
+  branch push is rejected (this orphaned okta-auth-rs v0.2.0).
+- **Never** hand-edit a `version =` line — `bump` owns it.
 - **Never** create or delete tags manually — `bump` / `bump --tag-only` make
   annotated tags; only Scott deletes a tag.
 - **Never** tag a commit that isn't on `origin/<default>` yet.
 
-## Options
+## Default path: hand it off
+
+For anything beyond a trivial local bump, give the whole release to the
+**release-driver agent** — it runs `release`, babysits a gated PR to merge,
+finishes the tag, and verifies it isn't orphaned. That's the safe default.
+
+Or run the driver yourself (clean tree, code already committed — on main if
+ungated, on the feature branch if gated):
 
 ```bash
-bump               # patch (x.y.Z) — DEFAULT
-bump -m            # minor (x.Y.0)
-bump -M            # major (X.0.0)
+release [-m|-M] [--install "<cmd>"|--no-install]   # ungated: ships; gated: bumps the branch, opens PR, pauses
+release --finish                                    # gated: after the PR merges — pulls main, tags, pushes tag by name
+```
+
+## `bump` reference — the primitive `release` calls
+
+```bash
+bump               # patch (x.y.Z) — DEFAULT; UNGATED main only (tags HEAD)
+bump -m / -M       # minor / major
 bump -n            # dry run — preview, no changes
+bump --gates       # which flow applies (checks classic protection AND repo/org rulesets)
+bump --no-tag      # GATED: bump + commit, NO tag — run on the FEATURE branch, rides the PR
+bump --tag-only    # GATED post-merge: tags the merged tip (verifies HEAD == origin/<default>)
 bump -a            # automatic commit message
 bump --message "X" # custom commit message
-bump --gates       # report gate status + recommended flow, then exit
-bump --no-tag      # bump + commit, NO tag (gated; rides a PR)
-bump --tag-only    # tag the merged commit (gated post-merge step)
 bump --no-verify   # skip the gate probe (treat repo as ungated)
 ```
 

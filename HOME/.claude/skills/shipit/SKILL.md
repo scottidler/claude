@@ -1,15 +1,33 @@
 ---
 name: shipit
-description: Ship code changes - commit, bump the version, push the branch then the tag by name, and install. Use when the user says "ship it", "shipit", or wants to commit+bump+push+install in one go. Also trigger on "release this", "push this out", or "cut a release and install" when the intent is to ship the current change end-to-end — prefer firing over asking.
+description: Ship code changes - commit, bump the version, push, and install. Use when the user says "ship it", "shipit", or wants to commit+bump+push+install in one go. Also trigger on "release this", "push this out", or "cut a release and install" when the intent is to ship the current change end-to-end — prefer firing over asking.
 ---
 
 # Ship It
 
-"shipit" = ship the current change as a release: commit → bump → push (branch
-first, tag by name) → install. **Hand the whole thing to the `release-driver`
-agent.** It runs the release in an isolated context through the deterministic
-`release` driver, so the tag/push logic — where every `~/HALL-OF-SHAME.md` failure
-lives — has no room for the model to pick a wrong path or rationalize an orphan.
+## /shipit vs /bump — pick the right one
+
+- **/shipit** (this skill) — there are UNCOMMITTED changes to ship end-to-end:
+  commit → version → tag → push → install.
+- **/bump** — the code is already committed (or already merged); only the version
+  bump + tag remain.
+
+"shipit" = ship the current change as a release. **Hand the whole thing to the
+`release-driver` agent.** It runs the release in an isolated context through the
+deterministic `release` driver, so the tag/push logic — where every
+`~/HALL-OF-SHAME.md` failure lives — has no room for the model to pick a wrong
+path or rationalize an orphan.
+
+## The two flows the driver executes (there is no third)
+
+- **UNGATED** (main accepts direct pushes): commit on main → `bump` (tags HEAD) →
+  `git push origin main && git push origin vX.Y.Z` — branch AND tag together, tag
+  by explicit name.
+- **GATED** (main requires a PR): the version bump RIDES THE FEATURE PR
+  (`bump --no-tag` on the feature branch) → push branch → PR → merge → pull main →
+  `bump --tag-only` → `git push origin vX.Y.Z`. The tag exists only AFTER the
+  merge, on updated main. Never a tag on a branch (squash rewrites the SHA — the
+  tag is burnt forever). Never a bump-only release branch.
 
 ## What to do
 
@@ -38,7 +56,7 @@ hand — but follow the `bump` skill exactly:
 ```bash
 # commit the real files by explicit path (NEVER git add -A — sweeps scratch assets)
 git add <files> && git commit -m "<message>"
-release [-m|-M] [--install "<cmd>"|--no-install]   # clean tree, on default branch
+release [-m|-M] [--install "<cmd>"|--no-install]   # clean tree; main if ungated, feature branch if gated
 # gated repos pause at "waiting on PR merge"; after merge: release --finish
 ```
 
@@ -46,8 +64,12 @@ release [-m|-M] [--install "<cmd>"|--no-install]   # clean tree, on default bran
 
 - **Never** `git push --tags` / `--follow-tags` — push the branch, confirm it
   landed, then the tag by explicit name (`git push origin vX.Y.Z`).
-- **Never** bump on a feature branch (the hook blocks it); the gated flow bumps on
-  the default branch and rides a `release-*` branch through a PR.
+- **Never** a tag-creating bump off main — on a feature branch the only legal
+  form is `bump --no-tag` (the hook enforces this); the tag comes after the merge
+  via `bump --tag-only` on updated main.
+- **Never** create a bump-only release branch. The bump rides the feature PR. If
+  a PR already merged without its bump: STOP and ask Scott — default is to fold
+  the bump into the next feature PR.
 - **Never** hand-edit a version, create/delete a tag by hand, or tag a commit not
   yet on `origin/<default>`.
 - **Push rejected after a tag exists locally?** STOP — don't push the tag, don't

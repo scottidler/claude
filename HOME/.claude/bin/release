@@ -4,10 +4,13 @@
 #
 # The whole release problem is binary (Scott's framing, and it really is):
 #
-#   1. main is GATED   -> bump --no-tag on main, move the commit to a release-*
-#                         branch, reset main, open a PR; AFTER it merges, tag the
-#                         merged tip of main and push the tag by name.
-#   2. main is UNGATED -> bump (tags local HEAD), push branch then tag by name.
+#   1. main is GATED   -> the version bump RIDES THE FEATURE PR (bump --no-tag on
+#                         the feature branch, before merge). AFTER the PR merges:
+#                         pull main, tag the merged tip, push the tag by name.
+#                         NEVER a bump-only release branch. NEVER a tag on a branch
+#                         (squash-merge rewrites the SHA — the tag is burnt forever).
+#   2. main is UNGATED -> bump (tags local HEAD) on main, then push the branch AND
+#                         the tag together: git push origin main && git push origin vX.Y.Z
 #
 # This script is the mechanical executor of exactly the commands the bump/shipit
 # skills document — same `bump` calls, same safe push order — but with NO room
@@ -21,11 +24,12 @@
 #     branch/commit is confirmed on origin)
 #   - never bump a dirty tree (refuse unless the tree is clean)
 #   - never tag a gated repo before the merge (bump --no-tag / bump --tag-only)
-#   - never force-push, never delete tags
+#   - never force-push, never delete tags, never a bump-only release branch
 #
-# Contract: the CODE CHANGE IS ALREADY COMMITTED (clean tree, on the default
-# branch, unpushed). The caller owns the diff-reading judgment (what to commit,
-# the message). This driver owns everything mechanical from there.
+# Contract: the CODE CHANGE IS ALREADY COMMITTED (clean tree; on the default
+# branch for ungated, on the feature branch for gated). The caller owns the
+# diff-reading judgment (what to commit, the message). This driver owns
+# everything mechanical from there.
 #
 # Usage:
 #   release [-m|-M] [--install "<cmd>"|--no-install] [-n]   # start a release
@@ -40,7 +44,7 @@ NO_INSTALL=0
 DRYRUN=0
 FINISH=0
 
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -105,19 +109,9 @@ if [ "$FINISH" = 1 ]; then
 fi
 
 # ---- START mode: preconditions ------------------------------------------------
-[ "$BRANCH" = "$DEFAULT" ] || die "must run from the default branch ($DEFAULT); you are on '$BRANCH'. (Release happens off $DEFAULT — see git.md.)"
 [ -z "$(git status --porcelain)" ] || die "tree is dirty. Commit your real code change first (specific files, good message); the driver only does the mechanical release on a CLEAN tree (this is how the marquee asset-sweep was avoided)."
 
 run "git fetch origin $DEFAULT"
-BEHIND=$(git rev-list --count "HEAD..origin/$DEFAULT" 2>/dev/null || echo 0)
-[ "$BEHIND" = 0 ] || die "$DEFAULT is $BEHIND commit(s) behind origin/$DEFAULT — pull/rebase before releasing (tagging a stale main is how cr v0.1.8 was orphaned)."
-AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
-[ "$AHEAD" -gt 0 ] || die "nothing to release: HEAD == origin/$DEFAULT and tree is clean. Commit a change first."
-
-# Target version — parse bump's own dry-run so the number is bump's, not ours.
-PREVIEW=$(bump -n $LEVEL 2>&1 || true)
-TAG=$(printf '%s\n' "$PREVIEW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-[ -n "$TAG" ] || die "could not parse target version from 'bump -n $LEVEL':"$'\n'"$PREVIEW"
 
 # Gate detection — bump checks BOTH layers (classic protection AND repo/org
 # rulesets). This is the single source of truth; never infer gates by hand.
@@ -137,8 +131,19 @@ else
   die "gate status is UNKNOWN for a GitHub repo — refusing to guess. Run 'gh auth status' and retry. Output was:"$'\n'"$GATES"
 fi
 
-# ---- UNGATED: bump tags HEAD, push branch then tag by name --------------------
+# ---- UNGATED: bump tags HEAD on the default branch, push branch AND tag -------
 if [ "$GATED" = 0 ]; then
+  [ "$BRANCH" = "$DEFAULT" ] || die "ungated release runs from the default branch ($DEFAULT); you are on '$BRANCH'. Land your work on $DEFAULT first."
+  BEHIND=$(git rev-list --count "HEAD..origin/$DEFAULT" 2>/dev/null || echo 0)
+  [ "$BEHIND" = 0 ] || die "$DEFAULT is $BEHIND commit(s) behind origin/$DEFAULT — pull/rebase before releasing (tagging a stale main is how cr v0.1.8 was orphaned)."
+  AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
+  [ "$AHEAD" -gt 0 ] || die "nothing to release: HEAD == origin/$DEFAULT and tree is clean. Commit a change first."
+
+  # Target version — parse bump's own dry-run so the number is bump's, not ours.
+  PREVIEW=$(bump -n $LEVEL 2>&1 || true)
+  TAG=$(printf '%s\n' "$PREVIEW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  [ -n "$TAG" ] || die "could not parse target version from 'bump -n $LEVEL':"$'\n'"$PREVIEW"
+
   say "UNGATED release of $TAG on $DEFAULT"
   run "bump $LEVEL"
   # Use the tag bump ACTUALLY created (not the -n prediction) — defensive.
@@ -153,22 +158,54 @@ if [ "$GATED" = 0 ]; then
   exit 0
 fi
 
-# ---- GATED: bump --no-tag, ride a release-* branch through a PR ----------------
-RELBR="release-${TAG#v}"   # release-X.Y.Z — never bump-* (that false-trips the hook)
-say "GATED release of $TAG — version bump must ride a PR (no tag until merged)"
-run "bump --no-tag $LEVEL"             # bumps + commits on $DEFAULT, NO tag (hook allows bump on $DEFAULT)
-run "git branch $RELBR"                # capture the bump commit on the release branch
-run "git reset --hard origin/$DEFAULT" # leave $DEFAULT identical to origin (tree is clean here)
-run "git checkout $RELBR"
-run "git push --no-follow-tags -u origin $RELBR"
+# ---- GATED: the version bump rides the FEATURE PR ------------------------------
+# No tag exists until the PR merges; the tag is cut on the merged tip of the
+# default branch by `release --finish`. There is NEVER a bump-only release branch.
+
+if [ "$BRANCH" = "$DEFAULT" ]; then
+  AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
+  if [ "$AHEAD" = 0 ]; then
+    die "gated repo, nothing to release from $DEFAULT. The version bump rides the FEATURE PR: run this from the feature branch (code committed) and it will 'bump --no-tag' + push + open the PR. If a PR already merged WITHOUT its bump: STOP — never create a bump-only release branch; fold the bump into the next feature PR or ask Scott."
+  fi
+  # Commits stranded on local $DEFAULT of a gated repo can never push directly.
+  # Move them to a feature branch (named after the change, NOT release-*) — this
+  # IS the feature branch: it carries the code, and the bump joins it below.
+  SUBJ=$(git log --reverse --format=%s "origin/$DEFAULT..HEAD" | head -1)
+  SLUG=$(printf '%s' "$SUBJ" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40)
+  [ -n "$SLUG" ] || SLUG="change-$(git rev-parse --short HEAD)"
+  say "GATED repo: moving your $AHEAD commit(s) off local $DEFAULT onto feature branch '$SLUG' (a version commit cannot land on gated $DEFAULT except via PR)"
+  run "git branch $SLUG"
+  run "git reset --hard origin/$DEFAULT"   # tree is clean here; $DEFAULT back to identical-with-origin
+  run "git checkout $SLUG"
+  BRANCH="$SLUG"
+fi
+
+say "GATED release — bump rides the feature PR '$BRANCH' (no tag until it merges)"
+
+# Idempotency: if this branch already carries the version bump (re-run after a
+# failed push / PR revision), don't double-bump.
+if git diff "origin/$DEFAULT...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null | grep -Eq '^\+version'; then
+  say "version already bumped on this branch — skipping 'bump --no-tag'"
+else
+  run "bump --no-tag $LEVEL"               # version commit joins the PR; NO tag exists
+fi
+
+run "git push --no-follow-tags -u origin $BRANCH"
+
 if [ "$DRYRUN" = 0 ]; then
-  run "gh pr create --title 'Release $TAG' --body 'Version bump to $TAG. Auto-generated by the release driver.' --head $RELBR --base $DEFAULT"
-  PRURL=$(gh pr view "$RELBR" --json url -q .url 2>/dev/null || true)
+  PRSTATE=$(gh pr view "$BRANCH" --json state -q .state 2>/dev/null || true)
+  if [ "$PRSTATE" = "OPEN" ]; then
+    PRURL=$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null || true)
+    say "PR already open${PRURL:+: $PRURL}"
+  else
+    run "gh pr create --fill --head $BRANCH --base $DEFAULT"
+    PRURL=$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null || true)
+    say "PR opened${PRURL:+: $PRURL}"
+  fi
   echo
-  say "PR opened${PRURL:+: $PRURL}"
   echo "  This is a GATED repo — the tag cannot exist until the PR merges."
   echo "  After it merges (CI + review), run:   release --finish${NO_INSTALL:+ --no-install}${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
 else
-  echo "  [dry-run] gh pr create --head $RELBR --base $DEFAULT  (then, after merge: release --finish)"
+  echo "  [dry-run] gh pr create --fill --head $BRANCH --base $DEFAULT  (then, after merge: release --finish)"
 fi
-say "paused — waiting on PR merge for $TAG"
+say "paused — waiting on PR merge"

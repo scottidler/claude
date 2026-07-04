@@ -3,7 +3,8 @@
 # of the command, not relying on an always-on rule staying salient deep in a session.
 #
 # Blocks the specific footguns that have actually bitten:
-#   - bump on a feature branch            (release flow is PR -> merge -> bump off main)
+#   - tag-creating bump on a feature branch (a tag cut on a branch is burnt forever;
+#     `bump --no-tag` IS allowed there — the version bump rides the feature PR)
 #   - version-committing bump w/ dirty tree (bump stages EVERYTHING; this committed scratch jpgs)
 #   - git push --tags / --follow-tags     (a follow-tags push escapes even if branch push fails)
 #   - tag deletion (local or remote)      (git.md: NEVER delete a tag)
@@ -77,7 +78,13 @@ check_stmt() {
   if printf '%s' "$s" | grep -Eq '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*([^[:space:]]*/)?bump([[:space:]]|$)' \
      && ! printf '%s' "$s" | grep -Eq 'bump.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
     if [ -n "$bump_branch" ] && [ "$bump_branch" != "main" ] && [ "$bump_branch" != "master" ]; then
-      deny "Release flow: NEVER bump on a feature branch (the bump's target worktree '$bump_dir' is on '$bump_branch'). Scott's flow is PR -> merge -> bump OFF main. Open/merge the PR, then bump on main (e.g. 'cd <main-worktree> && bump'). A skill's 'finalize/ship' step does NOT authorize this."
+      # On a feature branch exactly ONE bump form is legal: `bump --no-tag`.
+      # That is the gated flow — the version commit rides the feature PR.
+      # Any tag-creating form (plain bump, -m/-M without --no-tag, --tag-only)
+      # is blocked: a tag cut on a branch is burnt forever (squash rewrites the SHA).
+      if ! printf '%s' "$s" | grep -Eq '\bbump\b.*--no-tag'; then
+        deny "Release flow: on a feature branch the ONLY legal bump is 'bump --no-tag' — the version commit rides the feature PR (never a tag on a branch, never a bump-only release branch). Tags are cut on main AFTER the PR merges: git checkout main && git pull --ff-only origin main && bump --tag-only && git push origin vX.Y.Z. (Target worktree '$bump_dir' is on '$bump_branch'.)"
+      fi
     fi
     if ! printf '%s' "$s" | grep -Eq '\bbump\b.*--tag-only'; then
       if [ -n "$bump_porcelain" ]; then
