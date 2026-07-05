@@ -223,9 +223,37 @@ if [[ -n "${REPO}" ]]; then
   relocate_one "${REPO%/}"
 else
   log "sweep mode: root=${ROOT} dest=${DEST}${REMOTE:+ on ${REMOTE}}${DRY_LABEL}"
+  # Plain repos: <root>/<org>/<repo>/Cargo.toml. Worktree-managed repos (the
+  # `worktree` CLI's bare+worktree layout) have a `.bare` gitdir instead of a
+  # repo-root Cargo.toml, and each worktree's own Cargo.toml lives wherever
+  # git recorded that worktree's path -- so ask git (`worktree list
+  # --porcelain`) rather than guessing a fixed depth. Without this, a
+  # worktree repo's target/ never gets pre-linked to the SSD in the first
+  # place, and every worktree inside it silently builds on the OS disk.
+  # BUG FIXED 2026-07-05: sweep-repos had the identical gap (see its history);
+  # this script shares the same root cause.
+  list_manifests() {
+    find "${ROOT}" -mindepth 3 -maxdepth 3 -name Cargo.toml -type f -print0 2>/dev/null
+    find "${ROOT}" -mindepth 3 -maxdepth 3 -name .bare -type d -print0 2>/dev/null \
+      | while IFS= read -r -d '' bare; do
+          git --git-dir="${bare}" worktree list --porcelain 2>/dev/null \
+            | awk '/^worktree /{print $2}' \
+            | while IFS= read -r wt; do
+                # `if` not `[[ ]] &&`: under set -e, a false test on the LHS of
+                # `&&` makes the whole statement's exit status 1 and kills this
+                # loop right there -- and every repo's OWN bare-container entry
+                # (which never has a Cargo.toml) is always the first line of its
+                # `worktree list` output, so this silently truncated enumeration
+                # after only 2 of 18 worktree repos before it was caught 2026-07-05.
+                if [[ -f "${wt}/Cargo.toml" ]]; then printf '%s\0' "${wt}/Cargo.toml"; fi
+              done
+        done
+  }
+  # process substitution (not a trailing pipe) keeps this loop in the current
+  # shell so LINKED/MOVED/WARN updates inside relocate_one aren't lost to a subshell
   while IFS= read -r -d '' manifest; do
     relocate_one "$(dirname "${manifest}")"
-  done < <(find "${ROOT}" -mindepth 3 -maxdepth 3 -name Cargo.toml -type f -print0 2>/dev/null | sort -z)
+  done < <(list_manifests | sort -z)
 fi
 
 log "done: pre-linked=${LINKED} migrated=${MOVED} warnings=${WARN}"
