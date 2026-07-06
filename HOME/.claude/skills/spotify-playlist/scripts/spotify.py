@@ -2,7 +2,7 @@
 """Spotify playlist tool: OAuth bootstrap + create-playlist-from-tracks.
 
 Stdlib only (no pip installs). Credentials come from the environment:
-  SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET   (hydrated from scottidler/secrets)
+  SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET   (hydrated from scottidler/keep)
   SPOTIFY_REFRESH_TOKEN                       (after one-time bootstrap)
 
 Subcommands:
@@ -46,7 +46,7 @@ def creds():
     csec = os.environ.get("SPOTIFY_CLIENT_SECRET")
     if not cid or not csec:
         sys.exit("SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET not set "
-                 "(they hydrate from scottidler/secrets at shell startup)")
+                 "(they hydrate from scottidler/keep at shell startup)")
     return cid, csec
 
 
@@ -119,7 +119,7 @@ def cmd_exchange(args):
     log(f"refresh token written to {out_path} (mode 0600).")
     log("It is a long-lived credential — do NOT cat/echo it into chat or logs.")
     log("Encrypt it into the secret store, then shred the plaintext, e.g.:")
-    log(f"  cd ~/repos/scottidler/secrets/.secrets && \\")
+    log(f"  cd ~/repos/scottidler/keep/.secrets && \\")
     log(f"  manifest age encrypt \"SPOTIFY_REFRESH_TOKEN=$(cat {out_path})\" -o . && \\")
     log("  git add spotify-refresh-token.age && git commit -m 'add spotify refresh token' && \\")
     log(f"  shred -u {out_path}")

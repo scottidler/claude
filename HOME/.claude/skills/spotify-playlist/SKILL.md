@@ -40,7 +40,7 @@ refreshing a long-lived **refresh credential**, so no browser is needed per run.
 ## Credentials (already in the environment)
 
 - `$SPOTIFY_CLIENT_ID`, `$SPOTIFY_CLIENT_SECRET` — the "mashup" app, hydrated
-  from `scottidler/secrets` at shell startup.
+  from `scottidler/keep` at shell startup.
 - `$SPOTIFY_REFRESH_TOKEN` — set after the one-time bootstrap (below). The script
   uses it to mint a fresh ~1h bearer token on every run.
 
@@ -102,7 +102,7 @@ This needs the user to approve in a browser once; after that it's automatic fore
    prints only that path. **Never `cat`/`echo`/paste the token into chat, logs, or
    a transcript.** Encrypt it into the secret store and shred the plaintext:
    ```bash
-   cd ~/repos/scottidler/secrets/.secrets
+   cd ~/repos/scottidler/keep/.secrets
    manifest age encrypt "SPOTIFY_REFRESH_TOKEN=$(cat $HOME/.config/spotify/refresh-token)" -o .
    git add spotify-refresh-token.age && git commit -m "add spotify refresh token"
    shred -u $HOME/.config/spotify/refresh-token
