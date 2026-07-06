@@ -5,6 +5,15 @@
 - `~/.claude/CLAUDE.md` → `~/repos/scottidler/claude/HOME/.claude/CLAUDE.md`
 - Edit/commit the real path, never the symlink
 
+## Who I am
+
+@~/.claude/WHOAMI.md
+
+## voice
+- Scott's writing-voice profile: `~/Claude/writing/VOICE.md` (real file, not a repo doc)
+- Read when: drafting prose as Scott — email, Slack, Confluence, design docs, announcements
+- Always-on trigger rule: `rules/voice.md`
+
 ## Non-Negotiable: Root Cause Always
 
 When something breaks or behaves unexpectedly, **never speculate, guess, or say "I don't know"**. Go find the answer. Check logs, inspect state, read files, run commands — whatever it takes. "I don't know", "probably", "likely", "fluke", "magic", or any hand-wavy non-answer is never acceptable. If the cause isn't known yet, the correct response is to go investigate until it is.
@@ -24,6 +33,7 @@ Auto-loaded from `~/repos/.claude/rules/`, grouped by purpose.
 Conventions — how I write code & config:
 - `general` — naming, files, config, deps, CI, version control (always-on)
 - `taste` — design/review judgment: pipeline discipline, quality bar, architecture & security instincts, phasing, evidence standards (always-on; mined from all sessions 2026-05..07)
+- `voice` — outward-facing prose (Slack/email/Jira/Confluence/docs/PRs/marquee) goes out in Scott's voice via `~/Claude/writing/VOICE.md` (always-on)
 - `cli` — CLI flag behavior: space-separated, no commas (always-on)
 - `logging` — function-level debug logging (always-on)
 - `python` / `rust` / `js-ts` / `yaml` — language-specific (path-scoped)
@@ -70,11 +80,7 @@ On-demand docs in `~/repos/.claude/refs/` — read when the scenario calls for i
 - Bulk search-and-replace with the `replace` shell function
 - Read when: mechanical cross-file renames
 
-### voice
-- Scott's writing-voice profile: `~/Claude/writing/VOICE.md` (real file, not a repo doc)
-- Read when: drafting prose as Scott — email, Slack, Confluence, design docs, announcements
-
-## graphify
+### graphify
 
 - Skill at `~/.claude/skills/graphify/SKILL.md` — turns any input into a knowledge graph
 - When the user types `/graphify`, invoke the Skill tool with `skill: "graphify"` before doing anything else

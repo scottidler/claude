@@ -34,8 +34,9 @@ python3 $S find   SUBSTR           # fuzzy-search the local cache -> id (no API,
 ## Voice
 
 Anything composed by Claude and posted via `send`/`preview` goes out as Scott.
-Before drafting message text (not verbatim user text), keep it Slack-native:
-lowercase where natural, terse, direct, no em-dashes, and no filler.
+Before drafting message text (not verbatim user text), read `~/Claude/writing/VOICE.md`
+and match the chat register: lowercase where natural, terse one-liners, flat verdicts,
+no em-dashes, no filler.
 
 ## Why this exists
 

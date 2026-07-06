@@ -54,6 +54,13 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
 
 See [example.md](example.md) for a sample review process.
 
+## Voice
+
+Design-doc prose is Scott's. Before drafting, read `~/Claude/writing/VOICE.md`;
+his planning-doc register is structure-first: Motivation -> Requirements -> Non-Goals,
+bullets over paragraphs, fragments over sentences, owner-per-item, one honest hedge
+max ("probably", "TBD"), no em-dashes.
+
 ## Prompts for Each Pass
 
 **Correctness:**

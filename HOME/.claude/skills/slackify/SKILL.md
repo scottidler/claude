@@ -37,6 +37,12 @@ EOF
 
 6. Confirm with "Copied to clipboard - ready to paste in Slack"
 
+## Voice
+
+Reformatted output goes out under Scott's name. Before rewriting, read
+`~/Claude/writing/VOICE.md` and match the chat register: terse, direct,
+no em-dashes, no ceremony. Preserve the content; convert the register.
+
 ## Rules
 
 - Content composed by Claude (not user-provided verbatim text) is going out as Scott: keep it terse, direct, Slack-native, and free of em-dashes.
