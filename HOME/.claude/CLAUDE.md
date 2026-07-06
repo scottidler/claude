@@ -10,7 +10,7 @@
 @~/.claude/WHOAMI.md
 
 ## voice
-- Scott's writing-voice profile: `~/Claude/writing/VOICE.md` (real file, not a repo doc)
+- Scott's writing-voice profile: `~/Claude/writing/VOICE.md` (real file, copy-deployed by a private repo's manifest; ~/Claude is the Cowork/Syncthing space, so no symlinks there)
 - Read when: drafting prose as Scott — email, Slack, Confluence, design docs, announcements
 - Always-on trigger rule: `rules/voice.md`
 

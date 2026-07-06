@@ -31,3 +31,23 @@
 - Repo: `scottidler/claude` checked out at `~/repos/scottidler/claude/`
 - `manifest.yml` at the repo root links `HOME/` into `~` (same pattern as dotfiles)
 - Contains Claude rules, skills, hooks, and settings
+- Rules load from `~/repos/.claude/rules/` ONLY via symlink: after adding a rule file to the
+  repo, run `manifest -l '*' | bash` from the repo root or the rule silently never loads
+- `manifest -l`/`-s` patterns are fuzzy-matched against full lines, not path globs; `'*'` is
+  the reliable form
+- Any change to always-on rules / CLAUDE.md / $HOME symlinks is startup config: throwaway-launch
+  test before calling it done (headless `claude -p "reply OK"` from a scratch dir)
+
+## ~/Claude (Cowork space)
+
+- `~/Claude` is the Claude Cowork workspace (desktop app, `coworkUserFilesPath` in
+  `~/.config/Claude/claude_desktop_config.json`) AND a Syncthing folder (desk / mini / lappy;
+  config at `~/.local/state/syncthing/config.xml`)
+- REAL FILES ONLY: Syncthing syncs symlinks as symlinks (dangling on other machines, different
+  $HOME paths) and Cowork boundary-checks resolved paths, so shared content there must be real
+  files. A symlink is acceptable only for deliberately desk-local content that must NOT travel
+  (e.g. the voice corpus)
+- Managed content is deployed there by the private keep repo's manifest (`copy/` tree =
+  copy-deployed real files, `HOME/` tree = symlinks); edit at the source repo and redeploy,
+  never edit deployed copies in place
+- `~/Claude/README.md` and `~/Claude/writing/README.md` document this in-place

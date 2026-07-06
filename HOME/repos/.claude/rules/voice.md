@@ -28,3 +28,20 @@ Self-check before sending:
 - Shorter and blunter beats longer and softer.
 
 Read VOICE.md only, not the corpus tree (`~/Claude/writing/voice/`). Corpus samples are for explicit voice analysis or sample mining, smallest relevant file only.
+
+<!--
+Maintenance notes (for the next agent/human):
+- ~/Claude/writing/VOICE.md is a REAL FILE, copy-deployed by a private repo's manifest. It must stay
+  a real file: ~/Claude is a Syncthing folder and the Cowork workspace, and symlinks there dangle on
+  other machines and break Cowork. Never replace it with a symlink; edit the private repo's canonical
+  copy and redeploy. The profile and its corpus are deliberately NOT in this public repo. If the path
+  is missing on a new machine, deploy from the private repo; if you don't know which repo, ask Scott.
+- Per-skill reinforcement: slackify, slack, and create-design-doc SKILL.md files each carry a
+  "## Voice" pointer for their genre. Shared/org tooling (marquee plugin, clyde) is deliberately
+  NOT edited; this always-on rule covers those surfaces instead.
+- Rules only load if symlinked into ~/repos/.claude/rules/. After adding or renaming a rule file,
+  run: cd ~/repos/scottidler/claude && manifest -l '*' | bash
+- Any change to always-on rules is startup config: throwaway-launch test before calling it done
+  (headless `claude -p "reply OK"` from a scratch dir must return cleanly).
+-->
+
