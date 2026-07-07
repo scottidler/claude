@@ -26,6 +26,16 @@ When something breaks or behaves unexpectedly, **never speculate, guess, or say 
 - If asked "how long," answer with scope: files affected, steps required, unknowns that block progress
 - Let the human do the sizing
 
+## Sandbox phantom files are NOT real (known Claude Code bug, unfixed at 2.1.202)
+
+Bash-sandbox (bwrap) deny-mounts leak into the working dir: `crw-rw-rw- ... 1,3`
+char devices or 0-byte stubs named `.bashrc .zshrc .profile .gitconfig .mcp.json
+.claude/` + git-internals `HEAD config hooks objects refs`. Namespace-local, NOT
+real; the disk is clean. Never narrate as repo noise, never `git add`/`rm` them;
+verify with a sandbox-OFF `git status`. Trackers:
+[#25603](https://github.com/anthropics/claude-code/issues/25603),
+[#29316](https://github.com/anthropics/claude-code/issues/29316).
+
 ## Rules
 
 Auto-loaded from `~/repos/.claude/rules/`, grouped by purpose.
