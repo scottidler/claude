@@ -57,3 +57,40 @@ service-account PAT; use it only when a task explicitly calls for the bot identi
 `GIT_SSH_COMMAND`), so pushes carry the right identity regardless of the gh token.
 Only the gh API surface (PRs, issues, comments, API calls) needs the token
 override above.
+
+### The live mechanism: the `gh()` function keyed on `$PWD` (plus `GH_PERSONA`)
+
+`.zshenv` wraps `gh` in a function that picks the persona automatically:
+`~/repos/tatari-tv/*` -> work, everything else -> home. This is per-invocation
+(an env-var swap, not `gh auth switch`), so it is safe under the many parallel
+shells / cron / agent sessions Scott runs: no shared mutable state that one
+context can flip out from under another. Do NOT replace it with
+`gh auth login` / `gh auth switch` without solving that concurrency problem.
+
+The explicit override is `GH_PERSONA`, a plain `work`/`home` toggle that beats
+the `$PWD` guess for a single call:
+
+```bash
+GH_PERSONA=work gh api repos/tatari-tv/marquee   # force work, regardless of $PWD
+GH_PERSONA=home gh api user                      # force home
+gh-work api repos/tatari-tv/marquee              # terse wrappers, same effect
+gh-home api user
+```
+
+`GH_PERSONA` is deliberately not a token/secret-shaped name, so it reads clearly
+in transcripts and does not trip `secret-echo-guard.sh`.
+
+### Troubleshooting: a gh call 404s or authenticates as the wrong account
+
+The `$PWD` heuristic answers "which dir am I in," but the real question is "which
+org does this call target." They diverge whenever a call hits a `tatari-tv`
+resource from OUTSIDE `~/repos/tatari-tv/*` (a notes folder, a scratch dir,
+anywhere) -- the function takes the home branch, forces the home token, and a
+private work repo comes back `404 Not Found`, which looks exactly like "no
+access" rather than "wrong identity."
+
+When a `gh` call inexplicably 404s or acts as the wrong account, FIRST suspect
+this PWD miss and prepend `GH_PERSONA=work` (or `GH_PERSONA=home`). Confirm with
+`gh api user --jq .login`. Do NOT start guessing at raw tokens or cycling auth
+methods -- rapid-fire auth attempts trip Claude Code's auto-mode credential
+classifier. One hypothesis, one deliberate test.

@@ -29,5 +29,6 @@
 | Incidents (Eng + DS) | `INC` | `INC` |
 | Engineering (shared) | `ENGPROG` | `ENG` - [Engineering](https://tatari.atlassian.net/wiki/spaces/ENG) |
 
+- For the `gh` CLI (PRs, issues, `gh api`), the persona is selected by the `gh()` shell function keyed on `$PWD` (`~/repos/tatari-tv/*` = work, else = home). Override per-call with `GH_PERSONA=work`/`GH_PERSONA=home` (or `gh-work`/`gh-home`) — needed whenever a call targets a `tatari-tv` resource from outside a `tatari-tv` checkout, else it 404s like "no access". Full mechanism + troubleshooting: `rules/secrets.md`, "GitHub: pick the token by repo org".
 - When using the `multi-account-github` MCP, specify `account: "home"` or `account: "work"` based on the repo/org context; default is `home`
 - For the `gws` Google Workspace CLI, the persona is selected by wrapper: `gws-work` (and bare `gws`) = work, `gws-home` = home. Bare `gws` defaults to work — see the `gws` skill for the config-dir mechanism.
