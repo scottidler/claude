@@ -92,6 +92,7 @@ end_seg() {
 
 # --- Cost via clyde cost ---
 TODAY_COST=$(_timeout 5 clyde cost today --total 2>/dev/null || echo "0")
+YESTERDAY_COST=$(_timeout 5 clyde cost yesterday --total 2>/dev/null || echo "0")
 WEEK_COST=$(_timeout 5 clyde cost weekly --total -w 1 2>/dev/null || echo "0")
 MONTH_COST=$(_timeout 5 clyde cost monthly --total -m 1 2>/dev/null || echo "0")
 
@@ -131,6 +132,7 @@ fi
 fc() { awk -v c="$1" 'BEGIN{if(c<10)printf"%.2f",c;else if(c<100)printf"%.1f",c;else printf"%.0f",c}'; }
 S_COST=$(echo | fc "$SESSION_COST")
 T_COST=$(echo | fc "$TODAY_COST")
+Y_COST=$(echo | fc "$YESTERDAY_COST")
 W_COST=$(echo | fc "$WEEK_COST")
 M_COST=$(echo | fc "$MONTH_COST")
 
@@ -229,7 +231,7 @@ OUT+="\n"
 seg "${MODEL} " "$L2_B" "$L2_B_FG"
 seg "${CTX} " "$L2_A" "$L2_A_FG"
 seg "🔥${TOK_HR_FMT} " "$L2_B" "$L2_B_FG"
-seg "\$${M_COST}$(fgr_split $L2_A_FG)|$(fgr_split $L2_A_FG)\$${W_COST}$(fgr_split $L2_A_FG)|$(fgr_split $L2_A_FG)\$${T_COST}$(fgr_split $L2_A_FG)|$(fgr_split $L2_A_FG)\$${S_COST} " "$L2_A" "$L2_A_FG"
+seg "\$${M_COST}$(fgr_split $L2_A_FG)|$(fgr_split $L2_A_FG)\$${W_COST}$(fgr_split $L2_A_FG)|$(fgr_split $L2_A_FG)\$${Y_COST}$(fgr_split $L2_A_FG)|$(fgr_split $L2_A_FG)\$${T_COST}$(fgr_split $L2_A_FG)|$(fgr_split $L2_A_FG)\$${S_COST} " "$L2_A" "$L2_A_FG"
 seg "${DUR} " "$L2_B" "$L2_B_FG"
 end_seg
 
