@@ -1,21 +1,33 @@
 ---
 name: slack
 description: >-
-  Slack toolkit - export a channel's full history (every message, thread reply, and
-  shared file) to structured JSON + file bytes, and manage a local channel id<->name
-  cache so channel lookups don't burn tokens. Use whenever the user wants to
-  download, archive, back up, dump, or export a Slack channel; says "export
-  #channel", "archive this channel", "grab the last 2 years of #foo", "save every
-  message and file from <channel>"; or wants to look up / refresh / add a Slack
-  channel ID by name ("what's the id for #foo", "refresh the slack ids", "add this
-  channel"). Prefer this over the Slack MCP for any bulk or historical pull and for
-  resolving channel IDs, even when the user doesn't mention files, JSON, or this skill.
+  Read, post, search, and export Slack from the terminal via your own user token, which
+  sees every channel you belong to (public or private, no bot to invite). This is the
+  primary way to touch Slack and is PREFERRED OVER the Slack MCP for all of it. Use for
+  ANY of these:
+  READ - read or summarize a thread, recent messages, or a shared Slack permalink ("read
+  this Slack message", "summarize this thread", "summarize this permalink", "what's in
+  #channel", "catch me up on #foo", or any "tatari.slack.com/archives/..." link the user
+  pastes and asks about);
+  POST / SEND - post a message to a NAMED channel or reply in a specific thread as Scott,
+  markdown auto-converted to mrkdwn and signed :giga-claude: ("send this to #channel",
+  "message #channel", "reply in that thread", "ping #foo about X"); sharing a snippet of
+  Claude's OWN output to your personal clipboard channel is slack-clipboard, not this;
+  SEARCH - keyword-search messages across the workspace ("search Slack for X", "find that
+  message about Y", "did anyone post about Z");
+  PREVIEW - render a draft to your own self-DM before sending it for real;
+  EXPORT - full-history archive of a channel (messages, threads, files) to JSON + file
+  bytes ("export #channel", "archive this channel", "grab the last 2 years of #foo");
+  ID CACHE - look up / refresh / add a channel ID by name ("what's the id for #foo",
+  "refresh the slack ids", "add this channel").
+  Trigger even when the user doesn't say "slack.py", "user token", or name this skill -
+  any request to read, send, reply to, search, back up, or resolve Slack belongs here.
 allowed-tools: Bash(python3:*), Read
 ---
 
 # slack
 
-One stdlib script, `slack.py`, with four modes. It talks to the Slack Web API with
+One stdlib script, `slack.py`, with eight subcommands (`read` `send` `search` `preview` `export` `refresh` `add` `find`). It talks to the Slack Web API with
 your **user** token, so it sees every channel you belong to (public or private) with
 no bot to invite. Pure stdlib: no venv, no `uv`, no deps - run it with `python3`.
 
@@ -47,19 +59,19 @@ the table current in bulk; `add` handles one-offs (e.g. a channel you just found
 
 ## Prerequisites
 
-- **Token: use `SLACK_XOXP_TOKEN`** - a personal Slack user token (xoxp) on the Tatari
-  workspace, scoped to Scott (`@escote`). This is the only token that actually works today.
-  > NOTE: The "Tatari Slack Toolkit" Slack app **does not exist yet** - it is aspirational.
-  > `TATARI_SLACK_TOOLKIT_API_TOKEN` is checked first only as a future hook and is currently
-  > unset; the script falls back to `SLACK_XOXP_TOKEN`, which is what does the work. Do not
-  > tell anyone to "add a scope to the Tatari Slack Toolkit app" - there is no such app.
-  `find` alone needs no token - it only reads the local cache.
-- Granted scopes on `SLACK_XOXP_TOKEN` today: `channels:history` `groups:history`
-  `im:history` `mpim:history` `channels:read` `groups:read` `im:read` `mpim:read`
-  `users:read` `files:read` `chat:write` `files:write` `im:write` `mpim:write`.
+- **Token: `TATARI_SLACK_TOOLKIT_API_TOKEN`** (falls back to `SLACK_XOXP_TOKEN`) - a
+  personal Slack user token (xoxp) on the Tatari workspace, scoped to Scott (`@escote`),
+  minted from Scott's own **"Tatari Slack Toolkit"** Slack app (App ID `A0BEEAAJ16D`,
+  created 2026-06-30 - the same app that seeded the `valet` token-broker). A *user* token,
+  so it sees every channel you belong to (public or private) with no bot to invite. `find`
+  alone needs no token - it only reads the local cache.
+- Granted scopes: `channels:history` `groups:history` `im:history` `mpim:history`
+  `channels:read` `groups:read` `im:read` `mpim:read` `search:read` `users:read`
+  `files:read` `chat:write` `files:write` `im:write` `mpim:write` - the full
+  read/write/search/export set (`search:read` is present, so `search` works).
   Notably **missing `usergroups:read`**, so listing the members of a Slack usergroup
-  (`<!subteam^…>` / `@group` mentions) returns `missing_scope`. Add `usergroups:read` to
-  the app backing this token if usergroup enumeration is needed.
+  (`<!subteam^…>` / `@group` mentions) returns `missing_scope`; add `usergroups:read` to
+  the Tatari Slack Toolkit app and re-mint if usergroup enumeration is needed.
 - For file **bytes** on `export`, the token must carry the **`files:read`** scope.
   Without it, messages/threads still export fully and file metadata + links are
   recorded; the script warns and you can re-run `export ... --files-only` once scoped.
