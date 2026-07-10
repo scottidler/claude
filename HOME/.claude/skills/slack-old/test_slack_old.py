@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for slack.py's regex-heavy text transforms. Pure stdlib, no deps:
+"""Tests for slack_old.py's regex-heavy text transforms. Pure stdlib, no deps:
 
-    python3 ~/.claude/skills/slack/test_slack.py        # or: python3 -m unittest -v
+    python3 ~/.claude/skills/slack-old/test_slack_old.py        # or: python3 -m unittest -v
 
 The markdown->mrkdwn converter (to_mrkdwn) is the fragile part - one ordering bug
 already turned a heading into italics instead of bold. These lock the behavior in.
@@ -11,7 +11,7 @@ import os
 import unittest
 
 _here = os.path.dirname(os.path.abspath(__file__))
-_spec = importlib.util.spec_from_file_location("slack", os.path.join(_here, "slack.py"))
+_spec = importlib.util.spec_from_file_location("slack", os.path.join(_here, "slack_old.py"))
 slack = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(slack)
 

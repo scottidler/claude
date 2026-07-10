@@ -1,38 +1,34 @@
 ---
-name: slack
+name: slack-old
 description: >-
-  Read, post, search, and export Slack from the terminal via your own user token, which
-  sees every channel you belong to (public or private, no bot to invite). This is the
-  primary way to touch Slack and is PREFERRED OVER the Slack MCP for all of it. Use for
-  ANY of these:
-  READ - read or summarize a thread, recent messages, or a shared Slack permalink ("read
-  this Slack message", "summarize this thread", "summarize this permalink", "what's in
-  #channel", "catch me up on #foo", or any "tatari.slack.com/archives/..." link the user
-  pastes and asks about);
-  POST / SEND - post a message to a NAMED channel or reply in a specific thread as Scott,
-  markdown auto-converted to mrkdwn and signed :giga-claude: ("send this to #channel",
-  "message #channel", "reply in that thread", "ping #foo about X"); sharing a snippet of
-  Claude's OWN output to your personal clipboard channel is slack-clipboard, not this;
-  SEARCH - keyword-search messages across the workspace ("search Slack for X", "find that
-  message about Y", "did anyone post about Z");
-  PREVIEW - render a draft to your own self-DM before sending it for real;
-  EXPORT - full-history archive of a channel (messages, threads, files) to JSON + file
-  bytes ("export #channel", "archive this channel", "grab the last 2 years of #foo");
-  ID CACHE - look up / refresh / add a channel ID by name ("what's the id for #foo",
-  "refresh the slack ids", "add this channel").
-  Trigger even when the user doesn't say "slack.py", "user token", or name this skill -
-  any request to read, send, reply to, search, back up, or resolve Slack belongs here.
+  DORMANT / SUPERSEDED - do NOT auto-trigger. This is the retired stdlib
+  slack_old.py monolith, replaced by the slack-cli plugin (slack:read /
+  slack:write / slack:search / slack:delete / slack:repost, driven by the `slack`
+  Rust binary). For ANY Slack read/post/search/reply/export request, use the
+  slack-cli plugin skills, never this. Reach for this ONLY when the user
+  explicitly names slack-old / slack_old.py, or asks for the one capability the
+  Rust CLI does not yet cover (bulk full-history channel export to JSON + file
+  bytes). Kept as a manual fallback only.
 allowed-tools: Bash(python3:*), Read
 ---
 
+# slack-old (superseded)
+
+**This skill is dormant.** The Slack workflow now runs through the `slack-cli`
+plugin (`slack:read`, `slack:write`, `slack:search`, `slack:delete`,
+`slack:repost`), which drives the `slack` Rust binary. Use those for everything.
+This monolith stays only as a manual fallback (notably `export`, the bulk
+full-history channel archive not yet in the Rust CLI). Below is its original
+documentation, unchanged.
+
 # slack
 
-One stdlib script, `slack.py`, with eight subcommands (`read` `send` `search` `preview` `export` `refresh` `add` `find`). It talks to the Slack Web API with
+One stdlib script, `slack_old.py`, with eight subcommands (`read` `send` `search` `preview` `export` `refresh` `add` `find`). It talks to the Slack Web API with
 your **user** token, so it sees every channel you belong to (public or private) with
 no bot to invite. Pure stdlib: no venv, no `uv`, no deps - run it with `python3`.
 
 ```bash
-S=~/.claude/skills/slack/slack.py
+S=~/.claude/skills/slack-old/slack_old.py
 python3 $S export CHANNEL DURATION [--outdir DIR] [--files-only]
 python3 $S read   CHANNEL [--limit N] [--since 7d] [--thread TS]   # recent messages / a thread
 python3 $S send   CHANNEL "text"  [--thread TS] [--raw]            # post (markdown auto-converted)
