@@ -112,7 +112,7 @@ check_stmt() {
   # (Deletion `git branch -d bump-*` and `git branch --list 'bump*'` stay allowed —
   # the flag between `branch` and the name breaks the match.)
   if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+(checkout[[:space:]]+-b[[:space:]]+|switch[[:space:]]+(-c|--create)[[:space:]]+|branch[[:space:]]+)(bump|release)([-/]|[[:space:]]|$)'; then
-    deny "THE RULING (2026-07-03): never create a bump-*/release-* branch — a bump-only release branch is forbidden forever, for ANY reason (slack-cli #16 was exactly this). The version bump rides the FEATURE branch via 'bump --no-tag'. If the work already merged without its bump: STOP and ask Scott (default: fold the bump into the next feature PR)."
+    deny "DENIED: creating a bump-*/release-* branch. A bump-only release branch is forbidden forever, for ANY reason (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work — it RIDES the feature PR ('bump --no-tag' on the feature branch, before that PR merges; the tag is cut on main after the merge with 'bump --tag-only'). WHAT TO DO NOW: if you were about to bump for work that already merged without its bump, the ONLY sanctioned move is STOP and ask Scott — his default is folding the bump into the NEXT feature PR. DO NOT retry with a different branch name, do not hand-edit the version, do not route around this hook (sibling gates catch content-based bump-only pushes/PRs too). Read the /bump skill before touching anything release-related."
   fi
 
   # ---- Force-push to main/master (git.md "Pushing to main") ----
@@ -144,7 +144,7 @@ check_stmt() {
       # branch's ONLY content — i.e. a bump-only release branch in the making.
       base=$(default_base "$bump_dir")
       if [ -n "$base" ] && [ "$(git -C "$bump_dir" rev-list --count "$base..HEAD" 2>/dev/null || echo 1)" = "0" ]; then
-        deny "Branch '$bump_branch' has ZERO commits ahead of $base — 'bump --no-tag' here would mint a bump-only release branch, forbidden forever (THE RULING 2026-07-03; slack-cli #16 was this exact crime). The bump belongs on a feature branch WITH its work, before that PR merges. If the work already merged without its bump: STOP and ask Scott (default: fold the bump into the next feature PR — never invent a branch)."
+        deny "DENIED: 'bump --no-tag' on branch '$bump_branch', which has ZERO commits ahead of $base — the bump commit would be this branch's ONLY content, i.e. a bump-only release branch, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work — it rides a feature branch WITH its work: commit the real change first, THEN 'bump --no-tag' on that branch, push, PR; after merge: git checkout main && git pull --ff-only && bump --tag-only && git push origin vX.Y.Z. WHAT TO DO NOW: if the work already merged without its bump, the ONLY sanctioned move is STOP and ask Scott — his default is folding the bump into the NEXT feature PR, never a retrofitted branch. DO NOT retry on a renamed branch or hand-edit the version; sibling gates catch those too. Read the /bump skill."
       fi
     fi
     if ! printf '%s' "$s" | grep -Eq '\bbump\b.*--tag-only'; then
@@ -177,7 +177,7 @@ check_stmt() {
       main|master|HEAD|v[0-9]*|"") : ;;   # main pushes / tag pushes are covered by other checks
       *)
         if ! is_bump_only_ref "$bump_dir" "$gateb_ref"; then
-          deny "Branch '$gateb_ref' vs origin/<default> contains ONLY a version bump (version lines + lockfiles, nothing else) — that is a bump-only release branch/PR, forbidden forever (THE RULING 2026-07-03; slack-cli #16 was this exact crime). The bump rides a feature PR with real work. If the work already merged without its bump: STOP and ask Scott (default: fold the bump into the next feature PR)."
+          deny "DENIED: pushing/PR-ing branch '$gateb_ref' — its ENTIRE diff vs origin/<default> is a version bump (version lines + lockfiles, nothing else), which makes it a bump-only release branch/PR regardless of its name, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work — it rides a feature PR WITH real changes; the tag is cut on main after that PR merges ('bump --tag-only'). WHAT TO DO NOW: the ONLY sanctioned move is STOP and ask Scott — his default is deleting this branch and folding the bump into the NEXT feature PR. DO NOT rename the branch, pad the diff, hand-edit the version, or retry variants — report the denial to Scott verbatim and wait. Read the /bump skill."
         fi
       ;;
     esac
