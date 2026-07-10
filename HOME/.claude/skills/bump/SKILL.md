@@ -48,7 +48,12 @@ git push origin vX.Y.Z       # by explicit name — NEVER --tags
 - **Never create a bump-only release branch** (`release-X.Y.Z` carrying just a
   version commit). The bump belongs INSIDE the feature PR. If a PR already merged
   without its bump: **STOP and ask Scott** — the default is to fold the bump into
-  the next feature PR, not to invent a branch.
+  the next feature PR, not to invent a branch. Hard-enforced by the
+  `git-release-guard` hook as of 2026-07-10 (after slack-cli #16 recommitted this
+  crime): it denies creating `bump-*`/`release-*` branches, denies `bump --no-tag`
+  on a branch with zero commits ahead of `origin/<default>`, and denies any
+  `git push`/`gh pr create` whose entire diff vs `origin/<default>` is version
+  lines + lockfiles.
 - **Never tag on a branch, never `bump`/`bump -m`/`bump -M` on a branch.** The
   only legal bump off main is `bump --no-tag` (the hook enforces this).
 - **Never** `git push --tags` / `--follow-tags` — the tag lands even if the
