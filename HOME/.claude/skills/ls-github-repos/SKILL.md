@@ -1,7 +1,7 @@
 ---
 name: ls-github-repos
 description: List repos under a GitHub org or user with filters for visibility (public/private/internal), language, and archived status. Use whenever you need to enumerate an org's repos, check whether repos are public or private, find repos by language, list archived repos, see repo creation dates, or feed a repo list into a pipeline (bulk clone, audits). ALWAYS prefer this over looping `gh api repos/...` per repo or paginating `gh repo list` — one invocation answers "which of these repos are private?" for a whole org.
-allowed-tools: Bash(ls-github-repos:*)
+allowed-tools: Bash(ls-github-repos:*), Bash(grep:*), Bash(head:*)
 ---
 
 # ls-github-repos
@@ -19,7 +19,7 @@ ls-github-repos [OPTIONS] <NAME>
 
 | flag | meaning |
 |---|---|
-| `-r, --repo-type <user\|org>` | REQUIRED for users — default is `org`, there is NO auto-detect. `ls-github-repos scottidler -r user` |
+| `-r, --repo-type <user\|org>` | DEAD FLAG in v0.4.2 — parsed but never read; the tool auto-detects user vs org via the GitHub API. Omit it |
 | `--visibility <public\|internal\|private>...` | FILTER to only these visibilities (space-separated, repeatable — never commas) |
 | `--show-visibility` | prefix each line with its visibility: `private tatari-tv/slack-cli` |
 | `-l, --lang <LANG>...` | filter by primary language (space-separated): `-l rust python` |
@@ -44,8 +44,8 @@ ls-github-repos tatari-tv --visibility public
 # All Rust repos
 ls-github-repos tatari-tv -l rust
 
-# A user's repos (MUST pass -r user)
-ls-github-repos scottidler -r user
+# A user's repos (user vs org is auto-detected)
+ls-github-repos scottidler
 
 # Oldest repos first, with dates
 ls-github-repos tatari-tv -a | head
@@ -71,9 +71,8 @@ ls-github-repos tatari-tv | while read repo; do clone "$repo"; done
 
 ## Gotchas
 
-- `-r user` is mandatory for user accounts; the org default gives a wrong/empty
-  answer for users. No auto-detect.
 - Filters compose: `--visibility private -l rust -A` works.
 - `--show-visibility` changes the line format — anchor greps on the END of the
-  line (`grep 'name$'`), not the start.
+  line (`grep 'name$'`), not the start. Combined with `-a` the order is
+  `date visibility org/repo`; the name is still last.
 - Archived repos are hidden unless `-A`; a "missing" repo is often just archived.
