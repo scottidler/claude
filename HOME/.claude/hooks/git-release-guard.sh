@@ -12,6 +12,13 @@
 #         (the bump commit would be the branch's only content)
 #       * pushing / opening a PR for a branch whose entire diff vs origin/<default>
 #         is version lines + lockfiles (catches hand-edited bumps too)
+#     Escape hatch (Scott approved 2026-07-10): BUMP_ORDERED_BY_SCOTT=1 in the
+#     command bypasses these three gates — legal ONLY when Scott explicitly
+#     ordered a standalone bump; quote his order in the PR body.
+#   - PR without a release decision (Gate D, Scott approved 2026-07-10): on a
+#     release-managed repo (root manifest + v* tags), 'gh pr create' requires a
+#     'Release: rides this PR (vX.Y.Z)' or 'Release: none — <why>' body line;
+#     a 'rides' claim must match an actual version change in the diff.
 #   - version-committing bump w/ dirty tree (bump stages EVERYTHING; this committed scratch jpgs)
 #   - git push --tags / --follow-tags     (a follow-tags push escapes even if branch push fails)
 #   - tag deletion (local or remote)      (git.md: NEVER delete a tag)
@@ -95,6 +102,19 @@ is_bump_only_ref() {
 check_stmt() {
   local s="$1"
 
+  # Scott-override for the bump-only gates (Scott approved adding this door
+  # 2026-07-10): a transcript-visible marker that Scott EXPLICITLY ordered a
+  # standalone bump (e.g. "bump finish it" with no feature PR open to fold
+  # into). The gates below stop AGENT-invented bump-only branches; this is THE
+  # RULING's ask-Scott clause, answered. The marker must ride IN the command
+  # (env-prefix form) so the transcript shows every use, and Scott's ordering
+  # words must be quoted in the PR body. Setting it WITHOUT a real order from
+  # Scott is a hall-of-shame offense.
+  local scott_override=0
+  if printf '%s' "$s" | grep -q 'BUMP_ORDERED_BY_SCOTT=1'; then
+    scott_override=1
+  fi
+
   # ---- Tags: never delete, never bulk-push (git.md "Tags") ----
   if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+tag[[:space:]]+(-d|--delete)\b'; then
     deny "git.md: NEVER delete a tag (refusing 'git tag -d/--delete'). If a tag must move or be recreated, ask Scott to do it himself."
@@ -111,7 +131,8 @@ check_stmt() {
   # Gate C: never even CREATE a branch named like a release/bump branch.
   # (Deletion `git branch -d bump-*` and `git branch --list 'bump*'` stay allowed —
   # the flag between `branch` and the name breaks the match.)
-  if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+(checkout[[:space:]]+-b[[:space:]]+|switch[[:space:]]+(-c|--create)[[:space:]]+|branch[[:space:]]+)(bump|release)([-/]|[[:space:]]|$)'; then
+  if [ "$scott_override" -eq 0 ] \
+     && printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+(checkout[[:space:]]+-b[[:space:]]+|switch[[:space:]]+(-c|--create)[[:space:]]+|branch[[:space:]]+)(bump|release)([-/]|[[:space:]]|$)'; then
     deny "DENIED: creating a bump-*/release-* branch. A bump-only release branch is forbidden forever, for ANY reason (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work — it RIDES the feature PR ('bump --no-tag' on the feature branch, before that PR merges; the tag is cut on main after the merge with 'bump --tag-only'). WHAT TO DO NOW: if you were about to bump for work that already merged without its bump, the ONLY sanctioned move is STOP and ask Scott — his default is folding the bump into the NEXT feature PR. DO NOT retry with a different branch name, do not hand-edit the version, do not route around this hook (sibling gates catch content-based bump-only pushes/PRs too). Read the /bump skill before touching anything release-related."
   fi
 
@@ -143,7 +164,8 @@ check_stmt() {
       # Zero commits ahead of origin/<default> means the bump commit would be the
       # branch's ONLY content — i.e. a bump-only release branch in the making.
       base=$(default_base "$bump_dir")
-      if [ -n "$base" ] && [ "$(git -C "$bump_dir" rev-list --count "$base..HEAD" 2>/dev/null || echo 1)" = "0" ]; then
+      if [ "$scott_override" -eq 0 ] \
+         && [ -n "$base" ] && [ "$(git -C "$bump_dir" rev-list --count "$base..HEAD" 2>/dev/null || echo 1)" = "0" ]; then
         deny "DENIED: 'bump --no-tag' on branch '$bump_branch', which has ZERO commits ahead of $base — the bump commit would be this branch's ONLY content, i.e. a bump-only release branch, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work — it rides a feature branch WITH its work: commit the real change first, THEN 'bump --no-tag' on that branch, push, PR; after merge: git checkout main && git pull --ff-only && bump --tag-only && git push origin vX.Y.Z. WHAT TO DO NOW: if the work already merged without its bump, the ONLY sanctioned move is STOP and ask Scott — his default is folding the bump into the NEXT feature PR, never a retrofitted branch. DO NOT retry on a renamed branch or hand-edit the version; sibling gates catch those too. Read the /bump skill."
       fi
     fi
@@ -159,7 +181,8 @@ check_stmt() {
   # hand-edited: if everything the push/PR would land vs origin/<default> is
   # version lines + lockfiles, it IS a bump-only release branch. Deletions
   # (--delete / ':ref' refspecs) push no content and are skipped.
-  if printf '%s' "$s" | grep -Eq '\b(git[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+create)\b' \
+  if [ "$scott_override" -eq 0 ] \
+     && printf '%s' "$s" | grep -Eq '\b(git[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+create)\b' \
      && ! printf '%s' "$s" | grep -Eq '(--delete|[[:space:]]-d[[:space:]]|[[:space:]]:[^[:space:]])'; then
     gateb_ref=""
     if printf '%s' "$s" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
@@ -181,6 +204,33 @@ check_stmt() {
         fi
       ;;
     esac
+  fi
+
+  # ---- Gate D: every PR on a release-managed repo declares its release intent ----
+  # (Scott approved 2026-07-10.) The merged-without-its-bump deadlock (slack-cli
+  # #14/#15, mcp-io-rs #6/#7) exists because the release decision was never made
+  # at PR time. Force it: on a repo with a root version manifest AND v* release
+  # tags, a PR body must carry 'Release: rides this PR (vX.Y.Z)' or
+  # 'Release: none — <why>'. A 'rides' claim is verified against the diff.
+  # The Release: line is searched in the FULL command (bodies are multi-line and
+  # statement-splitting would sever them from the gh invocation).
+  if printf '%s' "$s" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
+    if { [ -f "$bump_dir/Cargo.toml" ] || [ -f "$bump_dir/pyproject.toml" ]; } \
+       && [ -n "$(git -C "$bump_dir" tag -l 'v*' 2>/dev/null | head -1)" ]; then
+      gated_body="$cmd"
+      bf=$(printf '%s' "$s" | grep -oE '\-\-body-file(=|[[:space:]]+)[^[:space:]]+' | head -1 | sed -E 's/--body-file(=|[[:space:]]+)//')
+      if [ -n "$bf" ] && [ -f "$bf" ]; then gated_body="$gated_body $(cat "$bf")"; fi
+      if ! printf '%s' "$gated_body" | grep -Eqi 'release:[[:space:]]*(rides|none)'; then
+        deny "DENIED: PR on a release-managed repo without a release-intent line. Decide NOW, in the body: 'Release: rides this PR (vX.Y.Z)' (run 'bump --no-tag' on this branch first so the version commit rides) or 'Release: none -- <why>'. This gate exists because PRs that merge without their bump create the no-legal-path deadlock (slack-cli #14/#15, mcp-io-rs #6/#7): after merge, a bump can only ride the NEXT feature PR or a Scott-ordered standalone bump."
+      fi
+      if printf '%s' "$gated_body" | grep -Eqi 'release:[[:space:]]*rides'; then
+        base=$(default_base "$bump_dir")
+        if [ -n "$base" ] \
+           && [ "$(git -C "$bump_dir" diff "$base...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null | grep -Ec '^[-+][[:space:]]*\"?version\"?[[:space:]]*[:=]')" = "0" ]; then
+          deny "DENIED: the PR body claims 'Release: rides this PR' but no version line changes in the diff vs $base. Run 'bump --no-tag' on this branch (real work already committed) so the version commit actually rides, then re-open the PR."
+        fi
+      fi
+    fi
   fi
 
   # ---- Destructive working-tree ops that can lose uncommitted/untracked work ----
