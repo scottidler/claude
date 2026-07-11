@@ -54,6 +54,17 @@ git push origin vX.Y.Z       # by explicit name — NEVER --tags
   on a branch with zero commits ahead of `origin/<default>`, and denies any
   `git push`/`gh pr create` whose entire diff vs `origin/<default>` is version
   lines + lockfiles.
+- **The one exception — Scott explicitly orders a standalone bump** ("bump
+  finish it" with nothing to fold into): that IS the answer to the ask-Scott
+  clause. Do not re-ask; execute with the transcript-visible override marker on
+  each gated command — `BUMP_ORDERED_BY_SCOTT=1 git checkout -b bump-X.Y.Z`,
+  `BUMP_ORDERED_BY_SCOTT=1 bump --no-tag`, push + PR the same way — and QUOTE
+  his ordering words in the PR body. Using the marker without a real order from
+  Scott is a hall-of-shame offense. (First use: mcp-io-rs #8, 2026-07-10.)
+- **Every PR on a release-managed repo declares its release intent** (Gate D,
+  hook-enforced): the body carries `Release: rides this PR (vX.Y.Z)` (run
+  `bump --no-tag` on the branch first — the hook verifies a version line actually
+  changes) or `Release: none — <why>`. Decide at PR time, never after merge.
 - **Never tag on a branch, never `bump`/`bump -m`/`bump -M` on a branch.** The
   only legal bump off main is `bump --no-tag` (the hook enforces this).
 - **Never** `git push --tags` / `--follow-tags` — the tag lands even if the
