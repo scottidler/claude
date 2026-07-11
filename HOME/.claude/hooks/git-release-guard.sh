@@ -1,35 +1,83 @@
 #!/bin/bash
-# git-release-guard.sh — PreToolUse(Bash) guard enforcing rules/git.md AT THE MOMENT
-# of the command, not relying on an always-on rule staying salient deep in a session.
+# git-release-guard.sh -- PreToolUse(Bash) hook enforcing Scott's release rules
+# MECHANICALLY, at the moment of the command. Prose rules (rules/git.md, the
+# /bump skill, memories, ~/HALL-OF-SHAME.md) provably do not hold deep in a
+# session; this hook is the layer that cannot be forgotten or ignored.
 #
-# Blocks the specific footguns that have actually bitten:
-#   - tag-creating bump on a feature branch (a tag cut on a branch is burnt forever;
-#     `bump --no-tag` IS allowed there — the version bump rides the feature PR)
-#   - bump-only release branches, three ways (THE RULING 2026-07-03; recommitted
-#     verbatim as slack-cli PR #16, 2026-07-10 — prose alone provably does not hold):
-#       * creating a branch named bump-*/release-*
-#       * `bump --no-tag` on a branch with ZERO commits ahead of origin/<default>
-#         (the bump commit would be the branch's only content)
-#       * pushing / opening a PR for a branch whose entire diff vs origin/<default>
-#         is version lines + lockfiles (catches hand-edited bumps too)
-#     Escape hatch (Scott approved 2026-07-10): BUMP_ORDERED_BY_SCOTT=1 in the
-#     command bypasses these three gates — legal ONLY when Scott explicitly
-#     ordered a standalone bump; quote his order in the PR body.
-#   - PR without a release decision (Gate D, Scott approved 2026-07-10): on a
-#     release-managed repo (root manifest + v* tags), 'gh pr create' requires a
-#     'Release: rides this PR (vX.Y.Z)' or 'Release: none — <why>' body line;
-#     a 'rides' claim must match an actual version change in the diff.
-#   - version-committing bump w/ dirty tree (bump stages EVERYTHING; this committed scratch jpgs)
-#   - git push --tags / --follow-tags     (a follow-tags push escapes even if branch push fails)
-#   - tag deletion (local or remote)      (git.md: NEVER delete a tag)
-#   - force-push to main/master           (needs explicit human approval)
-#   - git clean -f* with untracked present / reset --hard|checkout-- with a dirty tree
+# WIRING: registered as a PreToolUse hook on the Bash tool in Claude Code
+# settings (~/.claude/settings.json). The harness pipes the tool-call JSON to
+# stdin before EVERY shell command any agent runs; this script prints {} to
+# allow, or a deny decision whose reason the agent sees verbatim.
 #
-# Each check runs PER STATEMENT (the command is split on && || ; | and newlines), so a
-# greedy match can't bleed across an unrelated later sub-command — e.g. a 'git push' in
-# one statement plus '--tags' in a later 'git ls-remote --tags' is NOT a false positive.
+# CLI (run manually, no stdin needed):
+#   git-release-guard.sh --help        print this documentation
+#   git-release-guard.sh --self-test   run the full deny/allow regression
+#                                      matrix (git-release-guard-test.sh,
+#                                      same directory) against a fixture repo
 #
-# Emits a PreToolUse "deny" decision (with a reason Claude sees) or passes through ({}).
+# THE TWO LEGAL RELEASE FLOWS (there is no third; `bump --gates` decides):
+#   UNGATED main:  bump [-m|-M]                    tags local HEAD on main
+#                  git push origin main && git push origin vX.Y.Z
+#   GATED main:    bump --no-tag [-m|-M]           on the FEATURE branch; the
+#                                                  version commit rides that PR
+#                  (merge) then: git checkout main && git pull --ff-only
+#                  bump --tag-only && git push origin vX.Y.Z
+#
+# GATE CATALOG (each entry names the incident that created it):
+#   Tags       never `git tag -d`, never push --tags/--follow-tags, never
+#              remote tag deletion (orphaned okta-auth-rs v0.2.0)
+#   Force-push never --force to main/master without Scott
+#   Dirty bump version-committing bump on a dirty tree stages EVERYTHING
+#              (scratch jpgs got committed this way)
+#   Branch tag any tag-creating bump off main (squash-merge burns the SHA)
+#   Gate C     no creating bump-*/release-* branches      (slack-cli #16)
+#   Gate A     no `bump --no-tag` on a branch with zero commits ahead of
+#              origin/<default> -- the bump would be its only content
+#                                                         (slack-cli #16)
+#   Gate B     no push / `gh pr create` of a branch whose ENTIRE diff vs
+#              origin/<default> is version lines + lockfiles, regardless of
+#              branch name; dep bumps and lockfile-only refreshes pass
+#                                                         (slack-cli #16)
+#   Gate D     every `gh pr create` on a release-managed repo (root manifest
+#              + v* tags) must declare 'Release: rides this PR (vX.Y.Z)' or
+#              'Release: none -- <why>' in the body; a rides claim must match
+#              an actual version-line change in the diff. Forces the release
+#              decision at PR time -- merging bumpless creates a deadlock no
+#              recovery gate can fix        (slack-cli #14/#15, mcp-io #6/#7)
+#   Tree loss  git clean -f with untracked files / reset --hard etc. on a
+#              dirty tree -> use `rkvr rmrf`, recoverable
+#
+# THE DOOR (Scott approved 2026-07-10): BUMP_ORDERED_BY_SCOTT=1 in the command
+# bypasses gates A/B/C only. Legal SOLELY when Scott explicitly ordered a
+# standalone bump (e.g. "bump finish it" with no feature PR to fold into) --
+# that is THE RULING's ask-Scott clause, answered; do not re-ask. The marker is
+# transcript-visible on every use and Scott's ordering words must be quoted in
+# the PR body. Using it without a real order is a hall-of-shame offense.
+# First sanctioned use: mcp-io-rs #8 (v0.1.3), 2026-07-10.
+#
+# MECHANICS: the command is split into statements on && || ; | and newlines and
+# each statement is checked independently, so a match cannot bleed across an
+# unrelated sibling (a `git push` in one statement plus `--tags` in a later
+# `git ls-remote --tags` is not a false positive). Gate D searches the FULL
+# command for the Release: line because PR bodies are multi-line. A trailing
+# `cd <dir>` in the chain is honored when evaluating branch/tree state.
+#
+# PROVENANCE: THE RULING 2026-07-03 (~/HALL-OF-SHAME.md) after slack-cli
+# v0.1.1; gates A/B/C + recovery messages 2026-07-10 after slack-cli #16;
+# Gate D + the door 2026-07-10 (Scott approved both) after mcp-io-rs #6/#7.
+# Companion docs: /bump skill (agent-facing flows), rules/git.md (the law),
+# ~/HALL-OF-SHAME.md (the case history).
+
+case "${1:-}" in
+  -h|--help)
+    # Print the leading comment block (this documentation), sans shebang.
+    awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+    exit 0
+    ;;
+  --self-test)
+    exec bash "$(dirname "$0")/git-release-guard-test.sh"
+    ;;
+esac
 
 input=$(cat)
 cmd=$(echo "$input" | jq -r '.tool_input.command // ""')
