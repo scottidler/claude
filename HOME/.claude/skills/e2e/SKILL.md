@@ -1,26 +1,30 @@
 ---
 name: e2e
-description: Run loopr-v5 end-to-end tests with active monitoring, decoded against the v5 instrumented spans. Use when the user says "e2e", "run e2e", "run bin/e2e", "test rust-version", or asks for an end-to-end run on the v5 repo (`~/repos/scottidler/loopr-v5`). For v3/v4 (`~/repos/scottidler/loopr` or `loopr-v4`), use `/e2e-v3` instead.
+description: Run loopr v5 end-to-end tests with active monitoring, decoded against the v5 instrumented spans. Use when the user says "e2e", "run e2e", "run bin/e2e", "test rust-version", or asks for an end-to-end run on the v5 repo (`~/repos/scottidler/loopr/v5`). For v3/v4 (`~/repos/scottidler/loopr` or `loopr-v4`), use `/e2e-v3` instead.
 allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
 # Loopr v5 E2E Test Runner with Active Monitoring
 
-Run `bin/e2e` from `~/repos/scottidler/loopr-v5/` against a target and actively monitor the pipeline. Report progress and failures early and often. Read `events.log` against the v5 instrumented spans (added by the 2026-04-24 instrumentation sweep) to diagnose failures without restarting the daemon at `-l debug`.
+Run `bin/e2e` from `~/repos/scottidler/loopr/v5/` against a target and actively monitor the pipeline. Report progress and failures early and often. Read `events.log` against the v5 instrumented spans (added by the 2026-04-24 instrumentation sweep) to diagnose failures without restarting the daemon at `-l debug`.
 
 ## Usage
 
 ```
-/e2e                    # default target: rust-version
+/e2e                    # default: bin/e2e --build rust-version
 /e2e rust-version
 /e2e ls                 # list available targets
 ```
 
-To list targets manually: `~/repos/scottidler/loopr-v5/bin/e2e ls`.
+**The default invocation is `bin/e2e --build rust-version`.** `--build` is mandatory: `bin/e2e` exercises the INSTALLED binary at `~/.cargo/bin/loopr`, so without `--build` you test stale code from a prior install. Always build unless the user explicitly asks to run the already-installed binary.
+
+**Requires `ANTHROPIC_API_KEY` in the env** — the run makes real LLM calls. Only `escote-anthropic-api-key` exists in secrets (work persona); decrypt it if the env var is missing.
+
+To list targets manually: `~/repos/scottidler/loopr/v5/bin/e2e ls`.
 
 ## Available Targets
 
-Defined as `~/repos/scottidler/loopr-v5/bin/e2e-targets/<name>.md` (the PRD passed verbatim as the goal-string to `loopr plan`). Add a new target by writing a sibling `.md` file and adding a `case` arm in `bin/e2e` that scaffolds it.
+Defined as `~/repos/scottidler/loopr/v5/bin/e2e-targets/<name>.md` (the PRD passed verbatim as the goal-string to `loopr plan`). Add a new target by writing a sibling `.md` file and adding a `case` arm in `bin/e2e` that scaffolds it.
 
 Current:
 - `rust-version` (default) — adds a `--version` flag to a freshly `cargo init`-ed CLI; the original Stage 9 first-gate target.
@@ -45,15 +49,15 @@ Never `kill -9` a daemon as a first step — `daemon stop` SIGTERMs and escalate
 
 ```bash
 mkdir -p /tmp/loopr && \
-  ~/repos/scottidler/loopr-v5/bin/e2e <TARGET> 2>&1 | tee /tmp/loopr/e2e-output.log
+  ~/repos/scottidler/loopr/v5/bin/e2e --build <TARGET> 2>&1 | tee /tmp/loopr/e2e-output.log
 ```
 
 Use Bash with `run_in_background: true`. Default timeout per target is 900s; override with `--timeout`.
 
-If the user asks to refresh the binary first:
+`--build` refreshes the installed binary from this workspace before running — keep it on by default. Drop it ONLY when the user explicitly wants to exercise the already-installed binary:
 
 ```bash
-~/repos/scottidler/loopr-v5/bin/e2e --build <TARGET>
+~/repos/scottidler/loopr/v5/bin/e2e <TARGET>
 ```
 
 ### 3. Verify the latest symlink before monitoring
@@ -267,8 +271,8 @@ bd-pqrst (Bundle 0) — status: integrated
 
 | What | Where |
 |------|-------|
-| E2E script | `~/repos/scottidler/loopr-v5/bin/e2e` |
-| Target PRDs | `~/repos/scottidler/loopr-v5/bin/e2e-targets/*.md` |
+| E2E script | `~/repos/scottidler/loopr/v5/bin/e2e` |
+| Target PRDs | `~/repos/scottidler/loopr/v5/bin/e2e-targets/*.md` |
 | Run dir | `/tmp/loopr/e2e/<target>/<YYYYMMDD-HHMMSS>/` |
 | Latest symlink | `/tmp/loopr/e2e/<target>/latest` |
 | Loopr binary | `~/.cargo/bin/loopr` |
@@ -300,7 +304,7 @@ bd-pqrst (Bundle 0) — status: integrated
 The purpose of `/e2e` is to **gather telemetry** and **report what happened**. It is not a debugging or fix session.
 
 **NEVER:**
-- Edit source files in `~/repos/scottidler/loopr-v5/` or in the run dir.
+- Edit source files in `~/repos/scottidler/loopr/v5/` or in the run dir.
 - Run `cargo install` to apply a fix mid-run.
 - Commit or push changes.
 - Modify any config or script.
