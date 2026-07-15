@@ -39,11 +39,13 @@
 #              branch name; dep bumps and lockfile-only refreshes pass
 #                                                         (slack-cli #16)
 #   Gate D     every `gh pr create` on a release-managed repo (root manifest
-#              + v* tags) must declare 'Release: rides this PR (vX.Y.Z)' or
-#              'Release: none -- <why>' in the body; a rides claim must match
-#              an actual version-line change in the diff. Forces the release
-#              decision at PR time -- merging bumpless creates a deadlock no
-#              recovery gate can fix        (slack-cli #14/#15, mcp-io #6/#7)
+#              with a version line; v* tags NOT required -- requiring them
+#              exempted never-tagged repos, okta-auth-py #5/#6) must declare
+#              'Release: rides this PR (vX.Y.Z)' or 'Release: none -- <why>'
+#              in the body; a rides claim must match an actual version-line
+#              change in the diff. Forces the release decision at PR time --
+#              merging bumpless creates a deadlock no recovery gate can fix
+#                                (slack-cli #14/#15, mcp-io #6/#7, okta-auth-py)
 #   Tree loss  git clean -f with untracked files / reset --hard etc. on a
 #              dirty tree -> use `rkvr rmrf`, recoverable
 #
@@ -64,7 +66,8 @@
 #
 # PROVENANCE: THE RULING 2026-07-03 (~/HALL-OF-SHAME.md) after slack-cli
 # v0.1.1; gates A/B/C + recovery messages 2026-07-10 after slack-cli #16;
-# Gate D + the door 2026-07-10 (Scott approved both) after mcp-io-rs #6/#7.
+# Gate D + the door 2026-07-10 (Scott approved both) after mcp-io-rs #6/#7;
+# Gate D widened to never-tagged repos 2026-07-13 after okta-auth-py #5/#6.
 # Companion docs: /bump skill (agent-facing flows), rules/git.md (the law),
 # ~/HALL-OF-SHAME.md (the case history).
 
@@ -255,16 +258,27 @@ check_stmt() {
   fi
 
   # ---- Gate D: every PR on a release-managed repo declares its release intent ----
-  # (Scott approved 2026-07-10.) The merged-without-its-bump deadlock (slack-cli
-  # #14/#15, mcp-io-rs #6/#7) exists because the release decision was never made
-  # at PR time. Force it: on a repo with a root version manifest AND v* release
-  # tags, a PR body must carry 'Release: rides this PR (vX.Y.Z)' or
-  # 'Release: none — <why>'. A 'rides' claim is verified against the diff.
+  # (Scott approved 2026-07-10; classification widened 2026-07-13.) The
+  # merged-without-its-bump deadlock (slack-cli #14/#15, mcp-io-rs #6/#7) exists
+  # because the release decision was never made at PR time. Force it: on a repo
+  # whose root manifest carries a version line, a PR body must carry
+  # 'Release: rides this PR (vX.Y.Z)' or 'Release: none -- <why>'. A 'rides'
+  # claim is verified against the diff. Release-managed used to also require an
+  # existing v* tag, which exempted every versioned-but-not-yet-tagged repo --
+  # the exact window where bumpless merges pile up (okta-auth-py #5/#6,
+  # 2026-07-13, ~/HALL-OF-SHAME.md). Now the version line alone qualifies; a
+  # manifest that is pure tool config (no version) still passes ungated.
   # The Release: line is searched in the FULL command (bodies are multi-line and
   # statement-splitting would sever them from the gh invocation).
   if printf '%s' "$s" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
-    if { [ -f "$bump_dir/Cargo.toml" ] || [ -f "$bump_dir/pyproject.toml" ]; } \
-       && [ -n "$(git -C "$bump_dir" tag -l 'v*' 2>/dev/null | head -1)" ]; then
+    release_managed=""
+    for mf in "$bump_dir/Cargo.toml" "$bump_dir/pyproject.toml"; do
+      if [ -f "$mf" ] && grep -Eq '^[[:space:]]*"?version"?[[:space:]]*[:=]' "$mf"; then
+        release_managed=1
+        break
+      fi
+    done
+    if [ -n "$release_managed" ]; then
       gated_body="$cmd"
       bf=$(printf '%s' "$s" | grep -oE '\-\-body-file(=|[[:space:]]+)[^[:space:]]+' | head -1 | sed -E 's/--body-file(=|[[:space:]]+)//')
       if [ -n "$bf" ] && [ -f "$bf" ]; then gated_body="$gated_body $(cat "$bf")"; fi

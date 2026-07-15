@@ -1,13 +1,15 @@
 #!/bin/bash
 # git-release-guard-test.sh -- regression matrix for git-release-guard.sh.
 #
-# Builds a throwaway fixture repo (origin + clone, feature/bump-only/dep-bump/
-# lockfile-only branches, v* tag so Gate D applies) and feeds synthetic
-# PreToolUse JSON through the hook, asserting the expected allow/deny for every
-# gate: branch-name (C), zero-ahead bump (A), bump-only push/PR content (B),
-# release-intent on gh pr create (D), the BUMP_ORDERED_BY_SCOTT=1 door, and all
-# pre-existing checks (tag deletion, --tags push, force-push, dirty-tree bump,
-# false-positive guards). Exits non-zero on any failure.
+# Builds throwaway fixture repos (origin + clone, feature/bump-only/dep-bump/
+# lockfile-only branches; a tagged Rust repo, a never-tagged versioned Python
+# repo -- the okta-auth-py shape -- and a version-less-manifest repo) and feeds
+# synthetic PreToolUse JSON through the hook, asserting the expected allow/deny
+# for every gate: branch-name (C), zero-ahead bump (A), bump-only push/PR
+# content (B), release-intent on gh pr create (D, tagged AND never-tagged),
+# the BUMP_ORDERED_BY_SCOTT=1 door, and all pre-existing checks (tag deletion,
+# --tags push, force-push, dirty-tree bump, false-positive guards). Exits
+# non-zero on any failure.
 #
 # Run directly, or via: git-release-guard.sh --self-test
 set -u
@@ -72,12 +74,60 @@ git checkout -qb fresh-branch
 
 git checkout -q main
 
+# ---------- fixture 2: versioned but NEVER tagged (okta-auth-py shape) ----------
+# Gate D must apply here too -- requiring a v* tag exempted exactly this repo
+# shape and let okta-auth-py #5/#6 merge bumpless (2026-07-13).
+git init -q --bare "$ROOT/origin-py.git"
+git -C "$ROOT/origin-py.git" symbolic-ref HEAD refs/heads/main
+git clone -q "$ROOT/origin-py.git" "$ROOT/repo-py" 2>/dev/null
+P="$ROOT/repo-py"
+cd "$P"
+cat > pyproject.toml <<'EOF'
+[project]
+name = "fixture-py"
+version = "0.3.0"
+EOF
+mkdir src && echo 'x = 1' > src/lib.py
+git add -A && git commit -qm init && git push -q origin main
+git remote set-head origin main
+# NO tag, deliberately.
+
+git checkout -qb py-feat
+echo 'y = 2' >> src/lib.py
+git commit -qam 'feat: real work'
+
+git checkout -qb py-feat-bumped
+sed -i 's/^version = "0.3.0"/version = "0.4.0"/' pyproject.toml
+git commit -qam 'Bump version to v0.4.0'
+git checkout -q main
+
+# ---------- fixture 3: manifest with NO version line (tool-config-only) ----------
+git init -q --bare "$ROOT/origin-cfg.git"
+git -C "$ROOT/origin-cfg.git" symbolic-ref HEAD refs/heads/main
+git clone -q "$ROOT/origin-cfg.git" "$ROOT/repo-cfg" 2>/dev/null
+C="$ROOT/repo-cfg"
+cd "$C"
+cat > pyproject.toml <<'EOF'
+[tool.ruff]
+line-length = 120
+EOF
+echo 'x = 1' > lib.py
+git add -A && git commit -qm init && git push -q origin main
+git remote set-head origin main
+git checkout -qb cfg-feat
+echo 'y = 2' >> lib.py
+git commit -qam 'feat: real work'
+git checkout -q main
+
+cd "$R"
+
 # ---------- runner ----------
 pass=0; fail=0
-run() { # run <expect deny|allow> <branch-to-checkout> <command...>
+REPO="$R"
+run() { # run <expect deny|allow> <branch-to-checkout> <command...>  (in $REPO)
   local expect="$1" br="$2" cmd="$3" out decision
-  git -C "$R" checkout -q "$br"
-  out=$(cd "$R" && jq -n --arg c "$cmd" '{tool_input:{command:$c}}' | bash "$HOOK")
+  git -C "$REPO" checkout -q "$br"
+  out=$(cd "$REPO" && jq -n --arg c "$cmd" '{tool_input:{command:$c}}' | bash "$HOOK")
   decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"')
   if [ "$decision" = "$expect" ]; then
     pass=$((pass+1)); printf 'PASS  [%s @%s] %s\n' "$expect" "$br" "$cmd"
@@ -122,6 +172,18 @@ Release: rides this PR (v0.1.1)"'
 run allow dep-bump  'gh pr create --title "chore(deps): bump" --body "Release: none - dep bump only, no release cut"'
 run deny  feat-real 'gh pr create --title "feat: real" --body "no intent line here"'
 run deny  dep-bump  'gh pr create --title "chore(deps): bump" --body "Release: rides this PR (v9.9.9)"'  # claims rides, no version change
+
+echo "=== Gate D: applies to versioned-but-NEVER-tagged repos (okta-auth-py #5/#6) ==="
+REPO="$P"
+run deny  py-feat        'gh pr create --title "feat: real" --body "no intent line here"'
+run allow py-feat        'gh pr create --title "feat: real" --body "Release: none - port only, version policy-gated"'
+run deny  py-feat        'gh pr create --title "feat: real" --body "Release: rides this PR (v0.4.0)"'   # claims rides, no version change
+run allow py-feat-bumped 'gh pr create --title "feat: real" --body "Release: rides this PR (v0.4.0)"'
+
+echo "=== Gate D: version-less manifest (tool-config-only) stays ungated ==="
+REPO="$C"
+run allow cfg-feat 'gh pr create --title "feat: real" --body "no intent line here"'
+REPO="$R"
 
 echo "=== Scott override: BUMP_ORDERED_BY_SCOTT=1 opens the door ==="
 run allow main         'BUMP_ORDERED_BY_SCOTT=1 git checkout -b bump-0.1.3'
