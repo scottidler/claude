@@ -1,0 +1,8 @@
+[
+  {
+    "cluster": 0,
+    "name": "Example Archetype",
+    "color": "blue",
+    "definition": "One authored sentence or two describing what this cluster's centroid actually looks like — dominant product/model, cache pattern, volume. Written by a human/agent after reading describe-clusters.py output, NOT re-derived mechanically."
+  }
+]

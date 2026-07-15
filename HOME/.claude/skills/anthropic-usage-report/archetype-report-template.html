@@ -1,0 +1,808 @@
+<title>Claude Usage — Archetypes &amp; Exploration</title>
+<style>
+  .viz-root {
+    --surface-1: #fcfcfb;
+    --page-plane: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --gridline: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --card-surface: #ffffff;
+
+    --blue: #2a78d6;
+    --aqua: #1baf7a;
+    --yellow: #eda100;
+    --green: #008300;
+    --violet: #4a3aa7;
+    --red: #e34948;
+    --magenta: #e87ba4;
+    --orange: #eb6834;
+  }
+  @media (prefers-color-scheme: dark) {
+    .viz-root {
+      --surface-1: #1a1a19;
+      --page-plane: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --gridline: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --card-surface: #232322;
+
+      --blue: #3987e5;
+      --aqua: #199e70;
+      --yellow: #c98500;
+      --green: #008300;
+      --violet: #9085e9;
+      --red: #e66767;
+      --magenta: #d55181;
+      --orange: #d95926;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  .viz-root {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page-plane);
+    color: var(--text-primary);
+    padding: 24px clamp(16px, 4vw, 48px) 64px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .viz-root h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  .viz-root .subtitle {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0 0 24px;
+  }
+
+  /* --- KPI row --- */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .kpi-tile {
+    background: var(--card-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .kpi-tile .label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+  .kpi-tile .value {
+    font-size: 1.6rem;
+    font-weight: 600;
+    font-variant-numeric: proportional-nums;
+    margin-top: 2px;
+  }
+  .kpi-tile .sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+  /* --- tabs --- */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--gridline);
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .tab-btn {
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--text-primary); }
+  .tab-btn[aria-selected="true"] {
+    color: var(--text-primary);
+    border-bottom-color: var(--blue);
+    font-weight: 600;
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .card {
+    background: var(--card-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    font-size: 1.05rem;
+    margin: 0 0 4px;
+  }
+  .card .card-note {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin: 0 0 16px;
+  }
+  .card .card-note b { color: var(--text-primary); font-weight: 600; }
+
+  /* --- mini stat tiles (inside cards) --- */
+  .mini-tiles { display: flex; flex-wrap: wrap; gap: 12px; margin: 4px 0 4px; }
+  .mini-tile {
+    flex: 1; min-width: 130px;
+    background: var(--page-plane);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .mini-tile .label { font-size: 0.74rem; color: var(--text-secondary); }
+  .mini-tile .value { font-size: 1.3rem; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .mini-tile .sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+  /* --- legend --- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    margin: 14px 0 4px;
+    font-size: 0.82rem;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+
+  /* --- scatter --- */
+  .scatter-wrap { position: relative; }
+  svg.scatter { width: 100%; height: auto; display: block; }
+  .hull { opacity: 0.12; stroke: none; }
+  .grid-line { stroke: var(--gridline); stroke-width: 1; }
+  .axis-line { stroke: var(--baseline); stroke-width: 1; }
+  .dot { stroke: var(--surface-1, #fff); stroke-width: 2; cursor: pointer; }
+  .dot-hit { fill: transparent; cursor: pointer; }
+  .cluster-label {
+    font-size: 12px;
+    font-weight: 600;
+    fill: var(--text-primary);
+    paint-order: stroke;
+    stroke: var(--card-surface);
+    stroke-width: 3px;
+  }
+  .axis-title { font-size: 11px; fill: var(--text-muted); }
+
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--card-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    max-width: 260px;
+    opacity: 0;
+    transform: translate(-9999px, -9999px);
+    transition: opacity 0.08s ease;
+    z-index: 10;
+  }
+  .tooltip.visible { opacity: 1; }
+  .tooltip .tt-title { font-weight: 600; margin-bottom: 4px; }
+  .tooltip .tt-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-secondary); }
+  .tooltip .tt-row b { color: var(--text-primary); font-weight: 600; }
+
+  /* --- archetype cards --- */
+  .archetype-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  .archetype-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .archetype-card .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .archetype-card .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .archetype-card .name { font-weight: 600; font-size: 0.95rem; }
+  .archetype-card .count { color: var(--text-muted); font-size: 0.78rem; margin-left: auto; }
+  .archetype-card .def { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45; }
+  .archetype-card .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin-top: 12px; font-size: 0.76rem; color: var(--text-muted); }
+  .archetype-card .stats b { color: var(--text-primary); font-weight: 600; }
+
+  /* --- bar chart --- */
+  .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .bar-label { width: 168px; flex: none; font-size: 0.8rem; color: var(--text-secondary); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { flex: 1; position: relative; height: 22px; min-width: 40px; }
+  .bar-fill { height: 22px; border-radius: 0 4px 4px 0; background: var(--blue); cursor: default; }
+  .bar-value { font-size: 0.78rem; color: var(--text-primary); margin-left: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .bar-value .muted { color: var(--text-muted); }
+
+  /* --- table --- */
+  .table-controls { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .table-controls input[type="search"] {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-surface);
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 200px;
+  }
+  table.user-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  table.user-table th, table.user-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--gridline); }
+  table.user-table th { color: var(--text-secondary); font-weight: 600; cursor: pointer; white-space: nowrap; }
+  table.user-table th:hover { color: var(--text-primary); }
+  table.user-table td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  table.user-table .arch-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  .table-scroll { overflow-x: auto; }
+  .table-meta { font-size: 0.78rem; color: var(--text-muted); margin-top: 8px; }
+
+  footer.viz-footer { color: var(--text-muted); font-size: 0.76rem; margin-top: 32px; }
+</style>
+
+<div class="viz-root">
+  <h1>Claude Usage — Archetypes &amp; Exploration</h1>
+  <p class="subtitle" id="subtitle">Loading…</p>
+
+  <div class="kpi-row" id="kpiRow"></div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab-btn" role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button class="tab-btn" role="tab" data-tab="archetypes" aria-selected="false">Archetypes</button>
+    <button class="tab-btn" role="tab" data-tab="model" aria-selected="false">By model</button>
+    <button class="tab-btn" role="tab" data-tab="product" aria-selected="false">By product</button>
+    <button class="tab-btn" role="tab" data-tab="tier" aria-selected="false">By volume tier</button>
+    <button class="tab-btn" role="tab" data-tab="table" aria-selected="false">All users</button>
+  </div>
+
+  <section class="tab-panel active" id="panel-overview">
+    <div class="card">
+      <h2>Where the tokens go</h2>
+      <p class="card-note" id="overviewNote"></p>
+      <div class="mini-tiles" id="overviewTiles"></div>
+    </div>
+
+    <div class="card">
+      <h2>Volume concentration</h2>
+      <p class="card-note" id="concNote"></p>
+      <div id="concBars"></div>
+    </div>
+
+    <div class="card">
+      <h2>Heaviest users</h2>
+      <p class="card-note">The top 15 users by 30-day token volume, colored by archetype. A handful of high-intensity agentic users dominate the total.</p>
+      <div id="topUsers"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="panel-archetypes">
+    <div class="card">
+      <h2>Usage-pattern clusters</h2>
+      <p class="card-note">
+        Each active user is reduced to 16 features spanning six axis families — token intensity, session depth
+        (tokens/request and 1h-vs-5m cache mix), cadence (days active), cache/output working style, product mix,
+        and model tier (Opus / Sonnet / Haiku / Fable) — then grouped with k-means and projected to 2 dimensions
+        for this plot. Model tier and session depth are what separate the coding archetypes: deep-Opus power coders,
+        Sonnet-first everyday coders, and Opus+Fable high-throughput automation. Position has no literal unit;
+        proximity is what matters — points near each other share a usage pattern. See the other tabs for volume,
+        model, and product cuts, and “All users” for the raw table.
+      </p>
+      <div class="scatter-wrap">
+        <svg class="scatter" id="scatterSvg" viewBox="0 0 860 560" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="tooltip" id="scatterTooltip"></div>
+      </div>
+      <div class="legend" id="scatterLegend"></div>
+    </div>
+
+    <div class="card">
+      <h2>The archetypes</h2>
+      <p class="card-note">Named and defined from each cluster's actual centroid — not preconceived buckets. Each card also shows what that group actually consumes.</p>
+      <div class="archetype-grid" id="archetypeGrid"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="panel-model">
+    <div class="card">
+      <h2>Total tokens by model</h2>
+      <p class="card-note">30-day org-wide token volume per model, ranked. One measure, one hue — magnitude is the job here, not identity.</p>
+      <div id="modelBars"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="panel-product">
+    <div class="card">
+      <h2>Total tokens by product</h2>
+      <p class="card-note">30-day org-wide token volume, ranked. One measure, one hue — magnitude is the job here, not identity.</p>
+      <div id="productBars"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="panel-tier">
+    <div class="card">
+      <h2>Users by volume tier</h2>
+      <p class="card-note">Same active users, grouped by total 30-day token volume instead of usage pattern.</p>
+      <div id="tierBars"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="panel-table">
+    <div class="card">
+      <h2>All users</h2>
+      <div class="table-controls">
+        <input type="search" id="tableSearch" placeholder="Search name or email…">
+      </div>
+      <div class="table-scroll">
+        <table class="user-table" id="userTable">
+          <thead>
+            <tr>
+              <th data-sort="n">Name</th>
+              <th data-sort="cl">Archetype</th>
+              <th data-sort="dp">Dominant product</th>
+              <th data-sort="dm">Dominant model</th>
+              <th data-sort="tt">Total tokens</th>
+              <th data-sort="req">Requests</th>
+              <th data-sort="tpr">Tokens/req</th>
+              <th data-sort="da">Days active</th>
+              <th data-sort="crr">Cache-read</th>
+            </tr>
+          </thead>
+          <tbody id="userTableBody"></tbody>
+        </table>
+      </div>
+      <p class="table-meta" id="tableMeta"></p>
+    </div>
+  </section>
+
+  <footer class="viz-footer">
+    Source: Claude Enterprise Analytics API (<code>user_usage_report</code>), grouped by model + product. Pulled via
+    the internal <code>anthropic-usage-report</code> skill.
+  </footer>
+</div>
+
+<script id="page-data" type="application/json">__PAGE_DATA__</script>
+<script>
+(function () {
+  "use strict";
+  const DATA = JSON.parse(document.getElementById("page-data").textContent);
+  const AGG = DATA.aggregates || {};
+  const COLOR_VAR = { blue: "--blue", aqua: "--aqua", yellow: "--yellow", green: "--green", violet: "--violet", red: "--red", magenta: "--magenta", orange: "--orange" };
+  const root = document.querySelector(".viz-root");
+  const cs = getComputedStyle(root);
+  function colorFor(name) { return cs.getPropertyValue(COLOR_VAR[name] || "--blue").trim(); }
+
+  const archetypeByCluster = {};
+  DATA.archetypes.forEach(a => { archetypeByCluster[a.cluster] = a; });
+
+  const TOTAL_TOKENS = DATA.meta.totalTokens;
+
+  function compact(n) {
+    const abs = Math.abs(n);
+    if (abs >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+    if (abs >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+    if (abs >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+    return String(n);
+  }
+  function pct(n) { return (n * 100).toFixed(1) + "%"; }
+  function pct0(n) { return Math.round(n * 100) + "%"; }
+  function cleanModel(m) { return m.replace(/^claude-/, "").replace(/-\d{8}$/, ""); }
+
+  // ---------- header / KPIs ----------
+  document.getElementById("subtitle").textContent =
+    `${DATA.meta.dateStart} to ${DATA.meta.dateEnd} · ${DATA.meta.totalUsers} active users · k=${DATA.meta.k} clusters (silhouette ${DATA.meta.silhouette})`;
+
+  const kpis = [
+    ["Total tokens (30d)", compact(TOTAL_TOKENS), ""],
+    ["Active users", String(DATA.meta.totalUsers), ""],
+    ["Total requests", compact(DATA.meta.totalRequests), ""],
+    ["Avg tokens / user", compact(Math.round(TOTAL_TOKENS / DATA.meta.totalUsers)), ""],
+    ["Cache-read share", pct(AGG.cacheReadRatio || 0), "of all tokens"],
+    ["Output share", pct(AGG.outputRatio || 0), "tokens generated"],
+  ];
+  const kpiRow = document.getElementById("kpiRow");
+  kpis.forEach(([label, value, sub]) => {
+    const tile = document.createElement("div");
+    tile.className = "kpi-tile";
+    const l = document.createElement("div"); l.className = "label"; l.textContent = label;
+    const v = document.createElement("div"); v.className = "value"; v.textContent = value;
+    tile.appendChild(l); tile.appendChild(v);
+    if (sub) { const s = document.createElement("div"); s.className = "sub"; s.textContent = sub; tile.appendChild(s); }
+    kpiRow.appendChild(tile);
+  });
+
+  // ---------- tabs ----------
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.setAttribute("aria-selected", "false"));
+      btn.setAttribute("aria-selected", "true");
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+    });
+  });
+
+  // ---------- shared bar helper ----------
+  function makeBar(container, label, fraction, valueMain, valueMuted, colorVarName) {
+    const row = document.createElement("div"); row.className = "bar-row";
+    const lab = document.createElement("div"); lab.className = "bar-label"; lab.textContent = label; lab.title = label;
+    const track = document.createElement("div"); track.className = "bar-track";
+    const fill = document.createElement("div"); fill.className = "bar-fill";
+    fill.style.width = Math.max(fraction * 100, 0.5) + "%";
+    fill.style.background = colorFor(colorVarName || "blue");
+    track.appendChild(fill);
+    const val = document.createElement("div"); val.className = "bar-value";
+    val.appendChild(document.createTextNode(valueMain));
+    if (valueMuted) { const m = document.createElement("span"); m.className = "muted"; m.textContent = "  " + valueMuted; val.appendChild(m); }
+    row.appendChild(lab); row.appendChild(track); row.appendChild(val);
+    container.appendChild(row);
+  }
+
+  // ---------- overview ----------
+  function renderOverview() {
+    const byModel = AGG.byModel || [];
+    const byProduct = AGG.byProduct || [];
+    const topModel = byModel[0], topProduct = byProduct[0];
+
+    document.getElementById("overviewNote").innerHTML =
+      `Across <b>${DATA.meta.dateStart}</b> to <b>${DATA.meta.dateEnd}</b>, ${DATA.meta.totalUsers} active users ran ` +
+      `<b>${compact(TOTAL_TOKENS)}</b> tokens over <b>${compact(DATA.meta.totalRequests)}</b> requests. ` +
+      `<b>${pct(AGG.cacheReadRatio || 0)}</b> of all tokens were cache reads — the dominant cost lever — while only ` +
+      `<b>${pct(AGG.outputRatio || 0)}</b> were generated output.`;
+
+    const tiles = [
+      ["Top model", topModel ? cleanModel(topModel.model) : "—", topModel ? pct(topModel.tokens / TOTAL_TOKENS) + " of tokens" : ""],
+      ["Top product", topProduct ? topProduct.product : "—", topProduct ? pct(topProduct.tokens / TOTAL_TOKENS) + " of tokens" : ""],
+      ["Cache-read share", pct(AGG.cacheReadRatio || 0), "reused context"],
+      ["Cache-write share", pct(AGG.cacheCreationRatio || 0), "new context cached"],
+      ["Avg tokens / request", compact(Math.round(AGG.tokensPerRequest || 0)), "org-wide"],
+    ];
+    const tc = document.getElementById("overviewTiles");
+    tiles.forEach(([label, value, sub]) => {
+      const t = document.createElement("div"); t.className = "mini-tile";
+      const l = document.createElement("div"); l.className = "label"; l.textContent = label;
+      const v = document.createElement("div"); v.className = "value"; v.textContent = value;
+      const s = document.createElement("div"); s.className = "sub"; s.textContent = sub;
+      t.appendChild(l); t.appendChild(v); t.appendChild(s);
+      tc.appendChild(t);
+    });
+
+    // concentration / Pareto
+    const conc = AGG.concentration || [];
+    const top10 = conc.find(c => c.label === "Top 10%");
+    if (top10) {
+      document.getElementById("concNote").innerHTML =
+        `Usage is heavily concentrated: the <b>top 10% of users (${top10.users})</b> account for ` +
+        `<b>${pct(top10.share)}</b> of all tokens. Each bar shows the cumulative token share held by the heaviest N% of users.`;
+    }
+    const cb = document.getElementById("concBars");
+    conc.forEach(c => {
+      makeBar(cb, `${c.label} (${c.users} users)`, c.share, pct(c.share), "of tokens", "violet");
+    });
+  }
+  renderOverview();
+
+  // ---------- heaviest users ----------
+  function renderTopUsers() {
+    const top = DATA.users.slice().sort((a, b) => b.tt - a.tt).slice(0, 15);
+    const max = top[0] ? top[0].tt : 1;
+    const container = document.getElementById("topUsers");
+    top.forEach(u => {
+      const arch = archetypeByCluster[u.cl];
+      makeBar(container, u.n, u.tt / max, compact(u.tt), pct(u.tt / TOTAL_TOKENS), arch ? arch.color : "blue");
+    });
+  }
+  renderTopUsers();
+
+  // ---------- convex hull (monotone chain) ----------
+  function convexHull(points) {
+    if (points.length < 3) return points;
+    const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+    const lower = [];
+    for (const p of pts) {
+      while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+    const upper = [];
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const p = pts[i];
+      while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+    upper.pop(); lower.pop();
+    return lower.concat(upper);
+  }
+
+  function expandHull(hull, factor) {
+    const cx = hull.reduce((s, p) => s + p[0], 0) / hull.length;
+    const cy = hull.reduce((s, p) => s + p[1], 0) / hull.length;
+    return hull.map(([x, y]) => [cx + (x - cx) * factor, cy + (y - cy) * factor]);
+  }
+
+  function trimOutliers(points, dropFraction) {
+    if (points.length < 5) return points;
+    const cx = points.reduce((s, p) => s + p[0], 0) / points.length;
+    const cy = points.reduce((s, p) => s + p[1], 0) / points.length;
+    const withDist = points.map(p => [p, Math.hypot(p[0] - cx, p[1] - cy)]);
+    withDist.sort((a, b) => a[1] - b[1]);
+    const keep = Math.max(3, Math.ceil(points.length * (1 - dropFraction)));
+    return withDist.slice(0, keep).map(w => w[0]);
+  }
+
+  function placeLabels(placements) {
+    const minGap = 16;
+    placements.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < placements.length; i++) {
+      const prev = placements[i - 1];
+      if (Math.abs(placements[i].x - prev.x) < 120 && placements[i].y - prev.y < minGap) {
+        placements[i].y = prev.y + minGap;
+      }
+    }
+    return placements;
+  }
+
+  // ---------- scatter ----------
+  const svgNS = "http://www.w3.org/2000/svg";
+  function makeSvgEl(tag, attrs) {
+    const el = document.createElementNS(svgNS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  function renderScatter() {
+    const svg = document.getElementById("scatterSvg");
+    const W = 860, H = 560, M = { l: 20, r: 20, t: 20, b: 40 };
+    const users = DATA.users;
+    const xs = users.map(u => u.x), ys = users.map(u => u.y);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const xPad = (xMax - xMin) * 0.12 || 1, yPad = (yMax - yMin) * 0.12 || 1;
+    const x0 = xMin - xPad, x1 = xMax + xPad, y0 = yMin - yPad, y1 = yMax + yPad;
+    const px = v => M.l + (v - x0) / (x1 - x0) * (W - M.l - M.r);
+    const py = v => H - M.b - (v - y0) / (y1 - y0) * (H - M.t - M.b);
+
+    for (let i = 0; i <= 4; i++) {
+      const gx = M.l + i / 4 * (W - M.l - M.r);
+      svg.appendChild(makeSvgEl("line", { class: "grid-line", x1: gx, y1: M.t, x2: gx, y2: H - M.b }));
+      const gy = M.t + i / 4 * (H - M.t - M.b);
+      svg.appendChild(makeSvgEl("line", { class: "grid-line", x1: M.l, y1: gy, x2: W - M.r, y2: gy }));
+    }
+    svg.appendChild(makeSvgEl("line", { class: "axis-line", x1: M.l, y1: H - M.b, x2: W - M.r, y2: H - M.b }));
+    svg.appendChild(makeSvgEl("line", { class: "axis-line", x1: M.l, y1: M.t, x2: M.l, y2: H - M.b }));
+    const xt = makeSvgEl("text", { class: "axis-title", x: (W - M.r + M.l) / 2, y: H - 10, "text-anchor": "middle" });
+    xt.textContent = "Usage pattern — component 1"; svg.appendChild(xt);
+    const yt = makeSvgEl("text", { class: "axis-title", x: 14, y: (H - M.b + M.t) / 2, "text-anchor": "middle", transform: `rotate(-90 14 ${(H - M.b + M.t) / 2})` });
+    yt.textContent = "component 2"; svg.appendChild(yt);
+
+    const byCluster = {};
+    users.forEach(u => { (byCluster[u.cl] = byCluster[u.cl] || []).push(u); });
+
+    const labelPlacements = [];
+    Object.keys(byCluster).forEach(cl => {
+      const members = byCluster[cl];
+      const arch = archetypeByCluster[cl];
+      const color = colorFor(arch.color);
+      if (members.length >= 3) {
+        const pts = trimOutliers(members.map(u => [px(u.x), py(u.y)]), 0.12);
+        const hull = expandHull(convexHull(pts), 1.15);
+        const d = "M " + hull.map(p => p.join(",")).join(" L ") + " Z";
+        svg.appendChild(makeSvgEl("path", { class: "hull", d, fill: color }));
+      }
+      const cx = members.reduce((s, u) => s + px(u.x), 0) / members.length;
+      const cy = members.reduce((s, u) => s + py(u.y), 0) / members.length;
+      labelPlacements.push({ x: cx, y: cy, cx, cy, text: arch.name });
+    });
+
+    const tooltip = document.getElementById("scatterTooltip");
+    const wrap = document.querySelector(".scatter-wrap");
+
+    users.forEach(u => {
+      const arch = archetypeByCluster[u.cl];
+      const color = colorFor(arch.color);
+      const cx = px(u.x), cy = py(u.y);
+      const dot = makeSvgEl("circle", { class: "dot", cx, cy, r: 4, fill: color });
+      const hit = makeSvgEl("circle", { class: "dot-hit", cx, cy, r: 12 });
+      [dot, hit].forEach(el => {
+        el.addEventListener("pointerenter", () => showTooltip(u, arch));
+        el.addEventListener("pointermove", (e) => positionTooltip(e));
+        el.addEventListener("pointerleave", hideTooltip);
+        el.addEventListener("focus", () => showTooltip(u, arch));
+        el.addEventListener("blur", hideTooltip);
+      });
+      hit.setAttribute("tabindex", "0");
+      svg.appendChild(dot);
+      svg.appendChild(hit);
+    });
+
+    placeLabels(labelPlacements).forEach(p => {
+      if (Math.abs(p.y - p.cy) > 2) {
+        svg.appendChild(makeSvgEl("line", { class: "grid-line", x1: p.cx, y1: p.cy, x2: p.x, y2: p.y }));
+      }
+      const label = makeSvgEl("text", { class: "cluster-label", x: p.x, y: p.y, "text-anchor": "middle" });
+      label.textContent = p.text;
+      svg.appendChild(label);
+    });
+
+    function showTooltip(u, arch) {
+      tooltip.innerHTML = "";
+      const title = document.createElement("div"); title.className = "tt-title"; title.textContent = u.n;
+      tooltip.appendChild(title);
+      const rows = [
+        ["Archetype", arch.name],
+        ["Total tokens", compact(u.tt) + " (" + pct(u.tt / TOTAL_TOKENS) + ")"],
+        ["Dominant product", u.dp + " (" + pct(u.dps) + ")"],
+        ["Dominant model", cleanModel(u.dm)],
+        ["Tokens / request", compact(Math.round(u.req ? u.tt / u.req : 0))],
+        ["Cache-read ratio", pct(u.crr)],
+      ];
+      rows.forEach(([k, v]) => {
+        const row = document.createElement("div"); row.className = "tt-row";
+        const kEl = document.createElement("span"); kEl.textContent = k;
+        const vEl = document.createElement("b"); vEl.textContent = v;
+        row.appendChild(kEl); row.appendChild(vEl);
+        tooltip.appendChild(row);
+      });
+      tooltip.classList.add("visible");
+    }
+    function positionTooltip(e) {
+      const rect = wrap.getBoundingClientRect();
+      let left = e.clientX - rect.left + 14;
+      let top = e.clientY - rect.top + 14;
+      tooltip.style.transform = `translate(${left}px, ${top}px)`;
+    }
+    function hideTooltip() { tooltip.classList.remove("visible"); }
+  }
+  renderScatter();
+
+  // ---------- legend ----------
+  const legend = document.getElementById("scatterLegend");
+  const sizeByCluster = {};
+  DATA.users.forEach(u => { sizeByCluster[u.cl] = (sizeByCluster[u.cl] || 0) + 1; });
+  DATA.archetypes.forEach(a => {
+    const item = document.createElement("div"); item.className = "legend-item";
+    const sw = document.createElement("span"); sw.className = "legend-swatch"; sw.style.background = colorFor(a.color);
+    const label = document.createElement("span"); label.textContent = `${a.name} (${sizeByCluster[a.cluster] || 0})`;
+    item.appendChild(sw); item.appendChild(label);
+    legend.appendChild(item);
+  });
+
+  // ---------- archetype cards ----------
+  const grid = document.getElementById("archetypeGrid");
+  DATA.archetypes.slice().sort((a, b) => (sizeByCluster[b.cluster]||0) - (sizeByCluster[a.cluster]||0)).forEach(a => {
+    const members = DATA.users.filter(u => u.cl === a.cluster);
+    const n = members.length;
+    const avg = key => members.reduce((s, u) => s + u[key], 0) / n;
+    const groupTokens = members.reduce((s, u) => s + u.tt, 0);
+
+    // dominant model within the archetype (aggregate members' model tokens)
+    const modelTotals = {};
+    members.forEach(u => { for (const [m, t] of Object.entries(u.models || {})) modelTotals[m] = (modelTotals[m] || 0) + t; });
+    const topModelEntry = Object.entries(modelTotals).sort((x, y) => y[1] - x[1])[0];
+    const topModel = topModelEntry ? `${cleanModel(topModelEntry[0])} (${pct0(topModelEntry[1] / (groupTokens || 1))})` : "—";
+
+    const card = document.createElement("div"); card.className = "archetype-card";
+    const head = document.createElement("div"); head.className = "head";
+    const sw = document.createElement("span"); sw.className = "swatch"; sw.style.background = colorFor(a.color);
+    const name = document.createElement("span"); name.className = "name"; name.textContent = a.name;
+    const count = document.createElement("span"); count.className = "count"; count.textContent = n + (n === 1 ? " user" : " users");
+    head.appendChild(sw); head.appendChild(name); head.appendChild(count);
+    const def = document.createElement("div"); def.className = "def"; def.textContent = a.definition;
+    const stats = document.createElement("div"); stats.className = "stats";
+    const statPairs = [
+      ["share of org tokens", pct(groupTokens / TOTAL_TOKENS)],
+      ["avg tokens (30d)", compact(Math.round(avg("tt")))],
+      ["top model", topModel],
+      ["avg days active", avg("da").toFixed(0)],
+      ["avg cache-read", pct(avg("crr"))],
+      ["avg 1h cache share", pct(avg("c1h"))],
+    ];
+    statPairs.forEach(([k, v]) => {
+      const s = document.createElement("span");
+      const b = document.createElement("b"); b.textContent = v;
+      s.appendChild(document.createTextNode(k + ": ")); s.appendChild(b);
+      stats.appendChild(s);
+    });
+    card.appendChild(head); card.appendChild(def); card.appendChild(stats);
+    grid.appendChild(card);
+  });
+
+  // ---------- by model ----------
+  function renderModelBars() {
+    const entries = (AGG.byModel || []).slice();
+    if (!entries.length) return;
+    const max = entries[0].tokens;
+    const container = document.getElementById("modelBars");
+    entries.forEach(e => {
+      makeBar(container, cleanModel(e.model), e.tokens / max, compact(e.tokens), pct(e.tokens / TOTAL_TOKENS), "blue");
+    });
+  }
+  renderModelBars();
+
+  // ---------- by product ----------
+  function renderProductBars() {
+    const entries = (AGG.byProduct || []).slice();
+    if (!entries.length) return;
+    const max = entries[0].tokens;
+    const container = document.getElementById("productBars");
+    entries.forEach(e => {
+      makeBar(container, e.product, e.tokens / max, compact(e.tokens), pct(e.tokens / TOTAL_TOKENS), "blue");
+    });
+  }
+  renderProductBars();
+
+  // ---------- by volume tier ----------
+  function renderTierBars() {
+    const tiers = [
+      { label: "≥ 1B tokens", min: 1e9, max: Infinity },
+      { label: "100M – 1B", min: 1e8, max: 1e9 },
+      { label: "10M – 100M", min: 1e7, max: 1e8 },
+      { label: "1M – 10M", min: 1e6, max: 1e7 },
+      { label: "< 1M tokens", min: 0, max: 1e6 },
+    ];
+    tiers.forEach(t => { t.users = DATA.users.filter(u => u.tt >= t.min && u.tt < t.max); });
+    const maxN = Math.max(...tiers.map(t => t.users.length));
+    const container = document.getElementById("tierBars");
+    tiers.forEach(t => {
+      const tokens = t.users.reduce((s, u) => s + u.tt, 0);
+      makeBar(
+        container, t.label, maxN ? t.users.length / maxN : 0,
+        `${t.users.length} users`,
+        `${compact(tokens)} · ${pct(tokens / TOTAL_TOKENS)} of tokens`,
+        "blue"
+      );
+    });
+  }
+  renderTierBars();
+
+  // ---------- table ----------
+  let sortKey = "tt", sortDir = -1;
+  function tpr(u) { return u.req ? u.tt / u.req : 0; }
+  function renderTable() {
+    const q = document.getElementById("tableSearch").value.trim().toLowerCase();
+    let rows = DATA.users.filter(u => !q || u.n.toLowerCase().includes(q) || u.e.toLowerCase().includes(q));
+    rows = rows.slice().sort((a, b) => {
+      let av = sortKey === "tpr" ? tpr(a) : a[sortKey];
+      let bv = sortKey === "tpr" ? tpr(b) : b[sortKey];
+      if (typeof av === "string") return sortDir * av.localeCompare(bv);
+      return sortDir * (av - bv);
+    });
+    const tbody = document.getElementById("userTableBody");
+    tbody.innerHTML = "";
+    rows.forEach(u => {
+      const arch = archetypeByCluster[u.cl];
+      const tr = document.createElement("tr");
+      const nameTd = document.createElement("td"); nameTd.textContent = u.n;
+      const archTd = document.createElement("td");
+      const dot = document.createElement("span"); dot.className = "arch-dot"; dot.style.background = colorFor(arch.color);
+      archTd.appendChild(dot); archTd.appendChild(document.createTextNode(arch.name));
+      const prodTd = document.createElement("td"); prodTd.textContent = u.dp;
+      const modelTd = document.createElement("td"); modelTd.textContent = cleanModel(u.dm);
+      const tokTd = document.createElement("td"); tokTd.className = "num"; tokTd.textContent = compact(u.tt);
+      const reqTd = document.createElement("td"); reqTd.className = "num"; reqTd.textContent = u.req.toLocaleString();
+      const tprTd = document.createElement("td"); tprTd.className = "num"; tprTd.textContent = compact(Math.round(tpr(u)));
+      const dayTd = document.createElement("td"); dayTd.className = "num"; dayTd.textContent = u.da;
+      const crrTd = document.createElement("td"); crrTd.className = "num"; crrTd.textContent = pct(u.crr);
+      tr.appendChild(nameTd); tr.appendChild(archTd); tr.appendChild(prodTd); tr.appendChild(modelTd);
+      tr.appendChild(tokTd); tr.appendChild(reqTd); tr.appendChild(tprTd); tr.appendChild(dayTd); tr.appendChild(crrTd);
+      tbody.appendChild(tr);
+    });
+    document.getElementById("tableMeta").textContent = `Showing ${rows.length} of ${DATA.users.length} users`;
+  }
+  document.getElementById("tableSearch").addEventListener("input", renderTable);
+  document.querySelectorAll("th[data-sort]").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      sortDir = (sortKey === key) ? -sortDir : -1;
+      sortKey = key;
+      renderTable();
+    });
+  });
+  renderTable();
+})();
+</script>
