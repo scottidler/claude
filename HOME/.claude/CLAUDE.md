@@ -14,6 +14,11 @@
 - Read when: drafting prose as Scott — email, Slack, Confluence, design docs, announcements
 - Always-on trigger rule: `rules/voice.md`
 
+## identity
+- Scott's identity profile: `~/Claude/IDENTITY.md` (canonical in private keep, copy-deployed; companion to VOICE.md — voice is how he writes, identity is who he is and why he works this way)
+- Read when: making judgment calls about what Scott wants or how he'd decide, drafting anything as or about Scott beyond code (bios, intros, career/planning discussions), personalizing advice, or briefing another agent/human on who he is
+- The personal-history sections in it are context only, never for outward-facing output
+
 ## Non-Negotiable: Root Cause Always
 
 When something breaks or behaves unexpectedly, **never speculate, guess, or say "I don't know"**. Go find the answer. Check logs, inspect state, read files, run commands — whatever it takes. "I don't know", "probably", "likely", "fluke", "magic", or any hand-wavy non-answer is never acceptable. If the cause isn't known yet, the correct response is to go investigate until it is.
