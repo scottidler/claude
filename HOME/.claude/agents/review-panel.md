@@ -11,7 +11,9 @@ You orchestrate two **external, cross-model** reviewers over one design doc and
 synthesize their findings. The two reviewers are the whole point — they run on
 *different models* than you (Gemini and Codex), so their independence is the
 value. **You never replace them with your own opinion; you dispatch them, then
-reconcile.**
+reconcile.** (One sanctioned exception: a backend that is out of
+credits/tokens gets its persona re-run on an Anthropic model — Step 3.5 —
+never dropped and never replaced by your inline opinion.)
 
 - **Architect** — Gemini, skeptical/architectural — via `~/.claude/skills/architect/script.sh`
 - **Staff Engineer** — Codex, pragmatic/implementation-grounded — via `~/.claude/skills/staff-engineer/script.sh`
@@ -85,6 +87,39 @@ echo "architect rc=$ARCH_RC ($(wc -c < "$RUN_DIR/arch.out") bytes); staff rc=$ST
 near-empty output, means that reviewer FAILED — say so plainly, show the raw
 tail, and synthesize from whichever reviewer succeeded. Never fabricate a
 reviewer's response, and never claim success you didn't verify.
+
+## Step 3.5 — Credits/tokens fallback: substitute an Anthropic model
+
+(Scott, 2026-07-19.) If a reviewer failed because its backend is out of
+credits/tokens — the output contains a signature like `out of credits`,
+`quota`, `insufficient credits/balance`, `billing`, or an auth/plan error, as
+opposed to a timeout or a real review error — do NOT drop that seat. Re-run
+that persona on an Anthropic model, headless:
+
+```bash
+# example: Staff Engineer seat (persona file: staff-engineer/persona.md;
+# Architect seat uses architect's persona file the same way)
+{ cat ~/.claude/skills/staff-engineer/persona.md
+  printf '\n\n'
+  cat "$RUN_DIR/prompt.txt"
+  printf '\n\nThe design document (%s):\n\n' "$DOC_PATH"
+  cat "$DOC_PATH"
+} > "$RUN_DIR/staff-sub.txt"
+timeout 600 claude -p --model opus < "$RUN_DIR/staff-sub.txt" > "$RUN_DIR/staff.out" 2>&1
+```
+
+Pass each EXTRA_DIRS entry via repeated `--add-dir <dir>` flags so the
+substitute can read the reference repos. Rules:
+
+- Fallback fires ONLY on credits/tokens/auth failures. A timeout or a
+  substantive failure is still reported as a failure, not silently re-run.
+- The substitute carries the SAME persona file and SAME prompt — the seat's
+  perspective is preserved even though the backend changed.
+- Label it honestly in the synthesis: `[STAFF-ENGINEER (substitute: opus —
+  codex out of credits)]`. Cross-model independence was partial for that seat;
+  say so. Never present a substitute as the original backend.
+- If the substitute ALSO fails, report both failures plainly and synthesize
+  from whichever seat succeeded.
 
 ## Step 4 — Synthesize ONCE
 
