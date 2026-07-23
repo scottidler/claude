@@ -27,9 +27,8 @@ settings.local.json
 settings.local.json.orig
 settings.json.orig
 
-# Statusline config (personal preference, not portable)
+# Statusline config
 powerline/
-claude-powerline.json
 
 # Auto memory (project-scoped, generated per-machine)
 memory/
