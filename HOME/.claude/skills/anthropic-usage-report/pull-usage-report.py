@@ -41,9 +41,13 @@ def parse_args():
     )
     p.add_argument(
         "--report",
-        choices=sorted(ENDPOINTS),
+        choices=sorted(ENDPOINTS) + ["all"],
         default="user-usage",
-        help="Which analytics report to pull (default: user-usage — per-user token usage).",
+        help=(
+            "Which analytics report to pull (default: user-usage — per-user "
+            "token usage). 'all' pulls every report into one JSON object keyed "
+            "by report name (json only; each report has a different row shape)."
+        ),
     )
     p.add_argument("--start", help="ISO 8601 starting_at (e.g. 2026-06-01T00:00:00Z).")
     p.add_argument("--end", help="ISO 8601 ending_at (default: now).")
@@ -243,34 +247,22 @@ def write_csv(records, output_path):
         writer.writerows(flattened)
 
 
-def main():
-    args = parse_args()
-
-    api_key = os.environ.get(args.api_key_env)
-    if not api_key:
-        raise SystemExit(
-            f"Env var {args.api_key_env} is not set. "
-            "Export your Claude Enterprise Analytics API key first."
-        )
-
-    path = ENDPOINTS[args.report]
-    start, end = resolve_window(args)
-    windows = chunk_window(start, end, args.chunk_days)
-
-    group_by = args.group_by or ["model"]
+def fetch_report(report, args, api_key, windows, group_by):
+    """Pull one report across all windows and return its normalized records."""
+    path = ENDPOINTS[report]
 
     # "usage"/"cost" bucket by time and hard-cap `limit` to the bucket-width's
     # max bucket count (server-enforced, e.g. 31 for bucket_width=1d) even
     # though "cost" never accepts bucket_width as a request param -- it
     # always buckets daily server-side. "user-usage"/"user-cost" return one
     # row per user for the whole window and aren't capped this way.
-    effective_bucket_width = args.bucket_width if args.report == "usage" else "1d"
-    if args.report in BUCKETED_REPORTS:
+    effective_bucket_width = args.bucket_width if report == "usage" else "1d"
+    if report in BUCKETED_REPORTS:
         cap = BUCKET_LIMIT_CAPS[effective_bucket_width]
         if args.limit is not None and args.limit > cap:
             print(
                 f"--limit {args.limit} exceeds the API's cap of {cap} for "
-                f"--report {args.report} at bucket_width={effective_bucket_width}; "
+                f"--report {report} at bucket_width={effective_bucket_width}; "
                 f"using {cap} instead.",
                 file=sys.stderr,
             )
@@ -285,13 +277,57 @@ def main():
             "ending_at": iso(w_end),
             "group_by[]": group_by,
         }
-        if args.report in ("usage", "user-usage"):
+        if report in ("usage", "user-usage"):
             params["bucket_width"] = args.bucket_width
         if args.products:
             params["products[]"] = args.products
         all_records.extend(fetch_all(path, params, api_key, limit))
 
-    all_records = normalize_records(all_records)
+    return normalize_records(all_records)
+
+
+def main():
+    args = parse_args()
+
+    api_key = os.environ.get(args.api_key_env)
+    if not api_key:
+        raise SystemExit(
+            f"Env var {args.api_key_env} is not set. "
+            "Export your Claude Enterprise Analytics API key first."
+        )
+
+    start, end = resolve_window(args)
+    windows = chunk_window(start, end, args.chunk_days)
+    group_by = args.group_by or ["model"]
+
+    # "all": pull every report into one JSON object keyed by report name.
+    # Each report has a different row shape, so they can't collapse into one
+    # flat array without becoming lossy -- a keyed object keeps each intact.
+    if args.report == "all":
+        if args.format == "csv":
+            raise SystemExit(
+                "--report all supports --format json only (each report has a "
+                "different row shape; they're combined into one keyed JSON "
+                "object). Pull reports individually for CSV."
+            )
+        combined = {}
+        total = 0
+        for report in sorted(ENDPOINTS):
+            recs = fetch_report(report, args, api_key, windows, group_by)
+            combined[report] = recs
+            total += len(recs)
+            print(f"  {report}: {len(recs)} records", file=sys.stderr)
+        output_path = args.output or (
+            f"enterprise-all-{iso(start)[:10]}-{iso(end)[:10]}.json"
+        )
+        write_json(combined, output_path)
+        print(
+            f"Wrote {total} records across {len(combined)} reports to {output_path}",
+            file=sys.stderr,
+        )
+        return
+
+    all_records = fetch_report(args.report, args, api_key, windows, group_by)
 
     ext = "json" if args.format == "json" else "csv"
     output_path = args.output or (

@@ -21,6 +21,8 @@ python3 pull-usage-report.py [options]
 
 No dependencies to install — stdlib only (`urllib`), works with a bare `python3`.
 
+**Gotcha: the skill's own directory is not writable from a sandboxed Bash call.** `~/.claude/skills/anthropic-usage-report` is a symlink into `~/repos/scottidler/claude/HOME/.claude/skills/anthropic-usage-report`, and that real path is on the sandbox's write-deny list (it protects the skills tree from accidental corruption via shell). Any output written to cwd there (`pull-usage-report.py`'s default `--output`, or `harvest-and-post.py`'s default `--out-dir`) fails with `OSError: [Errno 30] Read-only file system`. Always pass an explicit `--output`/`--out-dir` pointing outside that tree (the scratchpad dir is a good default) — don't rely on the cwd default when running from here.
+
 ### Common invocations
 
 Per-user token usage (default), last 30 days, JSON, broken down by model:
@@ -73,6 +75,36 @@ The script paginates automatically (`has_more` / `next_page`) and prints only th
 - Amount fields on cost endpoints are decimal-string cents (e.g. `"41280.000000"` = $412.80) — the script writes them through as-is; divide by 100 for dollars when analyzing.
 - Rate limit is 60 req/min **per organization**, not per key — the script sleeps briefly between paginated pages.
 - Large `user-usage`/`user-cost` pulls intermittently drop the connection mid-body with a transient `http.client.IncompleteRead` (reproducible on the bigger 30-day org-wide pulls, not a one-off). `fetch_page` retries up to `MAX_RETRIES` (5) with exponential backoff on `IncompleteRead`/`ConnectionError`/`TimeoutError`/`URLError`; a real `HTTPError` (4xx/5xx) is not retried and surfaces immediately.
+
+## Harvest and post to Slack
+
+`harvest-and-post.py` wraps the puller for the recurring "pull the enterprise usage data and drop it in a channel" ask. It runs `pull-usage-report.py` once per report for a trailing window (default 90 days ≈ 3 months), writing **one JSON file per report** (the files leadership gets, each in its native shape — per-user reports carry an `actor` object, org-wide reports don't), then uploads them all as a **single Slack message** (one note + N attachments) via Slack's external-upload flow (`files.getUploadURLExternal` → POST bytes → `files.completeUploadExternal`).
+
+```bash
+# Harvest only — produce the files, print the plan, DO NOT post (always do this first):
+python3 harvest-and-post.py --dry-run
+
+# Post the last 3 months to #engineering-leadership with a generated note:
+python3 harvest-and-post.py
+
+# Custom window, channel, and note:
+python3 harvest-and-post.py --days 30 --channel C089C6Y41ND --note "Monthly Claude usage pull."
+```
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--days` | `90` | Trailing window (~3 months). Clamped to `2026-01-01`, the API's earliest retained data |
+| `--report` | all four (`cost`, `usage`, `user-cost`, `user-usage`) | Repeatable — one output file each. The 5th endpoint (`.../users`, activity/adoption, not tokens) is **not** wired into the puller; add it there first if asked |
+| `--group-by` | `model` | Repeatable — passed through to the puller |
+| `--channel` | `C089C6Y41ND` (#engineering-leadership) | Slack channel id |
+| `--note` | generated summary | The message body / initial comment posted with the files |
+| `--out-dir` | `./enterprise-usage-<end-date>` | Where the JSON files are written |
+| `--token-env` | `TATARI_SLACK_TOOLKIT_API_TOKEN` | Env var holding a Slack token with `files:write`. **This is the only local token that carries `files:write`; it posts AS the token's owner (scott.idler), not as a bot.** The value is never printed or logged |
+| `--dry-run` | off | Harvest + print the plan; skip the Slack post entirely |
+
+**Posting is outward-facing and not cleanly reversible** — Slack has no edit/delete for a file message via this path. Always `--dry-run` first, confirm the note wording (goes out in Scott's voice — no em-dashes, lead with the point) and the file set, then post once. Do not fire a "corrected" follow-up; get it right the first time.
+
+**Gotcha: the sandboxed Bash tool deterministically drops large file uploads.** The `user-usage` report is ~20MB, the largest of the four. `upload_bytes`'s POST to Slack's external upload URL fails there every time under the Bash tool's default sandbox — `http.client.RemoteDisconnected: Remote end closed connection without response` — while the three smaller files (up to ~1.8MB) upload fine. This reproduced identically on two separate attempts (confirmed 2026-07-24), so it's the sandbox's network proxy dropping large request bodies, not a transient network fluke — retrying the same command under the sandbox will not help. `upload_bytes` has no retry logic (unlike `fetch_page` in the puller, which does retry `IncompleteRead`/connection errors), and adding one would not fix a deterministic sandbox limit anyway. Run `harvest-and-post.py` with the Bash tool's sandbox disabled (`dangerouslyDisableSandbox: true`) whenever the file set includes anything upload-sized in the tens-of-MB range — i.e. essentially always, since `user-usage` is in the default report set.
 
 ## Archetype report pipeline
 
