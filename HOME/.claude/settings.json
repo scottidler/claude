@@ -745,6 +745,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/block-draft-pr.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/branch-pr-title-guard.sh"
           }
         ]
       },
@@ -754,6 +758,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/block-draft-pr.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/branch-pr-title-guard.sh"
           }
         ]
       },

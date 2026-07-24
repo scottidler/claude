@@ -44,6 +44,10 @@ alwaysApply: true
 
 ### Branch names
 - Lowercase, hyphenated: `fix-auth-bug`, `add-viewport-support`
+- **The branch name is the source of truth for the PR title.** Take the PR title, strip its conventional-commit `type(scope):` prefix, slugify the remainder (lowercase, hyphenate) - it MUST equal the branch name. Author the short 3-5-word branch slug first, then write the title as `type(scope): <those same words>` so the two are never disconnected.
+  - Right: branch `add-viewport-support` -> title `feat(ui): add viewport support`
+  - Wrong: branch `plugin-git-subdir-pointers` -> title `feat(marketplace): point marquee and slack at their CLI repos via git-subdir` (title slugifies to something else entirely)
+- Enforced structurally by the `branch-pr-title-guard.sh` PreToolUse hook, which hard-denies `gh pr create` / MCP `create_pr` when `slug(title minus type/scope) != branch`. Fix a block by rewriting the TITLE, never by renaming a branch that already has a PR open.
 
 ### Slugs and generated titles
 - Lowercase, hyphenated
