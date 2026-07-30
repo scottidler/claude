@@ -391,6 +391,24 @@ criterion. A criterion you cannot verify is reported as UNVERIFIED with the
 reason - never silently assumed. If any criterion FAILS, the work is not done:
 stop and surface it instead of proceeding to finalization.
 
+**A criterion that arrives unexecuted is a DOC DEFECT, not work to do.**
+`/create-design-doc`'s ready-to-build gate requires every criterion naming a
+flag, column, path, exit code, or count to have been run against `main` and its
+observed output recorded in the doc next to it. So if you reach this step and a
+criterion has no `*Observed on `main`:*` line, the doc skipped its own gate:
+
+- Do NOT contort the implementation to satisfy a criterion that was never
+  executed. It may name a flag that does not exist.
+- Run the command, and if the criterion turns out to be unsatisfiable as
+  written, AMEND IT IN THE DOC with the reasoning, then continue.
+- Same for a criterion that contradicts one of its own phase's bullets, or that
+  pins an exact count the phase's own work must change. Both are the same defect
+  class; both are fixed in the doc, not worked around in the code.
+
+Record every such amendment in the implementation notes. The pattern this
+guards against cost five occurrences on `tatari-tv/clyde` #77
+(https://github.com/tatari-tv/clyde/pull/77) before it was named.
+
 ### 1. Update design doc status and commit
 
 Change the design doc's `**Status:**` from `Draft` to `Implemented`, then commit:
