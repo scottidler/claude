@@ -749,6 +749,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/branch-pr-title-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/codex-stdin-guard.sh"
           }
         ]
       },
