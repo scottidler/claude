@@ -51,6 +51,48 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
    silently drop or defer a finding. **The doc is ready to build only when
    every finding is dispositioned and Open Questions is empty** — Scott never
    builds with open questions or disputes.
+6. **Execute the acceptance criteria**: the ready-to-build gate below. Type
+   every criterion's **literal command** into a shell against current `main`
+   and record what it returned, in the doc, next to the criterion.
+
+### Ready-to-build gate: run the acceptance criteria before calling it ready
+
+**Every acceptance criterion that names a flag, column, path, exit code, count,
+or command gets its literal command RUN against current `main` before the doc is
+called ready, and the observed output recorded in the doc next to the criterion**
+(an ``Observed on main:`` line under each). A criterion whose command cannot
+run yet says so explicitly and names why (it depends on a phase that has not
+shipped), rather than being silently assumed.
+
+Why this exists, so the reason survives the next edit: **an acceptance criterion
+written from the design rather than from the running system is wrong more often
+than the implementation is.** Measured on `tatari-tv/clyde` #77
+(https://github.com/tatari-tv/clyde/pull/77): five occurrences of that one
+pattern. All five phases shipped `otto ci` green before anyone noticed three of
+seven criteria could not pass as written. In every case the code was right and
+the criterion was wrong:
+
+- named `--only`, a flag that does not exist (enrich takes a positional `[ID]`)
+- required deleting the very tests that prove its own phase
+- required a non-zero exit from a path that returns 0 by deliberate design
+
+Each would have surfaced in seconds in a shell. Two more instances were caught
+in that doc's own review, and a third during implementation, which is the
+argument for making this a gate rather than a habit.
+
+Two failure modes to watch for specifically:
+
+- **A criterion measured BEFORE the change it governs.** Pinning an exact count
+  that the phase's own work must change (`returns exactly 17`, when a bullet in
+  the same phase adds an 18th) is the mirror image of the same defect. Use `>=`
+  / `exactly zero` for what is actually being guarded.
+- **A criterion that contradicts another bullet of the same phase.** If the
+  phase says "add a README note about X" and a criterion says "X appears exactly
+  once in the README", one of them is wrong. Reconcile before building.
+
+Record the units the command actually emits: `rg -c` counts matching **lines**,
+`rg -o … | wc -l` counts **occurrences**, and quoting one while measuring the
+other is how a correct observation gets read as false.
 
 See [example.md](example.md) for a sample review process.
 
@@ -86,6 +128,7 @@ Save to `docs/design/YYYY-MM-DD-feature-name.md` or user-specified location.
 - Always include alternatives considered; rejected drafts and deferred options go in an Addendum so they aren't re-litigated
 - Every requirement is traceable to who asked for it — unrequested scope is illegitimate regardless of quality
 - Acceptance criteria are falsifiable assert statements (3-5 overall, 1-3 per phase) — they are what the implementation audit verifies
+- Every acceptance criterion naming a flag/column/path/exit code/count is EXECUTED against current `main` and its output recorded in the doc before ready-to-build (see the gate above). A criterion written from the design instead of the running system is wrong more often than the implementation is, and it fails only after every phase has shipped green
 - State the cross-repo blast radius and the ship order it forces
 - The doc is the single source of truth: agreed changes land IN the doc, not in follow-on lists or agent memory
 - NEVER include time estimates
