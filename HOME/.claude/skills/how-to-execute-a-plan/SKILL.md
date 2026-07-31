@@ -52,6 +52,16 @@ never builds with open questions or disputes. Verify in the doc:
   rationale; no unresolved pushbacks
 - **Acceptance criteria present** - falsifiable overall asserts, and success
   criteria per phase (flag their absence; older docs may predate them)
+- **Acceptance criteria EXECUTED** - every criterion naming a flag, column,
+  path, exit code, count, or command carries a recorded observed-output line
+  from having been run against current `main` (`/create-design-doc`'s
+  ready-to-build gate). A criterion with no recorded output has not been
+  checked against the running system, and that is the defect class that costs
+  five phases of green CI before anyone notices. **Run the missing ones NOW,
+  before phase 1** - it takes seconds and it is the cheapest point to find a
+  criterion that names a flag which does not exist. Amending the doc here is
+  free; amending it at finalization means the phases were built against a
+  criterion nobody had verified.
 
 If any check fails, STOP and report exactly what is unresolved instead of
 starting phase 1. Building anyway is the process violation this gate exists
@@ -395,15 +405,24 @@ stop and surface it instead of proceeding to finalization.
 `/create-design-doc`'s ready-to-build gate requires every criterion naming a
 flag, column, path, exit code, or count to have been run against `main` and its
 observed output recorded in the doc next to it. So if you reach this step and a
-criterion has no `*Observed on `main`:*` line, the doc skipped its own gate:
+criterion has no ``Observed on main:`` line, the doc skipped its own gate:
 
 - Do NOT contort the implementation to satisfy a criterion that was never
   executed. It may name a flag that does not exist.
-- Run the command, and if the criterion turns out to be unsatisfiable as
-  written, AMEND IT IN THE DOC with the reasoning, then continue.
-- Same for a criterion that contradicts one of its own phase's bullets, or that
-  pins an exact count the phase's own work must change. Both are the same defect
-  class; both are fixed in the doc, not worked around in the code.
+- Run the command. Then decide WHICH of the two things is wrong, because the
+  answer changes what you are allowed to do:
+
+| what you proved | allowed action |
+|---|---|
+| The criterion is a **doc defect**: it names a flag/column/path that does not exist, contradicts another bullet of its own phase, or pins a count that phase's own work must change | **Amend the criterion in the doc**, with the reasoning and the command output that proves it, then continue |
+| The criterion is **sound** and the code does not satisfy it | **STOP.** This is the "If any criterion FAILS" case above. Fix the code, or surface the blocker. Never amend a sound criterion to match the code |
+
+**This distinction is the whole safety property.** "Amend the criterion" is a
+license to fix a doc defect, NOT a license to make a failing implementation
+pass. If you cannot articulate, in one sentence, why the criterion itself is
+wrong independent of your code, then it is not a doc defect and you stop.
+
+Record every amendment in the implementation notes, with the evidence.
 
 Record every such amendment in the implementation notes. The pattern this
 guards against cost five occurrences on `tatari-tv/clyde` #77

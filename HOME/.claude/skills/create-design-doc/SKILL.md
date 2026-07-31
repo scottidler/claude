@@ -60,7 +60,7 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
 **Every acceptance criterion that names a flag, column, path, exit code, count,
 or command gets its literal command RUN against current `main` before the doc is
 called ready, and the observed output recorded in the doc next to the criterion**
-(an `*Observed on `main`:*` line under each). A criterion whose command cannot
+(an ``Observed on main:`` line under each). A criterion whose command cannot
 run yet says so explicitly and names why (it depends on a phase that has not
 shipped), rather than being silently assumed.
 
