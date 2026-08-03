@@ -704,11 +704,7 @@
       "Bash(gh extension remove:*)",
       "Bash(gh run cancel:*)"
     ],
-    "ask": [
-      "Bash(manifest age decrypt:*)",
-      "Bash(manifest age:*)",
-      "Bash(manifest:*)"
-    ],
+    "ask": [],
     "defaultMode": "auto",
     "additionalDirectories": [
       "/home/saidler/repos",
@@ -721,6 +717,89 @@
   "enabledMcpjsonServers": [
     "oracle"
   ],
+  "skillOverrides": {
+    "platform:pod-placement-audit": "off",
+    "install-skills": "off",
+    "run-via": "off",
+    "general:pattern-applicator": "off",
+    "spotify-playlist": "off",
+    "to-google-drive": "off",
+    "general:session-launcher": "off",
+    "allow-readonly": "off",
+    "general:gemini": "off",
+    "general:markee": "off",
+    "slack-old": "off",
+    "vault-recall": "off",
+    "slack:repost": "off",
+    "slack:write": "off",
+    "slack:delete": "off",
+    "general:who-do-i-ask": "off",
+    "platform:turbolift": "off",
+    "closeday": "off",
+    "slack:search": "off",
+    "architect-agy": "off",
+    "e2e-v3": "off",
+    "improve-codebase-architecture": "off",
+    "openday": "off",
+    "obsidian-markdown": "off",
+    "general:review-pr": "off",
+    "dot-clauderize": "off",
+    "karpathy-guidelines": "off",
+    "json-canvas": "off",
+    "frontend-design:frontend-design": "off",
+    "understand-anything:understand-domain": "off",
+    "writing-researcher": "off",
+    "building-researcher": "off",
+    "football-researcher": "off",
+    "general:context-usage": "off",
+    "tdd": "off",
+    "modern-tools": "off",
+    "understand-anything:understand-knowledge": "off",
+    "general:test-runner": "off",
+    "zoom-out": "off",
+    "python-coder": "off",
+    "platform:plan-eval": "off",
+    "understand-anything:understand-diff": "off",
+    "understand-anything:understand-chat": "off",
+    "understand-anything:understand-onboard": "off",
+    "understand-anything:understand-dashboard": "off",
+    "cidr": "off",
+    "whitespace": "off",
+    "ls-stale-branches": "off",
+    "ls-git-repos": "off",
+    "ls-stale-prs": "off",
+    "reposlug": "off",
+    "platform:argocd-ops": "off",
+    "ottofile": "off",
+    "relocate-targets": "off",
+    "mina": "off",
+    "general:model-selector": "off",
+    "obsidian-cli": "off",
+    "rwl-a-plan": "off",
+    "marquee:slides-reveal": "off",
+    "general:codex": "off",
+    "general:tatari-repos": "off",
+    "general:debug-pr": "off",
+    "intent-layer": "off",
+    "diagnose": "off",
+    "grill-with-docs": "off",
+    "obsidian-bases": "off",
+    "clauderize": "off",
+    "general:design-doc": "off",
+    "xray": "off",
+    "gha-versions": "off",
+    "general:convergent-review": "off",
+    "spec-review": "off",
+    "keyby": "off",
+    "understand-anything:understand": "off",
+    "understand-anything:understand-explain": "off",
+    "aka": "off",
+    "rkvr": "off",
+    "ls-owners": "off",
+    "gx": "off",
+    "core": "off",
+    "teach": "off"
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -770,6 +849,15 @@
         ]
       },
       {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/block-question-picker.sh"
+          }
+        ]
+      },
+      {
         "matcher": "",
         "hooks": [
           {
@@ -797,15 +885,16 @@
     "command": "~/.claude/statusline.sh"
   },
   "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": false,
     "general@tatari-skills": true,
     "marquee@tatari-skills": true,
     "platform@tatari-skills": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "understand-anything@understand-anything": true
+    "typescript-lsp@claude-plugins-official": false,
+    "understand-anything@understand-anything": true,
+    "slack@tatari-skills": true
   },
   "extraKnownMarketplaces": {
     "tatari-skills": {
