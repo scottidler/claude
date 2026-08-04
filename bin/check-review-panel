@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Health check for the review panel: proves BOTH reviewer seats can actually run
+# and return a review in the CURRENT environment (sandboxed or not).
+#
+# Why this exists: from 2026-07-13 to 08-03, 37% of all review-panel dispatches
+# died in ~3s because the reviewer scripts wrote scratch files to bare /tmp,
+# which the Claude Code Bash sandbox mounts read-only. It presented as "the panel
+# randomly doesn't respond" and took a full session of transcript archaeology to
+# root-cause. Never again: this makes the answer one command.
+#
+# Run it after any change to the reviewer scripts, the sandbox allowlist in
+# settings.json, or an upgrade of the gemini / codex CLIs. Sandbox config only
+# loads at session start, so run this in a FRESH session after editing it.
+#
+#   bin/check-review-panel            # both seats
+#   bin/check-review-panel architect  # one seat
+#
+# Exit 0 = every checked seat produced a real review.
+
+ARCH_SCRIPT="$HOME/.claude/skills/architect/script.sh"
+STAFF_SCRIPT="$HOME/.claude/skills/staff-engineer/script.sh"
+WALL="${CHECK_WALL_CLOCK:-5m}"
+
+SCRATCH="${TMPDIR:-/tmp}"
+RUN="$SCRATCH/check-review-panel.$$"
+
+pass=0
+fail=0
+
+say() { printf '%s\n' "$*"; }
+ok()   { say "  PASS  $*"; pass=$((pass + 1)); }
+bad()  { say "  FAIL  $*"; fail=$((fail + 1)); }
+
+say "== review-panel health check =="
+say "scratch:  $SCRATCH"
+say "sandbox:  $([ -w /tmp ] && echo 'OFF (bare /tmp writable)' || echo 'ON (bare /tmp read-only)')"
+say ""
+
+# ---- 0. Preconditions -------------------------------------------------------
+say "-- preconditions --"
+if [ -d "$SCRATCH" ] && [ -w "$SCRATCH" ]; then
+  ok "scratch dir is writable"
+else
+  bad "scratch dir '$SCRATCH' is NOT writable -- both seats will exit 3"
+  exit 1
+fi
+mkdir -p "$RUN" || { say "cannot create $RUN"; exit 1; }
+trap 'rm -rf "$RUN"' EXIT
+
+for pair in "codex:$HOME/.codex" "gemini:$HOME/.gemini"; do
+  tool="${pair%%:*}"; dir="${pair#*:}"
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    bad "$tool not on PATH"
+  elif [ -d "$dir" ] && [ ! -w "$dir" ]; then
+    bad "$tool state dir '$dir' is READ-ONLY -- add it to sandbox.filesystem.allowWrite"
+  else
+    ok "$tool present, state dir writable"
+  fi
+done
+
+# Regression guard for the exact bug this check was written for.
+if rg -n 'mktemp "?/tmp/|PIDFILE="\$\{[A-Z_]*:-/tmp/' "$ARCH_SCRIPT" "$STAFF_SCRIPT" >/dev/null 2>&1; then
+  bad "a reviewer script still hardcodes bare /tmp for scratch -- use \${TMPDIR:-/tmp}"
+  rg -n 'mktemp "?/tmp/|PIDFILE="\$\{[A-Z_]*:-/tmp/' "$ARCH_SCRIPT" "$STAFF_SCRIPT" 2>/dev/null | sed 's/^/        /'
+else
+  ok "no bare-/tmp scratch paths in either script"
+fi
+say ""
+
+# ---- 1. Loud-failure path ---------------------------------------------------
+# A read-only scratch dir must exit 3 with an actionable message, never a
+# cryptic mktemp error and never a silent empty file.
+say "-- loud-failure preflight (forced read-only scratch) --"
+for pair in "architect:$ARCH_SCRIPT" "staff-engineer:$STAFF_SCRIPT"; do
+  name="${pair%%:*}"; script="${pair#*:}"
+  out=$(TMPDIR=/nonexistent-readonly-probe "$script" /dev/null "probe" "" 2>&1)
+  rc=$?
+  if [ "$rc" -eq 3 ] && printf '%s' "$out" | rg -q 'not writable'; then
+    ok "$name exits 3 with an actionable message"
+  else
+    bad "$name preflight returned rc=$rc (expected 3): $(printf '%s' "$out" | head -1)"
+  fi
+done
+say ""
+
+# ---- 2. Live end-to-end review ----------------------------------------------
+cat > "$RUN/doc.md" <<'EOF'
+# Design Document: Health Check Probe
+
+**Author:** Scott Idler
+**Status:** In Review
+
+## Summary
+
+Add a `--verbose` flag to a CLI. It prints extra output.
+
+## Implementation Plan
+
+- Phase 1: add the flag.
+- Phase 2: print more.
+EOF
+
+cat > "$RUN/prompt.txt" <<'EOF'
+Reply with AT MOST 2 short bullets naming the biggest gap in this doc. Be terse. Do not read the codebase.
+EOF
+
+want="${1:-both}"
+say "-- live end-to-end review (wall clock $WALL) --"
+
+check_seat() {
+  local name="$1" script="$2" pidvar="$3" wallvar="$4"
+  local out="$RUN/$name.out" err="$RUN/$name.err"
+  env "$pidvar=$RUN/$name.pid" "$wallvar=$WALL" \
+    "$script" "$RUN/doc.md" "$RUN/prompt.txt" "" >"$out" 2>"$err"
+  local rc=$? bytes
+  bytes=$(wc -c < "$out")
+  if [ "$rc" -eq 0 ] && [ "$bytes" -gt 40 ]; then
+    ok "$name produced a review (rc=0, $bytes bytes)"
+    sed 's/^/        | /' "$out" | head -4
+  else
+    bad "$name rc=$rc, $bytes bytes"
+    /usr/bin/tail -c 600 "$err" | sed 's/^/        /'
+  fi
+}
+
+if [ "$want" = "both" ] || [ "$want" = "architect" ]; then
+  check_seat architect "$ARCH_SCRIPT" ARCHITECT_PIDFILE ARCHITECT_WALL_CLOCK
+fi
+if [ "$want" = "both" ] || [ "$want" = "staff-engineer" ] || [ "$want" = "staff" ]; then
+  check_seat staff-engineer "$STAFF_SCRIPT" STAFF_ENGINEER_PIDFILE STAFF_ENGINEER_WALL_CLOCK
+fi
+
+say ""
+say "== $pass passed, $fail failed =="
+[ "$fail" -eq 0 ]

@@ -170,12 +170,19 @@ The script accepts the prompt in two forms:
   ```
 - **File path** (preferred for follow-up rounds, multiline prompts, or anything with embedded quotes/backticks):
   ```bash
-  cat > /tmp/architect-prompt.txt <<'EOF'
+  PROMPT_FILE="${TMPDIR:-/tmp}/architect-prompt.txt"
+  cat > "$PROMPT_FILE" <<'EOF'
   <multi-line prompt body, no shell escaping needed inside a quoted heredoc>
   EOF
-  ~/.claude/skills/architect/script.sh "$DOC_PATH" /tmp/architect-prompt.txt "$EXTRA_DIRS"
+  ~/.claude/skills/architect/script.sh "$DOC_PATH" "$PROMPT_FILE" "$EXTRA_DIRS"
   ```
   The script detects that arg 2 is an existing file and reads the prompt from it.
+
+  **Always `${TMPDIR:-/tmp}`, never bare `/tmp`.** The Claude Code Bash sandbox
+  mounts `/tmp` read-only, so a bare `/tmp` heredoc fails with
+  `Read-only file system (os error 30)` and the review never runs. This exact
+  mistake, inside the scripts themselves, caused 37% of all review-panel
+  failures from 2026-07-13 to 08-03.
 
 `$EXTRA_DIRS` is the variable from Step 1.5. Pass `""` when empty — the script no-ops `--include-directories` for empty input. Use the file-based form whenever the prompt contains conversation history, code blocks, or any character that bash would have to escape.
 
@@ -286,7 +293,7 @@ What would you like to explore further? You can:
 
 ```bash
 ROUND=<N>
-PROMPT_FILE="/tmp/architect-prompt-r${ROUND}.txt"
+PROMPT_FILE="${TMPDIR:-/tmp}/architect-prompt-r${ROUND}.txt"
 cat > "$PROMPT_FILE" <<'EOF'
 --- CONVERSATION SO FAR ---
 [ARCHITECT ROUND 1]:
@@ -344,7 +351,7 @@ Ask the user if they want to append this summary to the design doc's Open Questi
 
 ## What Claude Should NOT Do During This Skill
 
-- **Do not construct a `gemini` command directly — always use `~/.claude/skills/architect/script.sh`.** This is the most common failure mode. If a prompt is too long to inline as a string, write it to `/tmp/architect-prompt*.txt` and pass the file path as arg 2 — the script reads it. There is no situation where bypassing the script is correct. If you find yourself typing `gemini -p ...` in a Bash call, stop.
+- **Do not construct a `gemini` command directly — always use `~/.claude/skills/architect/script.sh`.** This is the most common failure mode. If a prompt is too long to inline as a string, write it to `${TMPDIR:-/tmp}/architect-prompt*.txt` (never bare `/tmp`, which the sandbox mounts read-only) and pass the file path as arg 2 — the script reads it. There is no situation where bypassing the script is correct. If you find yourself typing `gemini -p ...` in a Bash call, stop.
 - Do not modify the design doc unless explicitly asked after the consultation
 - Do not resolve open questions on behalf of the Architect — surface them
 - Do not pretend to be the Architect — keep Claude and Architect voices clearly separated

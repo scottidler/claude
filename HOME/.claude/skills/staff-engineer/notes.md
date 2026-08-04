@@ -38,6 +38,41 @@ how the skill is wired.
 - **Doc on stdin**: the design doc is piped in and appears to codex as a
   `<stdin>` block; prompts refer to "the design document provided on stdin".
 
+## Failure modes measured 2026-07-13 .. 2026-08-03 (149 panel dispatches)
+
+The claim above that "most of the Architect's failure modes do not apply here"
+was true about the *reviewer's* tooling and false about the *harness*. Two
+harness failures hit both seats identically:
+
+- **Scratch dir read-only under the Bash sandbox: 37% of ALL dispatches (55 of
+  149).** `script.sh` hardcoded bare `/tmp` for its pidfile, last-message, and
+  trace files; the sandbox mounts `/tmp` read-only. Both seats died in ~3s with
+  `staff rc=1 (86 bytes)` and `mktemp: Read-only file system (os error 30)`.
+  Fixed 2026-08-04: the script uses `${TMPDIR:-/tmp}`, preflights writability,
+  and exits **3** with an actionable message.
+  - codex ALSO trips this on its own, independently of the script:
+    `WARNING: proceeding, even though we could not create PATH aliases: Read-only file system (os error 30)`
+    then `Error: failed to initialize in-process app-server client: Read-only
+    file system (os error 30)`. It writes state under `~/.codex` (sessions,
+    history, sqlite). `settings.json` now allowlists `~/.codex` for sandbox
+    writes and exempts the script via `sandbox.excludedCommands`. Fixing the
+    script alone is NOT sufficient.
+- **Caller timeout tie.** `review-panel.md` wrapped the script in `timeout 600`
+  while `WALL_CLOCK` was also 600s. The outer kill won, the EXIT trap never ran,
+  and the caller got a banner-only file with no diagnostic. The panel no longer
+  wraps the scripts in `timeout`.
+
+Codex-specific, and deliberately NOT retried by the script:
+
+- **Out of credits.** `ERROR: Your workspace is out of credits. Ask your
+  workspace owner to refill in order to continue.` This is billing, not a bug.
+  It is the review-panel's Step 3.5 substitute-model path, so the script excludes
+  credits/quota/auth from its retry predicate to avoid delaying that fallback.
+- **Bare `Execution error`** as the entire final message (observed once, 15
+  bytes). This one IS transient and the script now retries it once
+  (`STAFF_ENGINEER_MAX_ATTEMPTS`, default 2), symmetric with the Architect's
+  `Invalid stream` retry.
+
 ## Real caveats (still worth knowing)
 
 - **Model / effort are pinned** in `script.sh` (`gpt-5.5`, `model_reasoning_effort=high`).

@@ -131,12 +131,19 @@ The script accepts the prompt in two forms:
   ```
 - **File path** (preferred for follow-up rounds, multiline prompts, or anything with embedded quotes/backticks):
   ```bash
-  cat > /tmp/staff-engineer-prompt.txt <<'EOF'
+  PROMPT_FILE="${TMPDIR:-/tmp}/staff-engineer-prompt.txt"
+  cat > "$PROMPT_FILE" <<'EOF'
   <multi-line prompt body, no shell escaping needed inside a quoted heredoc>
   EOF
-  ~/.claude/skills/staff-engineer/script.sh "$DOC_PATH" /tmp/staff-engineer-prompt.txt "$EXTRA_DIRS"
+  ~/.claude/skills/staff-engineer/script.sh "$DOC_PATH" "$PROMPT_FILE" "$EXTRA_DIRS"
   ```
   The script detects that arg 2 is an existing file and reads the prompt from it.
+
+  **Always `${TMPDIR:-/tmp}`, never bare `/tmp`.** The Claude Code Bash sandbox
+  mounts `/tmp` read-only, so a bare `/tmp` heredoc fails with
+  `Read-only file system (os error 30)` and the review never runs. This exact
+  mistake, inside the scripts themselves, caused 37% of all review-panel
+  failures from 2026-07-13 to 08-03.
 
 Pass `""` as the third arg when there are no reference paths. The design doc is piped to codex on stdin and appears to the reviewer as a `<stdin>` block — prompts may refer to "the design document provided on stdin."
 
@@ -239,7 +246,7 @@ What would you like to explore further? You can:
 
 ```bash
 ROUND=<N>
-PROMPT_FILE="/tmp/staff-engineer-prompt-r${ROUND}.txt"
+PROMPT_FILE="${TMPDIR:-/tmp}/staff-engineer-prompt-r${ROUND}.txt"
 cat > "$PROMPT_FILE" <<'EOF'
 --- CONVERSATION SO FAR ---
 [STAFF-ENGINEER ROUND 1]:
@@ -290,7 +297,7 @@ Ask the user if they want to append this summary to the design doc's Open Questi
 
 ## What Claude Should NOT Do During This Skill
 
-- **Do not construct a `codex` command directly — always use `~/.claude/skills/staff-engineer/script.sh`.** If a prompt is too long to inline, write it to `/tmp/staff-engineer-prompt*.txt` and pass the file path as arg 2.
+- **Do not construct a `codex` command directly — always use `~/.claude/skills/staff-engineer/script.sh`.** If a prompt is too long to inline, write it to `${TMPDIR:-/tmp}/staff-engineer-prompt*.txt` (never bare `/tmp`, which the sandbox mounts read-only) and pass the file path as arg 2.
 - Do not modify the design doc unless explicitly asked after the consultation
 - Do not resolve open questions on behalf of the Staff Engineer — surface them
 - Do not pretend to be the Staff Engineer — keep Claude and Staff Engineer voices clearly separated

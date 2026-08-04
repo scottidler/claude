@@ -69,24 +69,56 @@ If the caller gave a focused question, append "Focus specifically on: <focus>."
 ## Step 3 — Dispatch both IN PARALLEL and monitor
 
 **ALWAYS call the scripts. NEVER invoke `gemini` or `codex` directly** — the
-scripts enforce model, persona, sandbox, and timeout guarantees; bypassing them
-is the #1 historical failure. Launch both concurrently, cap each at 10 minutes,
-capture output, and `wait`:
+scripts enforce model, persona, sandbox, scratch-dir, retry, and timeout
+guarantees; bypassing them is the #1 historical failure. Launch both
+concurrently, capture output, and `wait`:
 
 ```bash
-timeout 600 ~/.claude/skills/architect/script.sh "$DOC_PATH" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/arch.out" 2>&1 &
+~/.claude/skills/architect/script.sh "$DOC_PATH" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/arch.out" 2>&1 &
 APID=$!
-timeout 600 ~/.claude/skills/staff-engineer/script.sh "$DOC_PATH" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/staff.out" 2>&1 &
+~/.claude/skills/staff-engineer/script.sh "$DOC_PATH" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/staff.out" 2>&1 &
 SPID=$!
 wait $APID; ARCH_RC=$?
 wait $SPID; STAFF_RC=$?
 echo "architect rc=$ARCH_RC ($(wc -c < "$RUN_DIR/arch.out") bytes); staff rc=$STAFF_RC ($(wc -c < "$RUN_DIR/staff.out") bytes)"
 ```
 
-**Report terminal state honestly.** A non-zero rc (124 = timeout), or empty/
-near-empty output, means that reviewer FAILED — say so plainly, show the raw
-tail, and synthesize from whichever reviewer succeeded. Never fabricate a
-reviewer's response, and never claim success you didn't verify.
+**Do NOT wrap the scripts in your own `timeout`.** (Scott, 2026-08-04.) Each
+script already owns a hard per-attempt wall-clock cap and exits 124 on overrun.
+On 2026-08-03 this agent used `timeout 600` while the script's own cap was also
+600s; the outer kill won the tie, the script's EXIT trap never ran, and the panel
+got a 110-byte banner-only file, rc=124, a stale pidfile, and zero diagnostic —
+twice in a row on the same doc. The script must always win. Use the **Bash
+tool's** own `timeout` parameter (1800000, i.e. 30m) as the outer backstop; that
+is harness-level and does not race the script.
+
+**Report terminal state honestly.** A non-zero rc, or empty/near-empty output,
+means that reviewer FAILED — say so plainly, show the raw tail, and synthesize
+from whichever reviewer succeeded. Never fabricate a reviewer's response, and
+never claim success you didn't verify. Decode the rc:
+
+| rc | Meaning | What to do |
+|----|---------|------------|
+| 0 | Review produced | Use it |
+| 1 | Backend failed after the script's own retry | Report; check for the credits signature (Step 3.5) |
+| 2 | Empty prompt | Your bug: rebuild the prompt file |
+| 3 | **Scratch dir not writable** | Sandbox issue, see below |
+| 124 | Hung past the wall clock | Report as failed; do NOT silently re-run |
+
+**rc=3 means the Bash sandbox is blocking the reviewers.** The scripts print the
+exact remedy. This was 37% of ALL panel dispatches from 2026-07-13 to 08-03 (55
+of 149): the scripts wrote scratch files to bare `/tmp`, which the sandbox mounts
+read-only, so both seats died in ~3s with an 82-byte output. The scripts now use
+`$TMPDIR`, and `settings.json` allowlists the reviewer CLIs' own state dirs
+(`~/.codex`, `~/.gemini`) and exempts both scripts via
+`sandbox.excludedCommands`. If you still see rc=3, re-dispatch that one command
+with `dangerouslyDisableSandbox: true` and tell Scott the allowlist has drifted.
+
+**Transient backend failures are already retried for you.** Both scripts retry
+once on a transient signature (gemini's `Invalid stream: The model returned an
+empty response or malformed tool call`, codex's bare `Execution error` / 5xx).
+Do not add a retry loop on top. They deliberately do NOT retry credits/quota/auth
+— that is Step 3.5 — and they never retry a timeout.
 
 ## Step 3.5 — Credits/tokens fallback: substitute an Anthropic model
 
