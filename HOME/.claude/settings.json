@@ -702,7 +702,11 @@
       "Bash(gh variable delete:*)",
       "Bash(gh codespace delete:*)",
       "Bash(gh extension remove:*)",
-      "Bash(gh run cancel:*)"
+      "Bash(gh run cancel:*)",
+      "AskUserQuestion",
+      "ScheduleWakeup",
+      "ReportFindings",
+      "ShareOnboardingGuide"
     ],
     "ask": [],
     "defaultMode": "auto",
@@ -712,8 +716,6 @@
       "/tmp/review-panel"
     ]
   },
-  "model": "sonnet",
-  "outputStyle": "Edges",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
@@ -911,6 +913,7 @@
       }
     }
   },
+  "outputStyle": "Edges",
   "sandbox": {
     "enabled": true,
     "network": {
@@ -943,5 +946,9 @@
   "tui": "fullscreen",
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
-  "skipWorkflowUsageWarning": true
+  "skipWorkflowUsageWarning": true,
+  "disableWorkflows": true,
+  "disableArtifact": true,
+  "disableClaudeAiConnectors": true,
+  "autoMemoryEnabled": false
 }
