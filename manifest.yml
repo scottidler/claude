@@ -4,6 +4,7 @@ link:
   dirs:
     HOME/.claude/skills: $HOME/.claude/skills
     HOME/.claude/agents: $HOME/.claude/agents
+    HOME/.claude/output-styles: $HOME/.claude/output-styles
 
 github:
   mattpocock/skills:

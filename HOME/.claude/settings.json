@@ -712,7 +712,8 @@
       "/tmp/review-panel"
     ]
   },
-  "model": "opus",
+  "model": "fable",
+  "outputStyle": "Edges",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
