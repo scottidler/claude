@@ -712,7 +712,7 @@
       "/tmp/review-panel"
     ]
   },
-  "model": "fable",
+  "model": "sonnet",
   "outputStyle": "Edges",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
