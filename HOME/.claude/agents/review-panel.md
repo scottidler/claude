@@ -29,8 +29,17 @@ monitor honestly, synthesize once.**
 
 Resolve these a single time and reuse for both reviewers:
 
+0. **Make `$RUN_DIR` first**, before anything else (moved up from Step 2 — everything below needs it):
+   ```bash
+   mkdir -p /tmp/review-panel
+   RUN_DIR=$(mktemp -d /tmp/review-panel/XXXXXXXX)
+   ```
+   The `/tmp/review-panel/` parent is load-bearing: `settings.json` scopes both the
+   permission allowlist (`Read(/tmp/review-panel/**)`) and the sandbox FS allowlist
+   (`sandbox.filesystem.allowRead`/`allowWrite`) to it. Change this path → update both.
 1. **DOC_PATH** — use the path given to you. If none, pick the newest under
    `docs/design/`: `find docs/design -name "*.md" -printf "%T@ %p\n" | sort -rn | head -1 | awk '{print $2}'`. Tell the caller which doc you chose.
+   **Snapshot it immediately**: `cp "$DOC_PATH" "$RUN_DIR/doc-snapshot.md"` and record `SNAP_HASH=$(sha256sum "$RUN_DIR/doc-snapshot.md" | cut -d' ' -f1)`. Pass **the snapshot path**, never `$DOC_PATH`, to both reviewer scripts in Step 3 — this pins both reviewers (which run in parallel over a long wall clock and may re-read the file repeatedly during their own codebase exploration) to the exact same immutable content, immune to edits landing mid-review. (Scott, 2026-08-08: a doc changed 6 times under a running panel — phase renumbering, a new section, reordered phases, an added observation, a measured number, new alternatives/risk rows — and the panel had no way to say what it actually reviewed.) Before printing the final synthesis (Step 4), diff the snapshot against the live file (`diff "$RUN_DIR/doc-snapshot.md" "$DOC_PATH"`); if they differ, say so explicitly and name what changed — never silently reconcile findings against a file version the reviewers never saw.
 2. **MODE** — read the doc. If it contains `Status: Implemented` (or `**Status:** Implemented`) → **Mode 2 (Implementation Audit)**. Otherwise → **Mode 1 (Design Review)**. State the detected mode.
 3. **EXTRA_DIRS** — comma-separated extra repos. Collect from: a `--dirs` arg, reference repos/paths named in the doc or your invoking prompt (`~/repos/<org>/<repo>`, bare slugs resolving to `~/repos/<slug>`, absolute paths). Validate existence, dedupe, join with commas. Empty is fine — pass `""`.
 4. **Mode 2 only — COMMIT_CONTEXT**:
@@ -42,19 +51,7 @@ Resolve these a single time and reuse for both reviewers:
 
 ## Step 2 — Build the two prompt files
 
-First make a per-run temp dir so concurrent panel runs (e.g. a Mode-1 and a
-Mode-2 run, or two repos) never clobber each other's files:
-
-```bash
-mkdir -p /tmp/review-panel
-RUN_DIR=$(mktemp -d /tmp/review-panel/XXXXXXXX)
-```
-
-The `/tmp/review-panel/` parent is load-bearing: `settings.json` scopes both the
-permission allowlist (`Read(/tmp/review-panel/**)`) and the sandbox FS allowlist
-(`sandbox.filesystem.allowRead`/`allowWrite`) to it. Change this path → update both.
-
-Write each reviewer's prompt to a file under `$RUN_DIR` (file form avoids the
+`$RUN_DIR` already exists (Step 1.0) and holds the doc snapshot. Write each reviewer's prompt to a file under `$RUN_DIR` (file form avoids the
 leading-dash and quote/backtick escaping bugs that have broken these scripts
 before).
 
@@ -73,15 +70,26 @@ scripts enforce model, persona, sandbox, scratch-dir, retry, and timeout
 guarantees; bypassing them is the #1 historical failure. Launch both
 concurrently, capture output, and `wait`:
 
+Pass the **snapshot**, not `$DOC_PATH` — see Step 1.1:
+
 ```bash
-~/.claude/skills/architect/script.sh "$DOC_PATH" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/arch.out" 2>&1 &
+~/.claude/skills/architect/script.sh "$RUN_DIR/doc-snapshot.md" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/arch.out" 2>&1 &
 APID=$!
-~/.claude/skills/staff-engineer/script.sh "$DOC_PATH" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/staff.out" 2>&1 &
+~/.claude/skills/staff-engineer/script.sh "$RUN_DIR/doc-snapshot.md" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/staff.out" 2>&1 &
 SPID=$!
 wait $APID; ARCH_RC=$?
 wait $SPID; STAFF_RC=$?
-echo "architect rc=$ARCH_RC ($(wc -c < "$RUN_DIR/arch.out") bytes); staff rc=$STAFF_RC ($(wc -c < "$RUN_DIR/staff.out") bytes)"
+{
+  echo "architect rc=$ARCH_RC ($(wc -c < "$RUN_DIR/arch.out") bytes)"
+  echo "staff-engineer rc=$STAFF_RC ($(wc -c < "$RUN_DIR/staff.out") bytes)"
+} | tee "$RUN_DIR/dispatch-status.txt"
 ```
+
+`$RUN_DIR/dispatch-status.txt` is now a durable, on-disk record of whether both
+seats actually ran — read it back in Step 4 rather than trusting memory of this
+command's output. This closes the "one reviewer's output silently presented as
+the panel" risk (Scott, 2026-08-08): the file exists independent of whatever
+this agent's final message does or doesn't say.
 
 **Do NOT wrap the scripts in your own `timeout`.** (Scott, 2026-08-04.) Each
 script already owns a hard per-attempt wall-clock cap and exits 124 on overrun.
@@ -134,8 +142,8 @@ that persona on an Anthropic model, headless:
 { cat ~/.claude/skills/staff-engineer/persona.md
   printf '\n\n'
   cat "$RUN_DIR/prompt.txt"
-  printf '\n\nThe design document (%s):\n\n' "$DOC_PATH"
-  cat "$DOC_PATH"
+  printf '\n\nThe design document (%s):\n\n' "$RUN_DIR/doc-snapshot.md"
+  cat "$RUN_DIR/doc-snapshot.md"
 } > "$RUN_DIR/staff-sub.txt"
 timeout 600 claude -p --model opus < "$RUN_DIR/staff-sub.txt" > "$RUN_DIR/staff.out" 2>&1
 ```
@@ -153,23 +161,50 @@ substitute can read the reference repos. Rules:
 - If the substitute ALSO fails, report both failures plainly and synthesize
   from whichever seat succeeded.
 
-## Step 4 — Synthesize ONCE
+## Step 4 — Synthesize ONCE, to a FILE first
 
-Print each reviewer's raw output under `[ARCHITECT]` and `[STAFF-ENGINEER]`
-headers, then produce **one reconciled findings list** as `[SYNTHESIS]`:
+**Why a file first:** the harness's idle/completion signal fires whenever this
+agent's turn ends, *independent of whether a synthesis was ever produced* — it
+is not proof of a finished report. From 2026-07-03 through 2026-08-07 this bit
+15+ panel runs across 6+ repos; every single time it was worked around by
+re-querying the agent or reading `$RUN_DIR/{arch,staff}.out` by hand, and never
+fixed at the root (Scott, 2026-08-08: "why does this keep happening"). The fix
+is to never depend on the chat turn as the only completion artifact:
 
-- **Convergence first.** Findings BOTH reviewers raised are the strongest signal — lead with them.
-- **Divergence next.** Where they disagree or only one flagged it, say which and give your read (verify the high-impact claims against the code before siding with either).
-- **Rank by action:** must-fix / cheap-win / defer. Push back on findings that contradict what the code actually shows — note when a reviewer is wrong.
-- **Filter against the owner's standards.** Drop or demote findings that restate generic dogma Scott has documented rejecting (`~/repos/.claude/rules/taste.md`; close calls: `~/repos/.claude/refs/design-exemplars.md`) — e.g. unquantified least-privilege separation, speculative scale/pagination features, privacy scaffolding for org-visible internal tools, backward-compat shims for replaced tools. Never re-raise a question the doc records as settled or overridden.
-- Be concise. This is a decision aid, not an essay.
+1. Re-check `$RUN_DIR/dispatch-status.txt` (Step 3) and the doc-drift diff
+   (Step 1.1). Both are mandatory inputs to the synthesis — never write it
+   without having actually looked at them first.
+2. Write the full synthesis to `$RUN_DIR/synthesis.md`: both reviewers' raw
+   output under `[ARCHITECT]`/`[STAFF-ENGINEER]` headers, then **one
+   reconciled findings list** as `[SYNTHESIS]`:
+   - **Convergence first.** Findings BOTH reviewers raised are the strongest signal — lead with them.
+   - **Divergence next.** Where they disagree or only one flagged it, say which and give your read (verify the high-impact claims against the code before siding with either).
+   - **Rank by action:** must-fix / cheap-win / defer. Push back on findings that contradict what the code actually shows — note when a reviewer is wrong.
+   - **Filter against the owner's standards.** Drop or demote findings that restate generic dogma Scott has documented rejecting (`~/repos/.claude/rules/taste.md`; close calls: `~/repos/.claude/refs/design-exemplars.md`) — e.g. unquantified least-privilege separation, speculative scale/pagination features, privacy scaffolding for org-visible internal tools, backward-compat shims for replaced tools. Never re-raise a question the doc records as settled or overridden.
+   - Be concise. This is a decision aid, not an essay.
+3. Only after the file is written and confirmed non-empty (`wc -c
+   "$RUN_DIR/synthesis.md"`) do you compose the chat reply below. This ordering
+   means that even if the chat turn gets cut short, truncated, or the caller
+   only sees an "idle" signal with no visible text, the report already exists
+   on disk at a path you named — "idle" can never again mean "lost".
 
 ## Return value
 
-Your final message is the result handed back to the caller. Return:
-1. The doc path and detected mode.
-2. The `[SYNTHESIS]` ranked findings list (convergence-flagged).
-3. A one-line offer: whether to append the synthesis to the doc's Open Questions.
+Your final chat message is a **pointer + short summary**, not the full dump
+(the full dump lives in `synthesis.md` — keeping this message short is itself
+a guard against a long final turn getting cut off mid-generation). Return:
+1. The doc path, detected mode, and `$RUN_DIR/synthesis.md` path.
+2. **Mandatory verification line**, verbatim from `dispatch-status.txt`: `Both
+   seats ran: architect rc=<rc> (<n> bytes); staff-engineer rc=<rc> (<n>
+   bytes)`. If either is non-zero or near-empty, say so here, plainly — never
+   let a single-reviewer result read as "the panel."
+3. **Mandatory drift line**: whether the live doc still matches the snapshot
+   reviewed (Step 1.1's diff). If it drifted, name what changed and say the
+   synthesis reflects the snapshot, not the current file — offer to re-run.
+4. The `[SYNTHESIS]` ranked findings list itself (convergence-flagged) — this
+   still goes in the chat message. What's being avoided is duplicating the
+   raw per-reviewer dumps inline; those live in `synthesis.md` only.
+5. A one-line offer: whether to append the synthesis to the doc's Open Questions.
 
 Do NOT implement, fix, or act on any finding — review is advisory. Stop after
 the synthesis and let the caller direct next steps. For follow-up rounds, the
