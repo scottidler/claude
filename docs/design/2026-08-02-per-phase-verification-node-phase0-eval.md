@@ -4,7 +4,8 @@
 **Design doc:** `docs/design/2026-08-02-per-phase-verification-node.md`
 **Status:** COMPLETE. n=6 met, all three stated conditions met, and the result
 still does not support building the design as specified.
-**Recommendation:** do not build Phases 1-4. Reshape the design first.
+**Recommendation:** do not build Phases 1-4.
+**Outcome:** the design doc was marked SUPERSEDED 2026-08-11 (Scott's call). The reshape recorded here was judged sunk cost by the round-2 panel and the author agreed.
 
 ## The kill condition, quoted from the doc
 

@@ -2,15 +2,71 @@
 
 **Author:** Claude (Opus 5), directed by Scott Idler
 **Date:** 2026-08-02
-**Status:** Draft, RESHAPED after Phase 0. The one-Opus-per-phase hard gate in the original design is dead; see "Phase 0 result and the reshape" below.
+**Status:** SUPERSEDED (2026-08-11, Scott's call). Do not build any phase of this doc.
 **Review Passes Completed:** 5/5 (draft, correctness, clarity, edge cases, excellence)
-**Review Panel:** Round 1 complete 2026-08-08 (14 findings dispositioned). Round 2 complete 2026-08-10 on the Phase 0 result: both seats independently called RESHAPE.
+**Review Panel:** Round 1 complete 2026-08-08 (14 findings dispositioned). Round 2 complete 2026-08-10 on the Phase 0 result. Round 2 ran TWICE and the seats disagreed across runs: the panel agent's own run (`/tmp/review-panel/MIujmgWy`) returned Architect=KILL, Staff=RESHAPE, panel=RESHAPE(narrow); a hand-dispatched rerun (`XLcfVHit`) returned RESHAPE from both. The author only received the second, because of the message-delivery bug since fixed in `review-panel.md`. The KILL verdict is the one that turned out to be right.
 **Phase 0:** RUN. Result: `docs/design/2026-08-02-per-phase-verification-node-phase0-eval.md`. Raw artifacts: `...-phase0-artifacts/`.
 
-## Phase 0 result and the reshape
+## Why this doc is Superseded
 
-Phase 0 was the kill gate. It ran, and it did not kill the doc, it changed what
-the doc is for.
+Phase 0 was the kill gate. It ran, and it falsified the premise this doc rests
+on: that a per-phase blind verifier catches semantic and security defects well
+enough to hard-gate the next phase.
+
+**The premise failed.** 33% recall overall, 50% on in-diff defects, 0% on
+out-of-diff defects. On GT5 the verifier was explicitly prompted for sibling-path
+inconsistencies, produced a five-item section of them, and missed that
+`encrypt_named` validates a secret name while the deploy lane created by the very
+phase under review does not.
+
+**The author's first response was to reshape rather than stop.** The reshape
+(R1-R5, kept below) removes the agent from the gate path, moves the mechanical
+invariants to hooks, and demotes the verifier to advisory. The round-2 Architect
+called that sunk cost, in a synthesis that did not reach the author because of a
+message-delivery bug (fixed in `review-panel.md`, commit
+`fix(review-panel): stop inlining the findings list`):
+
+> "The author's recommendation to 'Reshape' is a refusal to accept his own null
+> result... He wants the panel to kill it so he doesn't have to throw away his
+> own design work."
+
+On reading it, the author agreed and Scott made the call. What survives R1-R5 is
+`criteria.sh` plus a couple of git hooks. That is not a per-phase verification
+node in a new shape; it is a different mechanism keeping this doc's name.
+Renaming a dead design to preserve its scaffolding is the failure mode
+`rules/taste.md` calls out under "a fix that abandons the feature's value is not
+a fix."
+
+**What should carry forward, in a new doc that does not exist yet:**
+
+- Executable per-phase criteria: the closed `expected` comparator schema
+  (condition B) and the verbatim-substring rule (condition A), run by a script,
+  with the pairs emitted by `phase-implementer` rather than extracted by a
+  second agent.
+- Phasing hooks: no version bump inside a phase commit, no implementation notes
+  inside a verifier diff, doc-criteria mutation detected between phase start and
+  phase verify.
+- A read-only allowlist for anything that executes a command transcribed from a
+  doc. The convention-only argument died when its own author broke the analogous
+  `rules/safety.md` convention three times during Phase 0.
+
+**What is settled and should not be relitigated:**
+
+- A per-phase node is structurally blind to out-of-diff defects, and
+  `rules/taste.md`'s most-skipped items (cross-module wiring, config loading,
+  registration) are inherently out-of-diff. The Mode 2 whole-doc audit is the
+  only completeness gate.
+- A verifier that can see the builder's implementation notes adopts the builder's
+  framing and stops looking. Measured, A/B, one variable. Any future verifier
+  excludes the notes from the tree AND from the diff.
+- "Verifier recall > self-report recall" is not a usable gate. The baseline is
+  structurally zero. Any future criterion needs an absolute floor.
+
+Everything below this section is the pre-supersede record: the original design,
+the round-1 panel dispositions, and the R1-R5 reshape. Kept whole, per "capture
+the road not taken." None of it is a build plan.
+
+## The reshape, as recorded before supersede
 
 Measured: verifier recall 33% overall, 50% on in-diff defects, 0% on out-of-diff
 defects, false positives 0. Self-report recall 0%. All three stated kill
