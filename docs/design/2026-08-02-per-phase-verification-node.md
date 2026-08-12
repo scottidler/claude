@@ -2,9 +2,81 @@
 
 **Author:** Claude (Opus 5), directed by Scott Idler
 **Date:** 2026-08-02
-**Status:** Draft
+**Status:** Draft, RESHAPED after Phase 0. The one-Opus-per-phase hard gate in the original design is dead; see "Phase 0 result and the reshape" below.
 **Review Passes Completed:** 5/5 (draft, correctness, clarity, edge cases, excellence)
-**Review Panel:** Round 1 complete 2026-08-08. Architect (Gemini) rc=0, Staff Engineer (Codex) rc=0. All 14 findings dispositioned: 13 folded in, 1 pushed back and closed by consensus. Open Questions empty.
+**Review Panel:** Round 1 complete 2026-08-08 (14 findings dispositioned). Round 2 complete 2026-08-10 on the Phase 0 result: both seats independently called RESHAPE.
+**Phase 0:** RUN. Result: `docs/design/2026-08-02-per-phase-verification-node-phase0-eval.md`. Raw artifacts: `...-phase0-artifacts/`.
+
+## Phase 0 result and the reshape
+
+Phase 0 was the kill gate. It ran, and it did not kill the doc, it changed what
+the doc is for.
+
+Measured: verifier recall 33% overall, 50% on in-diff defects, 0% on out-of-diff
+defects, false positives 0. Self-report recall 0%. All three stated kill
+conditions passed and the result still does not support the original design.
+
+**What died.** The one-Opus-per-phase hard gate over semantic and security
+defects. On GT5 the verifier was explicitly prompted for sibling-path
+inconsistencies, produced a five-item section of them, and missed that
+`encrypt_named` validates a name while the deploy lane introduced by the very
+phase under review does not. Both reviewers called that disqualifying. Architect:
+"proves that LLMs cannot perform reliable control-flow analysis" for this class.
+
+**What survived.** Deterministic execution of criteria, the extraction seam
+(conditions A/B/C), the no-notes rule (now measured, not just argued), and a
+narrower advisory role for model judgment.
+
+**The reshaped design, in one line:** code owns the gate, the model advises.
+
+| layer | actor | authority |
+|---|---|---|
+| criteria execution | `criteria.sh` | **gate**: blocks the next phase |
+| mechanical invariants | hooks | **gate**: hard-deny at the tool call |
+| deviation judgment | agent | **advisory only**, feeds the Mode 2 audit |
+| whole-doc completeness | Mode 2 `review-panel` | **gate**, and now a stated dependency |
+
+Four changes follow, each superseding a decision above.
+
+**R1. No `phase-verifier` agent in the gate path.** `phase-implementer` emits the
+closed-schema `(command, expected)` pairs as structured YAML in its existing step
+4b report. The orchestrator runs `criteria.sh` directly. Conditions A, B, and C
+still hold, and A is still enforced in code by exit 5. This is Architect's
+strongest point: once `expected` is a closed schema and `command` must be a
+verbatim doc substring, extraction is a mechanical structuring task, not a
+judgment call, so it does not need its own model. Supersedes Phase 2 as written.
+
+**R2. Mechanical invariants become hooks, not agent findings.** The two genuine
+defects the verifier found that ground truth missed were both mechanical: a
+version bump inside a phase commit, and an `Err(_)` catch-all masking EACCES.
+A phase-commit-does-not-bump check is a git hook. Spawning Opus 277 times per 30
+days to notice it is the exact "over-leveraging on agents" the funnel exists to
+avoid.
+
+**R3. The semantic verifier is advisory until it earns a gate.** It runs, its
+findings feed the Mode 2 audit, and it blocks nothing. It becomes a gate only
+after clearing an absolute recall floor of **>= 75% on in-diff defects** with
+false positives at or below 1 in 3. Architect proposed 75%, Staff proposed 80%;
+75% is the owner's call as the lower of the two, and the current 50% is nowhere
+near either. Supersedes the "gate phase N+1 on verdict: pass" rule.
+
+**R4. Mode 2 is a dependency, not a non-goal.** Out-of-diff recall is 0% and
+structurally cannot improve, because a per-phase node sees only the phase. The
+decisive argument is Architect's: `rules/taste.md` names cross-module wiring,
+config loading, and registration as the most-skipped items, and those are
+inherently out-of-diff. The node is blind to the failure class the owner cares
+most about. Mode 2 owns cross-phase, out-of-diff, wiring, and completeness.
+Supersedes the Non-Goals entry that listed the audit as merely out of scope.
+
+**R5. The read-only allowlist comes back.** Round 1 cut the destructive denylist
+on the argument that criteria are read-only by convention. Staff's round-2
+rebuttal is empirical and lands: the design accepts that a destructive criterion
+in a doc gets executed, Phase 1 proposed verifying with a command that creates a
+file, and the author used `rm` three times during the eval in violation of the
+directly analogous `rules/safety.md` convention. A convention that its own author
+broke three times in one session is not a control surface. `criteria.sh` runs a
+read-only allowlist. Supersedes the round-1 denylist cut, which was decided
+before there was evidence about the convention.
 
 ## Summary
 
@@ -67,8 +139,10 @@ changes that.
 ### Non-Goals
 
 - Replacing `otto ci`. It stays the per-phase compile/test gate.
-- Replacing the Mode 2 implementation audit. Whole-doc, cross-model, still runs
-  at the end.
+- Replacing the Mode 2 implementation audit. **SUPERSEDED by R4:** the audit is
+  not merely out of scope, it is a stated dependency. Out-of-diff recall measured
+  0% and cannot improve, and the most-skipped items (cross-module wiring, config
+  loading, registration) are inherently out-of-diff.
 - Cross-model verification per phase. Parked: cross-model independence stays at
   the doc boundary where it is affordable. Revisit if the in-harness verifier
   measures as a rubber stamp in Phase 4.
@@ -475,7 +549,12 @@ The script no longer parses prose.
 - Exit 4 when a criterion cannot run here, distinct from exit 1 (failed)
 - Exit 3 on no `Success criteria` block found, never exit 2
 - Echo every command before running it; write `phase<N>.criteria.out`
-- **Destructive denylist: CUT.** Round-1 panel, convergent. Staff Engineer
+- **Destructive denylist: CUT, then REINSTATED as an allowlist by R5.** The
+  round-1 cut rested on "criteria are read-only by convention." The author then
+  broke the directly analogous `rules/safety.md` convention three times during
+  Phase 0. Ship the read-only allowlist. Round-1 reasoning below, kept because it
+  is still correct that a partial DENYlist is worse than none.
+- OLD (round 1): Round-1 panel, convergent. Staff Engineer
   enumerated what a partial list misses (`sed -i`, `tee`, `git clean`,
   `cargo install`, `systemctl`, redirection variants); the Architect noted the
   doc itself called the denylist a backstop rather than the control. A half-guard
@@ -497,6 +576,11 @@ The script no longer parses prose.
 
 #### Phase 2: `phase-verifier` agent
 **Model:** opus
+**SUPERSEDED by R1 and R3.** Do not build as written. There is no verifier agent
+in the gate path: `phase-implementer` emits the pairs, `criteria.sh` runs them.
+A semantic verifier may exist as ADVISORY input to the Mode 2 audit, gating
+nothing, until it clears 75% in-diff recall. The text below describes the
+pre-Phase-0 design and is kept for the record.
 - `HOME/.claude/agents/phase-verifier.md`, `model: opus`, tools Read/Grep/Glob/Bash
 - Inputs DOC_PATH, PHASE, COMMIT. Reads `git show <COMMIT>` and the phase spec.
   Does NOT read the implementation notes or the builder report
@@ -532,8 +616,11 @@ The script no longer parses prose.
 - `phase-implementer.md`: step 4b keeps reporting criteria, but the report is
   now advisory input to reconciliation, not the gate. Say so in the file
 - Verifier death, timeout, or empty return hard-stops. No fall-through
-- Finalization hands the collected `*-phase*-verdict.yml` files to the Mode 2
-  audit as input, so the panel starts from what each edge already found
+- Finalization hands the collected
+  `docs/design/<doc-basename>-verdicts/phase*.yml` files to the Mode 2 audit as
+  input, so the panel starts from what each edge already found. (Round-2 fix: this
+  bullet still said `*-phase*-verdict.yml`, the pre-rename name, which no longer
+  matches the Data Model. Caught by Staff Engineer.)
 - **Success criteria:** `rg -c 'phase-verifier' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md`
   returns >= 1; the skill's phase loop names the hard stop and the verifier-death
   stop; a phase whose verdict file is missing does not advance
