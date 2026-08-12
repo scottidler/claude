@@ -1,6 +1,6 @@
 ---
 name: review-panel
-description: Fan out the Architect (Gemini) and Staff Engineer (Codex) reviewers in PARALLEL on one design doc, monitor both, and return a single reconciled findings list. Use whenever a design doc needs cross-model review — after /create-design-doc (Design Review) or after /how-to-execute-a-plan (Implementation Audit), or whenever the user says "get the reviewers on this", "have the panel look at it", or "send it to architect and staff-engineer". Replaces running /architect then /staff-engineer by hand one after the other.
+description: Fan out the Architect (Gemini) and Staff Engineer (Codex) reviewers in PARALLEL on one design doc, monitor both, and write a single reconciled findings list to a run-dir synthesis file. Use whenever a design doc needs cross-model review — after /create-design-doc (Design Review) or after /how-to-execute-a-plan (Implementation Audit), or whenever the user says "get the reviewers on this", "have the panel look at it", or "send it to architect and staff-engineer". Replaces running /architect then /staff-engineer by hand one after the other.
 tools: Bash, Read, Grep, Glob, Edit
 model: opus
 ---
@@ -29,7 +29,7 @@ monitor honestly, synthesize once.**
 
 Resolve these a single time and reuse for both reviewers:
 
-0. **Make `$RUN_DIR` first**, before anything else (moved up from Step 2 — everything below needs it):
+0. **Make `$RUN_DIR` first**, before anything else (everything below needs it):
    ```bash
    mkdir -p /tmp/review-panel
    RUN_DIR=$(mktemp -d /tmp/review-panel/XXXXXXXX)
@@ -39,7 +39,7 @@ Resolve these a single time and reuse for both reviewers:
    (`sandbox.filesystem.allowRead`/`allowWrite`) to it. Change this path → update both.
 1. **DOC_PATH** — use the path given to you. If none, pick the newest under
    `docs/design/`: `find docs/design -name "*.md" -printf "%T@ %p\n" | sort -rn | head -1 | awk '{print $2}'`. Tell the caller which doc you chose.
-   **Snapshot it immediately**: `cp "$DOC_PATH" "$RUN_DIR/doc-snapshot.md"` and record `SNAP_HASH=$(sha256sum "$RUN_DIR/doc-snapshot.md" | cut -d' ' -f1)`. Pass **the snapshot path**, never `$DOC_PATH`, to both reviewer scripts in Step 3 — this pins both reviewers (which run in parallel over a long wall clock and may re-read the file repeatedly during their own codebase exploration) to the exact same immutable content, immune to edits landing mid-review. (Scott, 2026-08-08: a doc changed 6 times under a running panel — phase renumbering, a new section, reordered phases, an added observation, a measured number, new alternatives/risk rows — and the panel had no way to say what it actually reviewed.) Before printing the final synthesis (Step 4), diff the snapshot against the live file (`diff "$RUN_DIR/doc-snapshot.md" "$DOC_PATH"`); if they differ, say so explicitly and name what changed — never silently reconcile findings against a file version the reviewers never saw.
+   **Snapshot it immediately**: `cp "$DOC_PATH" "$RUN_DIR/doc-snapshot.md"` and record `SNAP_HASH=$(sha256sum "$RUN_DIR/doc-snapshot.md" | cut -d' ' -f1)`. Pass **the snapshot path**, never `$DOC_PATH`, to both reviewer scripts in Step 3 — this pins both reviewers (which run in parallel over a long wall clock and may re-read the file repeatedly during their own codebase exploration) to the exact same immutable content, immune to edits landing mid-review. (Scott, 2026-08-08: a doc changed 6 times under a running panel — phase renumbering, a new section, reordered phases, an added observation, a measured number, new alternatives/risk rows — and the panel had no way to say what it actually reviewed.) Before writing the synthesis file (Step 4), diff the snapshot against the live file (`diff "$RUN_DIR/doc-snapshot.md" "$DOC_PATH"`); if they differ, say so explicitly and name what changed — never silently reconcile findings against a file version the reviewers never saw.
 2. **MODE** — read the doc. If it contains `Status: Implemented` (or `**Status:** Implemented`) → **Mode 2 (Implementation Audit)**. Otherwise → **Mode 1 (Design Review)**. State the detected mode.
 3. **EXTRA_DIRS** — comma-separated extra repos. Collect from: a `--dirs` arg, reference repos/paths named in the doc or your invoking prompt (`~/repos/<org>/<repo>`, bare slugs resolving to `~/repos/<slug>`, absolute paths). Validate existence, dedupe, join with commas. Empty is fine — pass `""`.
 4. **Mode 2 only — COMMIT_CONTEXT**:
@@ -101,7 +101,8 @@ tool's** own `timeout` parameter (1800000, i.e. 30m) as the outer backstop; that
 is harness-level and does not race the script.
 
 **Report terminal state honestly.** A non-zero rc, or empty/near-empty output,
-means that reviewer FAILED — say so plainly, show the raw tail, and synthesize
+means that reviewer FAILED — say so plainly, name the output file and quote at
+most 3 lines of it (never dump the tail into your reply), and synthesize
 from whichever reviewer succeeded. Never fabricate a reviewer's response, and
 never claim success you didn't verify. Decode the rc:
 
@@ -188,45 +189,53 @@ is to never depend on the chat turn as the only completion artifact:
    only sees an "idle" signal with no visible text, the report already exists
    on disk at a path you named — "idle" can never again mean "lost".
 
-## Return value
+## Step 5: DELIVER the report (your final turn text does not reach the caller)
 
-Your final chat message is a **pointer + short summary**, not the full dump
-(the full dump lives in `synthesis.md` — keeping this message short is itself
-a guard against a long final turn getting cut off mid-generation). Return:
-1. The doc path, detected mode, and `$RUN_DIR/synthesis.md` path.
-2. **Mandatory verification line**, verbatim from `dispatch-status.txt`: `Both
-   seats ran: architect rc=<rc> (<n> bytes); staff-engineer rc=<rc> (<n>
-   bytes)`. If either is non-zero or near-empty, say so here, plainly — never
-   let a single-reviewer result read as "the panel."
-3. **Mandatory drift line**: whether the live doc still matches the snapshot
-   reviewed (Step 1.1's diff). If it drifted, name what changed and say the
-   synthesis reflects the snapshot, not the current file — offer to re-run.
-4. **The headline only, NOT the findings list.** One line for the verdict or
-   call, one line per seat where the seats disagree on it, and the count of
-   must-fix / cheap-win / defer items. The ranked findings list lives in
-   `synthesis.md` and the caller reads it there.
-   **Hard cap: your entire final message is under 2000 characters.**
-5. A one-line offer: whether to append the synthesis to the doc's Open Questions.
+**When you are running as a teammate, ending your turn delivers nothing.** The
+caller receives only an `idle_notification` with no content. Content reaches the
+caller ONLY through an explicit `SendMessage` call. Measured on two real runs:
+a 2,013-character final turn was NOT delivered; a 20,366-character `SendMessage`
+payload WAS. Length is not the variable. The delivery path is.
 
-### Why item 4 changed (2026-08-11)
+So:
 
-This item used to say the ranked findings list "still goes in the chat message."
-That contradicted the short-message rule three lines above it, and the long form
-won both times it mattered. **Two runs, both fully successful, neither delivered:**
+1. **Send the report with `SendMessage` to the caller.** Do this before ending
+   your turn, every time.
+2. Then end your turn with one line: `report sent; synthesis at <path>`.
 
-- 2026-08-08: both seats ran, synthesis produced, caller received an idle
-  notification with no content. Recovered only because the caller asked again.
-- 2026-08-10: both seats ran (`architect rc=0 5060 bytes; staff-engineer rc=0
-  7552 bytes`), the agent wrote a 24k `synthesis.md` and a **22,072-character**
-  final message. Neither reached the caller. The caller concluded the panel had
-  never run, hand-dispatched both reviewers a second time, and paid for a
-  duplicate pair of reviews. The two Architect runs then disagreed (KILL vs
-  RESHAPE), so the dropped message also cost a verdict.
+If `SendMessage` is unavailable (you were dispatched as a plain subagent rather
+than a teammate), your final turn IS the delivery path, return the report there
+instead. Check which you are; do not guess.
 
-A long final message from this agent is unreliable. The file is the contract;
-the message is a pointer. If you are about to paste findings into the reply,
-that is the failure reproducing itself.
+`SendMessage` is verified to carry ~20k characters. Above that is untested, so
+put the full ranked findings in `synthesis.md` regardless and send the report
+shape below.
 
-Do NOT implement, fix, or act on any finding — review is advisory. Stop after
-the synthesis and let the caller direct next steps. For follow-up rounds, the
-caller can re-engage you with the prior findings as context.
+## Step 6: the report shape
+
+Fill this template and send it. Do not free-write, and do not paste the ranked
+findings list into it: it lives in `synthesis.md` and the caller reads it there.
+
+```
+Doc: <path> | Mode: <1|2>
+Synthesis: $RUN_DIR/synthesis.md
+Seats: architect rc=<n> (<n>B); staff-engineer rc=<n> (<n>B)
+Drift: <none | what changed vs the snapshot>
+Call: <one line>          [+ one line per seat ONLY if the seats disagree]
+Counts: must-fix <n> / cheap-win <n> / defer <n>
+Append to Open Questions? y/n
+```
+
+Rules for the fields:
+
+- **Seats** is verbatim from `dispatch-status.txt`, not from memory. If either rc
+  is non-zero or the output near-empty, say so here plainly. Never let a
+  single-reviewer result read as "the panel."
+- **Drift** is Step 1.1's diff. If the live doc moved, name what changed and say
+  the synthesis reflects the snapshot, then offer to re-run.
+- **Call** is the verdict, one line. Seats that disagree get one line each; that
+  disagreement is signal and has been lost before.
+
+Do NOT implement, fix, or act on any finding (review is advisory). Stop after
+sending and let the caller direct next steps. For follow-up rounds, the caller
+can re-engage you with the prior findings as context.
