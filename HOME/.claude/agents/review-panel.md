@@ -201,10 +201,31 @@ a guard against a long final turn getting cut off mid-generation). Return:
 3. **Mandatory drift line**: whether the live doc still matches the snapshot
    reviewed (Step 1.1's diff). If it drifted, name what changed and say the
    synthesis reflects the snapshot, not the current file — offer to re-run.
-4. The `[SYNTHESIS]` ranked findings list itself (convergence-flagged) — this
-   still goes in the chat message. What's being avoided is duplicating the
-   raw per-reviewer dumps inline; those live in `synthesis.md` only.
+4. **The headline only, NOT the findings list.** One line for the verdict or
+   call, one line per seat where the seats disagree on it, and the count of
+   must-fix / cheap-win / defer items. The ranked findings list lives in
+   `synthesis.md` and the caller reads it there.
+   **Hard cap: your entire final message is under 2000 characters.**
 5. A one-line offer: whether to append the synthesis to the doc's Open Questions.
+
+### Why item 4 changed (2026-08-11)
+
+This item used to say the ranked findings list "still goes in the chat message."
+That contradicted the short-message rule three lines above it, and the long form
+won both times it mattered. **Two runs, both fully successful, neither delivered:**
+
+- 2026-08-08: both seats ran, synthesis produced, caller received an idle
+  notification with no content. Recovered only because the caller asked again.
+- 2026-08-10: both seats ran (`architect rc=0 5060 bytes; staff-engineer rc=0
+  7552 bytes`), the agent wrote a 24k `synthesis.md` and a **22,072-character**
+  final message. Neither reached the caller. The caller concluded the panel had
+  never run, hand-dispatched both reviewers a second time, and paid for a
+  duplicate pair of reviews. The two Architect runs then disagreed (KILL vs
+  RESHAPE), so the dropped message also cost a verdict.
+
+A long final message from this agent is unreliable. The file is the contract;
+the message is a pointer. If you are about to paste findings into the reply,
+that is the failure reproducing itself.
 
 Do NOT implement, fix, or act on any finding — review is advisory. Stop after
 the synthesis and let the caller direct next steps. For follow-up rounds, the
