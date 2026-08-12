@@ -1,0 +1,7 @@
+GT1: SystemA=PARTIAL SystemB=MISS
+GT2: SystemA=HIT SystemB=MISS
+GT3: SystemA=MISS SystemB=MISS
+GT4: SystemA=PARTIAL SystemB=MISS
+RECALL: SystemA=2/4 SystemB=0/4
+FALSE_POSITIVES_SYSTEM_A: 0
+ONE_LINE_VERDICT: System A decisively outperformed System B by identifying the 401 error routing defect and partially identifying two others, whereas System B missed all of them.

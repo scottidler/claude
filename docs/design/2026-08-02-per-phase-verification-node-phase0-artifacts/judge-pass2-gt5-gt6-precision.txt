@@ -1,0 +1,5 @@
+GT5: SystemA=MISS SystemB=MISS
+GT6: SystemA=MISS SystemB=MISS
+PRECISION_CLEAN_CASE: no (it reported 5 deviations but correctly labeled all of them "Acceptable", raising zero false alarms)
+SYSTEM_A_FINDINGS_NOT_IN_GROUND_TRUTH: Unjustified version bump in a phase commit (scope violation); `symlink_metadata` error catch-all masking EACCES as a missing directory.
+ONE_LINE_VERDICT: System A completely failed to detect either of the actual ground truth vulnerabilities/bugs, focusing entirely on process and cosmetic issues.
