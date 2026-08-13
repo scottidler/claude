@@ -716,10 +716,12 @@
       "/tmp/review-panel"
     ]
   },
+  "model": "fable",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
   ],
+  "disableClaudeAiConnectors": true,
   "skillOverrides": {
     "platform:pod-placement-audit": "off",
     "install-skills": "off",
@@ -883,13 +885,15 @@
       }
     ]
   },
+  "disableWorkflows": true,
+  "disableArtifact": true,
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": false,
-    "general@tatari-skills": true,
+    "general@tatari-skills": false,
     "marquee@tatari-skills": true,
     "platform@tatari-skills": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
@@ -897,7 +901,8 @@
     "skill-creator@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": false,
     "understand-anything@understand-anything": true,
-    "slack@tatari-skills": true
+    "slack@tatari-skills": true,
+    "spec@tatari-skills": true
   },
   "extraKnownMarketplaces": {
     "tatari-skills": {
@@ -944,11 +949,8 @@
   },
   "effortLevel": "high",
   "tui": "fullscreen",
+  "autoMemoryEnabled": false,
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
-  "skipWorkflowUsageWarning": true,
-  "disableWorkflows": true,
-  "disableArtifact": true,
-  "disableClaudeAiConnectors": true,
-  "autoMemoryEnabled": false
+  "skipWorkflowUsageWarning": true
 }
