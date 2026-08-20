@@ -51,6 +51,26 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
    silently drop or defer a finding. **The doc is ready to build only when
    every finding is dispositioned and Open Questions is empty** — Scott never
    builds with open questions or disputes.
+
+   **Never block on the panel's message. Poll its run dir.** The panel can
+   finish both seats and exit without reporting; then the results sit in
+   `/tmp/review-panel/<id>/` while you wait on an idle notification and Scott
+   has to prompt you to go look. That happened on 2026-08-13 and cost 11 minutes
+   of dead air. After dispatching, poll:
+   ```bash
+   D=$(ls -dt /tmp/review-panel/*/ | head -1)
+   ls -t "$D" | head; cat "$D"/dispatch-status*.txt 2>/dev/null
+   ```
+   If `dispatch-status-r<n>.txt` shows both seats `rc=0` and no report has
+   arrived, **read `arch-r<n>.out` and `staff-r<n>.out` yourself and synthesize
+   them.** The reviewers' output is the deliverable; the agent's message is only
+   a transport. Verify every finding against the code before folding it in, the
+   same as if it had been delivered normally.
+
+   Trust the findings, not the verdicts. Across four rounds on 2026-08-13 the
+   seats produced real defects every round (3, 1, 5, 3 must-fix) while also
+   returning a wrong "APPROVED", a wrong "no 8th key", and a wrong "no 9th key".
+   Run the command behind any negative or absolute before repeating it.
 6. **Execute the acceptance criteria**: the ready-to-build gate below. Type
    every criterion's **literal command** into a shell against current `main`
    and record what it returned, in the doc, next to the criterion.
