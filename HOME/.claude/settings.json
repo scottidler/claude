@@ -716,7 +716,7 @@
       "/tmp/review-panel"
     ]
   },
-  "model": "fable",
+  "model": "opus",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
