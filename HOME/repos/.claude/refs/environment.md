@@ -9,6 +9,12 @@
 
 - Location: `~/repos/scottidler/obsidian/`
 
+## Screenshots
+
+- GNOME screenshot tool saves to `~/Pictures/Screenshots/` (capital S on both, plural)
+- Filenames: `Screenshot From YYYY-MM-DD HH-MM-SS.png` (note the literal "From" and space-hyphen time format)
+- Do not guess `~/Pictures/screenshots` (lowercase) or assume `find -newermt` will surface them — verify with `ls -la` on the exact path directly, since piped `find`/`ls -lt` output has silently come back empty here before
+
 ## Repo Convention
 
 - All cloned repos live under `~/repos/` using the full slug: `~/repos/<org|user>/<reponame>`
