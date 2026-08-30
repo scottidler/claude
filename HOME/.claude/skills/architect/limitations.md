@@ -2,10 +2,13 @@
 
 The Architect persona runs on the Gemini CLI. It is a useful skeptical reviewer
 for *reasoning* about a design, but its ability to *verify claims against the
-code* is unreliable because of sandboxing and missing tools. Treat its
-file-search-based conclusions as suspect and confirm them yourself.
+code* was historically unreliable because of sandboxing and missing tools. As of
+2026-08-30 it has a read-only shell (see "The static seat" below), so counted and
+history-based claims are now checkable. Anything it did NOT back with pasted
+command output is still an inference - confirm it yourself.
 
-**Verified against gemini-cli 0.49.0 on 2026-08-04.** The ripgrep section below
+**Verified against gemini-cli 0.49.0 on 2026-08-04; shell policy re-verified
+2026-08-30.** The ripgrep section below
 was root-caused against 0.45.2; re-verify it if the symptom returns.
 
 ## Measured failure rates (2026-07-13 .. 2026-08-03)
@@ -104,43 +107,69 @@ All four causes are now fixed structurally. The three worth knowing:
   `~/.cargo/bin/rg` and silently reverts this. If the "Ripgrep is not available"
   warning returns, re-apply the move+symlink above.
 
-### `run_shell_command` absent in plan mode - by design, persona aligned
+### The static seat - FIXED 2026-08-30 (the seat now has a read-only shell)
 
-- **2026-08-04 update: the real cost of this was ABSTENTION, now banned in the
-  persona.** `--skip-trust` (added 2026-07-03, commit `1edfd2b`) made
-  `--approval-mode plan` actually stick; before that gemini silently downgraded
-  to `default` and had a shell. Once plan mode became real, Gemini started
-  refusing to answer: 28 `ABSTAIN (cannot execute)` occurrences from 2026-07-13
-  to 08-03, including whole verdicts reduced to *"My environment genuinely
-  cannot execute shell commands in plan mode, so I must ABSTAIN."* Every one is
-  dated after 2026-07-03.
-- `persona.md` now carries a hard NEVER-ABSTAIN rule: the four read-only tools
-  are declared the complete and sufficient toolset, a substantive verdict is
-  always required, and anything needing execution gets ONE line labelled
-  `REQUIRES EXECUTION: <command>` rather than collapsing the verdict.
-- Note the asymmetry with the sibling seat: Codex runs `-s read-only` and CAN
-  execute `rg`/`git`/`find`. Gemini cannot execute anything. That is why the
-  Architect is weighted toward reasoning and the Staff Engineer toward
-  code-grounded verification.
-- Symptom: `Error executing tool run_shell_command: Tool "run_shell_command" not found`.
-- Root cause (verified live): the skill runs Gemini with `--approval-mode plan`,
-  which is `readonly: true`. Plan mode deliberately strips `run_shell_command`
-  (and all write tools). This is correct - the Architect must stay read-only.
-  The bug was that `persona.md` told Gemini to verify via `run_shell_command`, a
-  tool that does not exist in that mode.
-- Mitigation in place: `persona.md` now points only at the read-only tools that
-  ARE present in plan mode - `grep_search` (ripgrep-backed after the fix above),
-  `glob`, `read_file`, `list_directory` - and explicitly says not to attempt
-  `run_shell_command`. Those tools are sufficient for in-workspace verification.
+**This section previously said plan mode STRIPS `run_shell_command` and that the
+seat is static by design. Both were wrong as of gemini-cli 0.49.0.** The
+correction and the fix:
+
+- What was actually happening: the tool is REGISTERED in plan mode and DENIED by
+  two default-tier rules shipped in the CLI -
+  `bundle/policies/plan.toml` (`toolName = "*"`, deny, priority 40, `modes = ["plan"]`)
+  and `bundle/policies/write.toml` (`run_shell_command`, deny, priority 10,
+  `interactive = false`). The old `Tool "run_shell_command" not found` symptom
+  was a 0.45.2-era registry strip; on 0.49.0 the message is
+  `Tool execution denied by policy`.
+- Policy priority is tiered - default `1.x` < extension `2.x` < workspace `3.x`
+  < user `4.x` < admin `5.x`, with each file's own `priority` as the fraction.
+  Those two denies land at `1.040` and `1.010`. A file passed via `--policy`
+  loads in the USER tier, so `priority = 100` in it resolves to `4.100`.
+- Fix in place: `policy.toml` in this directory, wired into `script.sh` as
+  `--policy "$SCRIPT_DIR/policy.toml"`. It allows `run_shell_command` for a
+  fixed list of read-only command prefixes (`rg`, `wc`, `jq`, `git log`,
+  `git diff`, ...) and nothing else.
+- Read-only is still enforced, verified live 2026-08-30 on 0.49.0:
+  - `git rev-parse --short HEAD` -> `f9cb0e2`, matching the same command run
+    outside gemini. Pipelines work: `rg -c gemini script.sh | head -1` -> `21`,
+    also matching an independent run.
+  - `curl https://example.com` -> denied. Anything the policy does not name
+    still hits plan mode's catch-all.
+  - `rg --version && curl ...` -> denied. The engine extracts every root command
+    from a pipeline and checks each, so an allowlisted prefix cannot carry a
+    denied command in behind `&&` or `|`.
+  - `write_file` -> reported absent from the tool schema, and the target file
+    was never created. Plan mode omits write tools entirely; `policy.toml` also
+    denies them as a backstop.
+- Why it mattered: with no shell, every "verified" claim was an inference from
+  source dressed as an observation. That produced fabricated counts ("exactly 7
+  ENV_LOCK declarations" - actual 5; "43 tests in `tests.rs`" - actual 31) and
+  28 `ABSTAIN (cannot execute)` verdicts between 2026-07-13 and 08-03, including
+  whole reviews reduced to *"My environment genuinely cannot execute shell
+  commands in plan mode, so I must ABSTAIN."*
+- `persona.md` now requires pasted command output for every counted or
+  behavioral claim, and requires the seat to distinguish what it RAN from what
+  it READ. The NEVER-ABSTAIN rule stays, and `REQUIRES EXECUTION: <command>` is
+  now reserved for the narrow things the allowlist genuinely cannot settle
+  (test suite, builds, benchmarks, live services).
+- Deliberately still out of reach: `cargo` and `otto`. Running builds in the
+  repo under review mutates `target/`, contends on the cargo file lock, and can
+  burn the 10m wall clock. Test execution stays with the Codex seat, which runs
+  `-s read-only` in a real sandbox.
+- Residual asymmetry with the sibling seat: Codex's sandbox permits arbitrary
+  read-only execution; the Architect's is a fixed allowlist. The Architect is
+  still weighted toward reasoning, but its counts and history claims are now
+  checkable rather than asserted.
 - Delivery note: `persona.md` is injected by `script.sh`, which **prepends it to
   the prompt**. The old `--policy persona.md` was dead code - gemini's `--policy`
   loads `*.toml` policy-engine files only and silently ignored the markdown. The
   persona used to leak in via the global `~/.gemini/GEMINI.md` (which forced it
   onto every unrelated `gemini` call and still carried the stale
   `run_shell_command` line); that global copy has been neutralized so `persona.md`
-  is now the single source of truth. Note that Gemini still has no shell here -
-  the skill's Step 3 runs `git log`/`git diff` on Claude's side and embeds the
-  output in the prompt, so the audit never needed Gemini to shell out.
+  is now the single source of truth. Note that `--policy` is no longer dead
+  code: it loads `policy.toml` in this directory, which is what gives the seat
+  its read-only shell. The skill's Step 3 still runs `git log`/`git diff` on
+  Claude's side and embeds the output in the prompt; that is now belt-and-braces
+  rather than the only path.
 
 ## Concrete example (2026-06-09 codebase-review-remediation audit)
 
@@ -168,3 +197,10 @@ All four causes are now fixed structurally. The three worth knowing:
 - **Add external repos explicitly** via the skill's `--dirs` so cross-repo
   claims are not phantom gaps.
 - Do not let a confidently-worded Gemini false negative drive a real change.
+- **2026-08-30 update, now that the seat has a shell.** The line to hold is
+  sourced vs. unsourced, not reasoning vs. file search. A claim carrying pasted
+  command output can be spot-checked. A claim without one is a hypothesis
+  however confidently worded, and should be re-run before it reaches a
+  synthesis. `REQUIRES EXECUTION:` should now appear only for test runs, builds,
+  benchmarks, and live services; if it shows up for a count or a git-history
+  question, the seat skipped the tools it has.

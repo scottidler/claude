@@ -173,6 +173,14 @@ preserve_trace() {
   fi
 }
 
+# --policy policy.toml: configures the seat's read-only shell. gemini registers
+# run_shell_command in plan mode and gates it through its policy engine; this
+# file names the read-only command prefixes the reviewer may run (rg, wc, git
+# log/diff/show, ...). Anything not named stays blocked, and write tools are
+# absent from the plan-mode schema entirely. Rationale, the allowlist rules, and
+# the live verifications are in policy.toml's header. Without it the seat cannot
+# execute at all, so its "verified" claims are code-reading, not observation.
+#
 # --skip-trust: this is a headless, automated reviewer. Without it gemini refuses
 # to run in an untrusted CWD and, worse, silently OVERRIDES `--approval-mode plan`
 # back to `default` (which then can't headlessly approve, so it hangs/fails).
@@ -192,6 +200,7 @@ run_attempt() {
     -m gemini-3.1-pro-preview \
     --approval-mode plan \
     --skip-trust \
+    --policy "$SCRIPT_DIR/policy.toml" \
     "${INCLUDE_ARGS[@]}" \
     --prompt="$PROMPT" \
     -o stream-json <"$DOC_PATH" >"$TRACE" 2>&1
