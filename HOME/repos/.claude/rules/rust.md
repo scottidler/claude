@@ -111,6 +111,13 @@ These are the bug classes that recurred across every Rust code review (otto, loo
 
 ### File and module names
 - Maximum file size: 1500 lines per .rs file - if a file exceeds this, decompose it into a module directory (see `rules/dealing-with-large-files.md` for safe decomposition technique)
+- **NEVER use `include!` to satisfy this limit, and never accept a decomposition that does.** `include!` is a compile-time text paste: the fragment is spliced into the parent's module scope verbatim, so the result is still ONE module and ONE `impl` block that merely reports a smaller `wc -l`. It satisfies the number and defeats the entire purpose. Specifically it:
+  - creates no module boundary, so nothing is encapsulated and no seam is documented
+  - leaves every private item visible to every fragment, so the coupling the limit exists to expose stays hidden
+  - breaks rust-analyzer (`cannot find type X in this scope`, `file is not included anywhere in the module tree`), degrading go-to-definition and autocomplete permanently
+  - is invisible to a reader of the fragment, which opens on a bare `impl Foo {` with no indication of what it is part of
+- The limit exists to force real decomposition and surface coupling, not to make `wc -l` smaller. If the honest split requires widening private methods to `pub(super)`, **that widening IS the work** - it is the visibility surface the file was hiding, and seeing it is the point.
+- If a genuine split is too large to do right now, the correct outcome is to leave the file over the limit and say so, not to fake compliance. An over-limit file with a recorded reason is honest; a `wc -l`-compliant `include!` pile is a lie told to a linter.
 - No underscores in .rs filenames - every source file should be a single word
 - If a name would be compound, decompose it into a module directory with single-word files inside:
   - `config_loader.rs` -> `config/mod.rs` + `config/loader.rs`
