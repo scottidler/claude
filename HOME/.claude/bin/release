@@ -9,8 +9,17 @@
 #                         pull main, tag the merged tip, push the tag by name.
 #                         NEVER a bump-only release branch. NEVER a tag on a branch
 #                         (squash-merge rewrites the SHA — the tag is burnt forever).
-#   2. main is UNGATED -> bump (tags local HEAD) on main, then push the branch AND
-#                         the tag together: git push origin main && git push origin vX.Y.Z
+#   2. main is UNGATED -> land the VERSION COMMIT first (bump --no-tag), push main,
+#                         WAIT FOR CI TO GO GREEN ON THAT SHA, and only then
+#                         bump --tag-only + push the tag by name.
+#
+# Why the wait, in both flows: a tag is the one artifact that cannot be taken
+# back. If the tag is created before CI has run, every failure CI finds can only
+# be fixed by ANOTHER tag, so one intended release burns two version numbers.
+# That is the "double-tap" (otto v2.0.2/v2.0.3, v2.0.4/v2.0.5, and v2.0.0/v2.0.1
+# before them: each pair is one release plus its immediate fix-up). Landing the
+# version commit untagged costs nothing when CI is red: fix it, re-run `release`,
+# and the SAME version number gets tagged. Only the tag waits.
 #
 # This script is the mechanical executor of exactly the commands the bump/shipit
 # skills document — same `bump` calls, same safe push order — but with NO room
@@ -32,8 +41,12 @@
 # everything mechanical from there.
 #
 # Usage:
-#   release [-m|-M] [--install "<cmd>"|--no-install] [-n]   # start a release
-#   release --finish [--install "<cmd>"|--no-install] [-n]  # gated: resume after PR merge
+#   release [-m|-M] [--install "<cmd>"|--no-install] [-n] [--no-ci-gate] [--ci-timeout N]
+#   release --finish [--install "<cmd>"|--no-install] [-n] [--no-ci-gate] [--ci-timeout N]
+#
+#   --no-ci-gate     tag without waiting for CI. This re-arms the double-tap;
+#                    use it only when there is no CI to wait for.
+#   --ci-timeout N   seconds to wait for checks to finish (default 1800).
 #
 set -euo pipefail
 
@@ -43,8 +56,13 @@ INSTALL_CMD=""    # explicit install command (caller usually reads CLAUDE.md)
 NO_INSTALL=0
 DRYRUN=0
 FINISH=0
+CI_GATE=1         # wait for green CI on the pushed SHA before the tag exists
+CI_TIMEOUT=1800   # seconds to wait for checks to complete
+CI_APPEAR=120     # seconds to wait for any check to register at all
 
-usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# Print the leading comment block, however long it is, so editing the docs
+# above can never desync a hardcoded line range.
+usage() { awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"; exit "${1:-0}"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -54,6 +72,8 @@ while [ $# -gt 0 ]; do
     --no-install) NO_INSTALL=1 ;;
     -n|--dry-run) DRYRUN=1 ;;
     --finish)     FINISH=1 ;;
+    --no-ci-gate) CI_GATE=0 ;;
+    --ci-timeout) CI_TIMEOUT="${2:?--ci-timeout needs seconds}"; shift ;;
     -h|--help)    usage 0 ;;
     *) echo "release: unknown argument: $1" >&2; usage 1 ;;
   esac
@@ -75,6 +95,83 @@ if [ -z "$DEFAULT" ]; then
 fi
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
+# ---- the anti-double-tap machinery -------------------------------------------
+# A tag is the only irreversible artifact in a release. Everything below exists
+# so that a tag is never created for a commit whose CI has not finished green.
+
+tag_exists_local()  { git rev-parse -q --verify "refs/tags/$1" >/dev/null 2>&1; }
+tag_exists_remote() { [ -n "$(git ls-remote --tags origin "refs/tags/$1" 2>/dev/null)" ]; }
+tag_exists_any()    { tag_exists_local "$1" || tag_exists_remote "$1"; }
+
+# `bump -n` prints "bump: <current> -> <target>"; take both from bump so the
+# numbers are always bump's opinion and never this script's arithmetic.
+bump_versions() { bump -n "$@" 2>&1; }
+
+# Is the manifest version already committed but not yet tagged?
+#
+# That is the state a previous `release` leaves behind when CI came back red:
+# the version commit landed, no tag was cut. Re-running must then tag THAT
+# version rather than bumping past it, which is the whole point of the change.
+# A repo with no tags at all is NOT this state (a first release still bumps),
+# and the check reads tags rather than commit messages so a custom
+# `--message` cannot fool it.
+version_commit_pending() {
+  local cur="$1"
+  [ -n "$cur" ] || return 1
+  git describe --tags --abbrev=0 --match 'v*' >/dev/null 2>&1 || return 1
+  tag_exists_any "v$cur" && return 1
+  return 0
+}
+
+# Block until every check on $1 has completed, and refuse the tag on any failure.
+#
+# No tag exists when this is called, so a red result costs a re-run and nothing
+# else. Compare with the old order (tag first, push, then watch CI): there, the
+# only way to fix anything CI found was a second tag.
+wait_for_green() {
+  local sha="$1"
+  if [ "$CI_GATE" = 0 ]; then say "CI gate: SKIPPED (--no-ci-gate) — a red run will cost you a second tag"; return 0; fi
+  if [ "$DRYRUN" = 1 ]; then echo "  [dry-run] wait for CI to go green on $sha, then tag"; return 0; fi
+
+  local repo
+  repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
+  if [ -z "$repo" ]; then say "CI gate: no GitHub repo — nothing to wait on"; return 0; fi
+
+  say "CI gate: waiting on checks for $sha (no tag exists yet, so red is free)"
+  local start deadline json total incomplete failed
+  start=$(date +%s)
+  deadline=$(( start + CI_TIMEOUT ))
+
+  while :; do
+    json=$(gh api "repos/$repo/commits/$sha/check-runs" 2>/dev/null || echo '{"check_runs":[]}')
+    total=$(printf '%s' "$json"      | jq '[.check_runs[]?] | length')
+    incomplete=$(printf '%s' "$json" | jq '[.check_runs[]? | select(.status != "completed")] | length')
+    failed=$(printf '%s' "$json"     | jq '[.check_runs[]? | select(.conclusion != null and ([.conclusion] | inside(["success","skipped","neutral"]) | not))] | length')
+
+    if [ "$failed" -gt 0 ]; then
+      echo
+      printf '%s' "$json" | jq -r '.check_runs[] | select(.conclusion != null and ([.conclusion] | inside(["success","skipped","neutral"]) | not)) | "  FAILED  \(.name)  \(.html_url)"'
+      echo
+      die "CI is RED on $sha. NO TAG WAS CREATED, which is the point: fix it, commit, and re-run 'release'. It will tag the SAME version rather than bumping past it, so this costs zero version numbers."
+    fi
+
+    if [ "$total" -gt 0 ] && [ "$incomplete" = 0 ]; then
+      say "CI gate: green ($total checks) — cutting the tag"
+      return 0
+    fi
+
+    local now; now=$(date +%s)
+    if [ "$total" = 0 ] && [ $(( now - start )) -ge "$CI_APPEAR" ]; then
+      say "CI gate: no checks registered on $sha after ${CI_APPEAR}s — nothing to wait on"
+      return 0
+    fi
+    [ "$now" -lt "$deadline" ] || die "CI gate: timed out after ${CI_TIMEOUT}s with $incomplete check(s) still running on $sha. NO TAG WAS CREATED. Re-run 'release' when they finish (it will reuse the same version), or pass --ci-timeout."
+
+    printf '  … %s/%s checks complete\r' "$(( total - incomplete ))" "$total"
+    sleep 15
+  done
+}
+
 # install step — shared by both modes
 do_install() {
   if [ "$NO_INSTALL" = 1 ]; then say "install: skipped (--no-install)"; return; fi
@@ -93,6 +190,10 @@ if [ "$FINISH" = 1 ]; then
   run "git checkout $DEFAULT"
   run "git fetch origin $DEFAULT"
   run "git pull --ff-only origin $DEFAULT"
+  # A squash merge creates a NEW commit on $DEFAULT, and its CI has not
+  # necessarily finished. Tagging it early is the same double-tap as the ungated
+  # path, so it waits here too.
+  if [ "$DRYRUN" = 0 ]; then wait_for_green "$(git rev-parse HEAD)"; else wait_for_green "<HEAD>"; fi
   # bump --tag-only refuses unless HEAD == origin/<default>, so it physically
   # cannot orphan a tag. This is the whole okta-auth-rs guard, mechanized.
   run "bump --tag-only"
@@ -131,30 +232,62 @@ else
   die "gate status is UNKNOWN for a GitHub repo — refusing to guess. Run 'gh auth status' and retry. Output was:"$'\n'"$GATES"
 fi
 
-# ---- UNGATED: bump tags HEAD on the default branch, push branch AND tag -------
+# ---- UNGATED: version commit lands first, tag waits for green CI --------------
+# Order is deliberate and is the fix for the double-tap:
+#   bump --no-tag -> push main -> WAIT FOR CI -> bump --tag-only -> push tag
+# The old order tagged local HEAD before CI had ever seen the commit, so every
+# failure CI found could only be repaired by a second tag. Now a red CI leaves
+# no tag at all, and the re-run reuses the same version number.
 if [ "$GATED" = 0 ]; then
   [ "$BRANCH" = "$DEFAULT" ] || die "ungated release runs from the default branch ($DEFAULT); you are on '$BRANCH'. Land your work on $DEFAULT first."
   BEHIND=$(git rev-list --count "HEAD..origin/$DEFAULT" 2>/dev/null || echo 0)
   [ "$BEHIND" = 0 ] || die "$DEFAULT is $BEHIND commit(s) behind origin/$DEFAULT — pull/rebase before releasing (tagging a stale main is how cr v0.1.8 was orphaned)."
-  AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
-  [ "$AHEAD" -gt 0 ] || die "nothing to release: HEAD == origin/$DEFAULT and tree is clean. Commit a change first."
 
-  # Target version — parse bump's own dry-run so the number is bump's, not ours.
-  PREVIEW=$(bump -n $LEVEL 2>&1 || true)
-  TAG=$(printf '%s\n' "$PREVIEW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-  [ -n "$TAG" ] || die "could not parse target version from 'bump -n $LEVEL':"$'\n'"$PREVIEW"
+  # Both numbers come from bump's own dry-run, never from arithmetic here.
+  PREVIEW=$(bump_versions $LEVEL || true)
+  CURVER=$(printf '%s\n' "$PREVIEW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  TARGET=$(printf '%s\n' "$PREVIEW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
-  say "UNGATED release of $TAG on $DEFAULT"
-  run "bump $LEVEL"
-  # Use the tag bump ACTUALLY created (not the -n prediction) — defensive.
+  if version_commit_pending "$CURVER"; then
+    # A previous run landed the version commit and stopped short of the tag,
+    # which is exactly what a red CI is supposed to leave behind.
+    TAG="v$CURVER"
+    say "RESUMING: $TAG is already committed and carries no tag — tagging that version, NOT bumping past it"
+  else
+    AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
+    [ "$AHEAD" -gt 0 ] || die "nothing to release: HEAD == origin/$DEFAULT and tree is clean. Commit a change first."
+    [ -n "$TARGET" ] || die "could not parse target version from 'bump -n $LEVEL':"$'\n'"$PREVIEW"
+    TAG="$TARGET"
+    say "UNGATED release of $TAG on $DEFAULT (version commit first; the tag waits for CI)"
+    run "bump --no-tag $LEVEL"
+  fi
+
+  # Push the commit with NO tag attached. --no-follow-tags because a stray
+  # push.followTags=true is the mechanism behind two of the confirmed orphans.
+  run "git push --no-follow-tags origin $DEFAULT"
+
+  if [ "$DRYRUN" = 0 ]; then
+    HEADSHA=$(git rev-parse HEAD)
+    [ "$HEADSHA" = "$(git rev-parse "origin/$DEFAULT")" ] || die "HEAD is not origin/$DEFAULT after the push — STOP, inspect manually before any tag is cut."
+    wait_for_green "$HEADSHA"
+  else
+    wait_for_green "<HEAD>"
+  fi
+
+  # bump --tag-only refuses unless HEAD == origin/<default>, so the tag cannot
+  # land on a commit that is not already published.
+  if tag_exists_local "$TAG"; then
+    say "tag $TAG already exists locally (prior interrupted run) — pushing it"
+  else
+    run "bump --tag-only"
+  fi
   if [ "$DRYRUN" = 0 ]; then
     TAG=$(git tag --points-at HEAD --list 'v*' | head -1)
-    [ -n "$TAG" ] || die "bump created no v* tag at HEAD — STOP, inspect manually (did bump refuse?)"
+    [ -n "$TAG" ] || die "bump --tag-only produced no v* tag at HEAD — STOP, inspect manually"
   fi
-  # branch FIRST, and only if it lands does the tag follow (the && is the safety)
-  run "git push origin $DEFAULT && git push origin $TAG"
+  run "git push origin $TAG"
   do_install
-  say "done — $TAG pushed; tag on origin/$DEFAULT"
+  say "done — $TAG pushed; tag on origin/$DEFAULT, cut on green CI"
   exit 0
 fi
 

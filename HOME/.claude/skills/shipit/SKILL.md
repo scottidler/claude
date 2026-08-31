@@ -20,9 +20,11 @@ path or rationalize an orphan.
 
 ## The two flows the driver executes (there is no third)
 
-- **UNGATED** (main accepts direct pushes): commit on main → `bump` (tags HEAD) →
-  `git push origin main && git push origin vX.Y.Z` — branch AND tag together, tag
-  by explicit name.
+- **UNGATED** (main accepts direct pushes): commit on main → `bump --no-tag` →
+  push main → **wait for green CI on that SHA** → `bump --tag-only` →
+  `git push origin vX.Y.Z` by explicit name. The tag is never created before CI
+  has run: tag first and every CI failure costs a SECOND version number (the
+  double-tap; otto burned three pairs that way).
 - **GATED** (main requires a PR): the version bump RIDES THE FEATURE PR
   (`bump --no-tag` on the feature branch) → push branch → PR → merge → pull main →
   `bump --tag-only` → `git push origin vX.Y.Z`. The tag exists only AFTER the

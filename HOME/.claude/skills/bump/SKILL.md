@@ -18,13 +18,26 @@ is the model choosing wrong at one of these decision points.
 
 ## FLOW 1 — UNGATED (main accepts direct pushes)
 
-On main, code committed, clean tree. Tag HEAD, then push the branch AND the tag
-together:
+On main, code committed, clean tree. **The version commit lands first and the tag
+waits for green CI on that exact SHA.** Never create the tag before CI has run.
 
 ```bash
-bump [-m|-M]                                    # bumps Cargo.toml + commits + tags HEAD
-git push origin main && git push origin vX.Y.Z  # branch first; && keeps the tag from escaping a rejected push
+bump --no-tag [-m|-M]                    # version commit on main — NO tag yet
+git push --no-follow-tags origin main    # publish the commit; nothing irreversible yet
+# WAIT for CI to go green on this SHA
+bump --tag-only                          # refuses unless HEAD == origin/main
+git push origin vX.Y.Z                   # by explicit name — NEVER --tags
 ```
+
+`release` does all of that, including the wait. Run it instead of the above.
+
+**Why the wait: the double-tap rule.** A tag is the only irreversible artifact in
+a release. Tag before CI, and every failure CI finds can only be repaired by
+ANOTHER tag, so one intended release burns two version numbers. otto
+v2.0.0/v2.0.1, v2.0.2/v2.0.3 and v2.0.4/v2.0.5 are three consecutive instances of
+exactly that. Landing the version commit untagged costs nothing when CI is red:
+fix it, commit, re-run `release`, and it tags the SAME version instead of bumping
+past it. **One intended release, one version number.**
 
 ## FLOW 2 — GATED (main requires a PR)
 
