@@ -57,12 +57,15 @@
 # the PR body. Using it without a real order is a hall-of-shame offense.
 # First sanctioned use: mcp-io-rs #8 (v0.1.3), 2026-07-10.
 #
-# MECHANICS: the command is split into statements on && || ; | and newlines and
-# each statement is checked independently, so a match cannot bleed across an
-# unrelated sibling (a `git push` in one statement plus `--tags` in a later
-# `git ls-remote --tags` is not a false positive). Gate D searches the FULL
-# command for the Release: line because PR bodies are multi-line. A trailing
-# `cd <dir>` in the chain is honored when evaluating branch/tree state.
+# MECHANICS: heredoc bodies are stripped first (a `git commit -F - <<'MSG'`
+# message line is prose, not a command -- an unstripped one beginning with
+# "bump" denied an innocent commit, otto-rs/otto b428680 2026-09-01), then the
+# command is split into statements on && || ; | and newlines and each statement
+# is checked independently, so a match cannot bleed across an unrelated sibling
+# (a `git push` in one statement plus `--tags` in a later `git ls-remote --tags`
+# is not a false positive). Gate D searches the FULL, unstripped command for the
+# Release: line because PR bodies are multi-line and usually arrive by heredoc.
+# A trailing `cd <dir>` in the chain is honored when evaluating branch/tree state.
 #
 # PROVENANCE: THE RULING 2026-07-03 (~/HALL-OF-SHAME.md) after slack-cli
 # v0.1.1; gates A/B/C + recovery messages 2026-07-10 after slack-cli #16;
@@ -304,9 +307,54 @@ check_stmt() {
   fi
 }
 
+# Heredoc bodies are NOT statements. The splitter below also splits on the
+# newlines already present in $cmd, so every physical line of a
+# `git commit -F - <<'MSG' ... MSG` message was handed to check_stmt as if it
+# were a command — a wrapped message line beginning with "bump" tripped the
+# command-position anchor and denied an innocent commit (otto-rs/otto b428680,
+# 2026-09-01). Strip heredoc bodies (and their terminator line) first; the
+# opener line IS a real command and is kept. $cmd itself is left untouched —
+# Gate D reads multi-line PR bodies out of it, and those arrive by heredoc.
+strip_heredocs() {
+  awk '
+  BEGIN {
+    n = 0
+    PH = sprintf("%c", 1)                 # placeholder: neutralize <<< herestrings
+    SQ = sprintf("%c", 39)
+    RE = "<<-?[ \t]*(\"[^\"]*\"|" SQ "[^" SQ "]*" SQ "|[A-Za-z_][A-Za-z0-9_-]*)"
+  }
+  {
+    line = $0
+    if (n > 0) {                          # inside a heredoc body: look for its terminator
+      t = line
+      if (dash[1]) sub(/^[ \t]+/, "", t)  # <<- allows an indented terminator
+      sub(/[ \t]+$/, "", t)
+      if (t == delim[1]) {
+        for (i = 1; i < n; i++) { delim[i] = delim[i+1]; dash[i] = dash[i+1] }
+        n--
+      }
+      next                                # body and terminator are never statements
+    }
+    rest = line
+    gsub(/<<</, PH, rest)
+    while (match(rest, RE)) {             # queue every opener on this line, in order
+      tok = substr(rest, RSTART, RLENGTH)
+      rest = substr(rest, RSTART + RLENGTH)
+      n++
+      dash[n] = (substr(tok, 3, 1) == "-") ? 1 : 0
+      w = tok
+      sub(/^<<-?[ \t]*/, "", w)
+      gsub(/"/, "", w)
+      gsub(SQ, "", w)
+      delim[n] = w
+    }
+    print line
+  }'
+}
+
 # Split the command into statements on && || ; | and newlines, then check each one.
 # (A greedy regex within a statement can't reach across into an unrelated sibling.)
-split=$(printf '%s' "$cmd" | sed -E 's/&&/\n/g; s/\|\|/\n/g; s/;/\n/g; s/\|/\n/g')
+split=$(printf '%s\n' "$cmd" | strip_heredocs | sed -E 's/&&/\n/g; s/\|\|/\n/g; s/;/\n/g; s/\|/\n/g')
 while IFS= read -r stmt; do
   [ -z "$stmt" ] && continue
   check_stmt "$stmt"

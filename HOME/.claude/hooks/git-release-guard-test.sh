@@ -185,6 +185,27 @@ REPO="$C"
 run allow cfg-feat 'gh pr create --title "feat: real" --body "no intent line here"'
 REPO="$R"
 
+echo "=== heredoc bodies are not statements (otto-rs/otto b428680, 2026-09-01) ==="
+# A commit message whose wrapped line STARTS with "bump" is prose, not a command.
+run allow feat-real "git add -A && git commit -q -F - <<'MSG'
+docs: handoff
+
+... Adding an optional field does NOT
+bump it. Every key here is additive.
+MSG"
+# The inverse: a real bump AFTER the terminator must still be caught.
+run deny feat-real "git commit -q -F - <<'MSG'
+docs: x
+bump this line is prose
+MSG
+bump -m"
+# Gate D still sees a Release: line delivered by heredoc ($cmd is not stripped).
+run allow feat-real "gh pr create --title 'feat: real' --body \"\$(cat <<'B'
+real work here
+Release: rides this PR (v0.1.1)
+B
+)\""
+
 echo "=== Scott override: BUMP_ORDERED_BY_SCOTT=1 opens the door ==="
 run allow main         'BUMP_ORDERED_BY_SCOTT=1 git checkout -b bump-0.1.3'
 run allow fresh-branch 'BUMP_ORDERED_BY_SCOTT=1 bump --no-tag'

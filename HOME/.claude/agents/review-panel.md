@@ -115,7 +115,8 @@ If the caller gave a focused question, append "Focus specifically on: <focus>."
 **ALWAYS call the scripts. NEVER invoke `gemini` or `codex` directly** — the
 scripts enforce model, persona, sandbox, scratch-dir, retry, and timeout
 guarantees; bypassing them is the #1 historical failure. Launch both
-concurrently, capture output, and `wait`:
+concurrently, capture output, and `wait` — **all inside ONE foreground Bash
+call**:
 
 Pass the **snapshot**, not `$DOC_PATH` — see Step 1.1:
 
@@ -131,6 +132,16 @@ wait $SPID; STAFF_RC=$?
   echo "staff-engineer rc=$STAFF_RC ($(wc -c < "$RUN_DIR/staff.out") bytes)"
 } | tee "$RUN_DIR/dispatch-status.txt"
 ```
+
+**Never detach the seats.** The block above — both launches AND the `wait` — is
+one foreground Bash call. Do not split the launches from the `wait` into
+separate calls, do not use the Bash tool's `run_in_background` for the seat
+scripts, and do not `setsid`/`nohup`: a child that outlives its Bash call is
+reaped by the sandbox's PID namespace and dies silently, leaving a banner-only
+output file (~100 bytes) with no error anywhere. This killed the round-4
+architect seat and both round-5 seats on 2026-08-31; foreground re-dispatch of
+the identical commands succeeded both times. The `&` exists only for
+parallelism WITHIN the call; the `wait` is what keeps the namespace alive.
 
 `$RUN_DIR/dispatch-status.txt` is now a durable, on-disk record of whether both
 seats actually ran — read it back in Step 4 rather than trusting memory of this

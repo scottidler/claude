@@ -724,7 +724,7 @@
       "/tmp/review-panel"
     ]
   },
-  "model": "opus",
+  "model": "opus[1m]",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
@@ -936,10 +936,18 @@
     },
     "filesystem": {
       "allowWrite": [
+        "/tmp",
+        "/home/saidler/.otto",
         "/tmp/review-panel",
         "/home/saidler/.ssh/agent",
-        "/home/saidler/.local/share",
+        "/home/saidler/.local",
         "/home/saidler/.cache",
+        "/home/saidler/Pictures",
+        "/home/saidler/Downloads",
+        "/home/saidler/Documents",
+        "/home/saidler/Claude",
+        "/home/saidler/go",
+        "/media/saidler/intel-480gb-ssd",
         "/home/saidler/.codex",
         "/home/saidler/.gemini"
       ],
