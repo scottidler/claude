@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# coverage: prove every manifest file was read by exactly one reviewer.
+#
+# Each reviewer report must contain a coverage table with one row per assigned file:
+#   | path | lines-read | findings |
+# This script matches first-column paths against the census manifest and reports
+# what no reviewer covered, what two reviewers covered, and paths that match nothing.
+# Exit 1 when any partitioned file is uncovered: the review is not thorough yet.
+set -euo pipefail
+export LC_ALL=C  # sort and comm must agree on collation
+
+usage() {
+  cat <<'EOF'
+usage: coverage <census-dir> <report.md> ...
+
+Reads <census-dir>/manifest.tsv and <census-dir>/partition/*.tsv (the files that were
+assigned), then scans each report for coverage rows and prints:
+
+  uncovered   assigned files no report claims (grouped by kind)   -> exit 1
+  duplicated  files claimed by more than one report
+  unknown     report rows whose path is not in the manifest (typos, or files outside the tree)
+  totals      assigned, covered, findings per report
+
+A row counts as coverage only if its first cell is exactly a manifest path.
+EOF
+}
+
+[ $# -ge 2 ] || { usage >&2; exit 2; }
+dir="$1"; shift
+manifest="$dir/manifest.tsv"
+[ -f "$manifest" ] || { echo "coverage: $manifest not found" >&2; exit 2; }
+[ -d "$dir/partition" ] || { echo "coverage: $dir/partition not found; run partition first" >&2; exit 2; }
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/coverage.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+
+cat "$dir"/partition/*.tsv | cut -f1 | sort -u > "$work/assigned"
+
+# claimed: path<TAB>report<TAB>findings
+: > "$work/claimed"
+for r in "$@"; do
+  [ -f "$r" ] || { echo "coverage: report not found: $r" >&2; exit 2; }
+  awk -F'|' -v rep="$(basename "$r")" '
+    /^\|/ {
+      p = $2; gsub(/^[ \t`]+|[ \t`]+$/, "", p)
+      f = $4; gsub(/^[ \t]+|[ \t]+$/, "", f)
+      if (p != "" && p !~ /^-+$/ && p != "path" && p != "file") printf "%s\t%s\t%s\n", p, rep, f
+    }' "$r" >> "$work/claimed"
+done
+
+cut -f1 "$work/claimed" | sort > "$work/claimed-paths"
+sort -u "$work/claimed-paths" > "$work/claimed-uniq"
+cut -f1 "$manifest" | sort -u > "$work/manifest-paths"
+
+comm -23 "$work/assigned" "$work/claimed-uniq" > "$work/uncovered"
+uniq -d "$work/claimed-paths" > "$work/duplicated"
+comm -23 "$work/claimed-uniq" "$work/manifest-paths" > "$work/unknown"
+
+echo "## coverage"
+echo
+printf 'assigned files: %s\ncovered files:  %s\n' "$(wc -l < "$work/assigned")" "$(comm -12 "$work/assigned" "$work/claimed-uniq" | wc -l)"
+echo
+echo "| report | rows | findings |"
+echo "|---|---|---|"
+awk -F'\t' '{rows[$2]++; f[$2]+= ($3 ~ /^[0-9]+$/ ? $3 : 0)} END {for (r in rows) printf "| %s | %d | %d |\n", r, rows[r], f[r]}' "$work/claimed" | sort
+
+if [ -s "$work/uncovered" ]; then
+  echo
+  echo "## uncovered ($(wc -l < "$work/uncovered")): assigned, claimed by no report"
+  echo
+  awk -F'\t' 'NR==FNR {kind[$1]=$3; next} {printf "%s\t%s\n", kind[$1], $1}' "$manifest" "$work/uncovered" | sort
+fi
+if [ -s "$work/duplicated" ]; then
+  echo
+  echo "## duplicated ($(wc -l < "$work/duplicated")): claimed by more than one report"
+  echo
+  while read -r p; do grep -F "$p	" "$work/claimed" | cut -f1,2 | tr '\t' ' ' | sort -u | tr '\n' ';'; echo; done < "$work/duplicated"
+fi
+if [ -s "$work/unknown" ]; then
+  echo
+  echo "## unknown ($(wc -l < "$work/unknown")): rows whose path is not in the manifest"
+  echo
+  cat "$work/unknown"
+fi
+
+if [ -s "$work/uncovered" ]; then
+  echo
+  echo "coverage: INCOMPLETE. Re-dispatch the uncovered files before writing findings."
+  exit 1
+fi
+echo
+echo "coverage: complete."

@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# partition: split a census manifest into reviewer assignments by file, not by area.
+#
+# Each assignment is an explicit file list. A reviewer that receives a list can be
+# checked against it (see coverage); a reviewer told "review the cfg area" cannot.
+set -euo pipefail
+export LC_ALL=C  # deterministic path order across machines
+
+usage() {
+  cat <<'EOF'
+usage: partition <census-dir> [--max-lines N] [--kinds KIND ...]
+
+Reads <census-dir>/manifest.tsv and writes <census-dir>/partition/NN.tsv, one per
+reviewer, each holding path, lines, kind. Files are kept in path order so a module's
+files land with the same reviewer. A single file larger than N gets its own reviewer.
+
+--max-lines N   lines per reviewer (default 6000)
+--kinds ...     manifest kinds to include, space separated
+                (default: src test doc config ci example; 'other' is excluded)
+EOF
+}
+
+[ $# -ge 1 ] || { usage >&2; exit 2; }
+dir="$1"; shift
+max=6000
+kinds=(src test doc config ci example)
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --max-lines) max="$2"; shift 2 ;;
+    --kinds) shift; kinds=(); while [ $# -gt 0 ] && [[ "$1" != --* ]]; do kinds+=("$1"); shift; done ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "partition: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+manifest="$dir/manifest.tsv"
+[ -f "$manifest" ] || { echo "partition: $manifest not found; run census first" >&2; exit 2; }
+
+pdir="$dir/partition"
+rm -rf "$pdir"; mkdir -p "$pdir"
+
+kind_re="^($(IFS='|'; echo "${kinds[*]}"))$"
+
+awk -F'\t' -v max="$max" -v out="$pdir" -v kre="$kind_re" '
+  $3 ~ kre { rows[++n] = $0; lines[n] = $2 }
+  END {
+    part = 0; used = 0
+    for (i = 1; i <= n; i++) {
+      if (part == 0 || (used > 0 && used + lines[i] > max)) { part++; used = 0 }
+      f = sprintf("%s/%02d.tsv", out, part)
+      print rows[i] >> f
+      used += lines[i]
+    }
+    print part > (out "/count")
+  }' <(sort -t$'\t' -k1,1 "$manifest")
+
+{
+  echo "# reviewer assignments from $manifest (max $max lines each; kinds: ${kinds[*]})"
+  echo
+  echo "| assignment | files | lines | first path | last path |"
+  echo "|---|---|---|---|---|"
+  for f in "$pdir"/*.tsv; do
+    printf '| %s | %s | %s | %s | %s |\n' "$(basename "$f")" "$(wc -l < "$f")" \
+      "$(awk -F'\t' '{s+=$2} END{print s+0}' "$f")" "$(head -1 "$f" | cut -f1)" "$(tail -1 "$f" | cut -f1)"
+  done
+} > "$pdir/index.md"
+
+cat "$pdir/index.md"

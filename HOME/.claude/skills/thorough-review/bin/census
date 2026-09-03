@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# census: complete mechanical enumerations of a repo, as input to a thorough review.
+#
+# Every list this writes is complete by construction (it comes from git ls-files
+# plus a grep over every tracked file), not from a reviewer's attention. Reviewers
+# confirm candidates; they do not re-derive these lists by hand.
+set -euo pipefail
+export LC_ALL=C  # deterministic sort order; byte-exact regex classes
+
+usage() {
+  cat <<'EOF'
+usage: census [--repo DIR] [--out DIR] [--no-cargo] [--src DIR ...]
+
+Writes complete mechanical enumerations of a repo to OUT
+(default: $TMPDIR/census-<repo>-<YYYY-MM-DD>):
+
+  manifest.tsv        every tracked text file: path, lines, kind
+  suppressions.txt    every lint or warning suppression, with location
+  duplicate-fns.txt   function names defined in more than one source file
+  test-only-pub.txt   Rust pub items with no non-test reference (candidates)
+  unused-deps.txt     dependencies with no reference in source, and deps declared twice
+  warnings.txt        clippy and rustdoc warnings (skipped with --no-cargo)
+  doc-links.txt       relative markdown links that do not resolve
+  doc-symbols.txt     code-like tokens and --flags in docs with no hit in source
+  stale-paths.txt     repo paths named in text files that do not exist
+  markers.txt         TODO FIXME XXX HACK todo! unimplemented!
+  summary.md          one row per census: count and file
+
+--src DIR   directory whose files count as production source (repeatable;
+            default: src bin lib app, whichever exist)
+--no-cargo  do not run cargo (no clippy or rustdoc warnings; nothing written to target/)
+EOF
+}
+
+repo="$PWD"
+out=""
+run_cargo=1
+src_dirs=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) repo="$2"; shift 2 ;;
+    --out) out="$2"; shift 2 ;;
+    --no-cargo) run_cargo=0; shift ;;
+    --src) src_dirs+=("$2"); shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "census: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+repo="$(cd "$repo" && git rev-parse --show-toplevel)"
+name="$(basename "$repo")"
+[ -n "$out" ] || out="${TMPDIR:-/tmp}/census-${name}-$(date +%F)"
+mkdir -p "$out"
+out="$(cd "$out" && pwd)"
+
+command -v rg >/dev/null || { echo "census: rg (ripgrep) is required" >&2; exit 2; }
+
+if [ ${#src_dirs[@]} -eq 0 ]; then
+  for d in src bin lib app; do [ -d "$repo/$d" ] && src_dirs+=("$d"); done
+fi
+
+cd "$repo"
+echo "census: repo $repo"
+echo "census: out  $out"
+
+# ---------------------------------------------------------------- manifest
+# kind: src | test | doc | config | ci | example | other. Binary files are omitted.
+is_src_dir() {
+  local p="$1" d
+  for d in "${src_dirs[@]}"; do case "$p" in "$d"/*) return 0 ;; esac; done
+  return 1
+}
+
+classify() {
+  local p="$1"
+  case "$p" in
+    tests/*|test/*|*_tests.rs|*_tests_*.rs|*/tests.rs|test_*.py|*_test.py|*_test.go|*.test.ts|*.test.js|*.spec.ts|*.spec.js)
+      echo test; return ;;
+    .github/*|.gitlab-ci.yml|.circleci/*|Jenkinsfile|.pre-commit-config.yaml)
+      echo ci; return ;;
+    examples/*) echo example; return ;;
+    *.md|*.rst|*.txt|docs/*) echo doc; return ;;
+  esac
+  if is_src_dir "$p"; then
+    case "$p" in
+      *.rs|*.py|*.ts|*.tsx|*.js|*.jsx|*.go|*.sh|*.bash|*.zsh|*.rb|*.c|*.h|*.cpp|*.hpp|*.java|*.kt|*.swift|*.lua) echo src; return ;;
+    esac
+    case "$(basename "$p")" in *.*) ;; *) echo src; return ;; esac  # extensionless scripts under bin/
+  fi
+  case "$p" in
+    *.yml|*.yaml|*.toml|*.json|*.ini|*.cfg|*.conf|.*rc|*.lock|Makefile|Dockerfile|*.editorconfig|.gitignore|.gitattributes)
+      echo config; return ;;
+  esac
+  echo other
+}
+
+manifest="$out/manifest.tsv"
+: > "$manifest"
+while IFS= read -r -d '' f; do
+  [ -f "$f" ] || continue                # skip submodule dirs and dangling symlinks
+  grep -Iq . "$f" 2>/dev/null || continue # binary or empty
+  lines=$(wc -l < "$f")
+  printf '%s\t%s\t%s\n' "$f" "$lines" "$(classify "$f")" >> "$manifest"
+done < <(git ls-files -z)
+
+files_of_kind() { awk -F'\t' -v k="$1" '$3==k{print $1}' "$manifest"; }
+mapfile -t SRC   < <(files_of_kind src)
+mapfile -t TEST  < <(files_of_kind test)
+mapfile -t DOCS  < <(files_of_kind doc)
+mapfile -t TEXTS < <(cut -f1 "$manifest")
+
+trap 'echo "census: failed at line $LINENO (see the command there)" >&2' ERR
+
+rg_over() {  # rg_over <array-name> <rg args...>: run rg over the files in the named array
+  local -n arr="$1"; shift
+  [ ${#arr[@]} -gt 0 ] || return 0
+  rg --no-messages "$@" -- "${arr[@]}" || true
+}
+
+hits() {  # hits <files-array-name> <rg args...>: total matching lines across the files; always exits 0, prints 0 for none
+  local -n arr="$1"; shift
+  [ ${#arr[@]} -gt 0 ] || { echo 0; return 0; }
+  { rg --no-messages -c "$@" -- "${arr[@]}" || true; } | awk -F: '{s+=$NF} END{print s+0}'
+}
+
+# ---------------------------------------------------------------- suppressions
+{
+  echo "# every lint/warning suppression in src and test files (file:line: text)"
+  echo "# a suppression hides a class of finding from the compiler's own census; each one needs a reason next to it"
+  SRCTEST=("${SRC[@]}" "${TEST[@]}")
+  rg_over SRCTEST -n --no-heading \
+    -e '#!?\[(allow|expect)\(' \
+    -e 'noqa' -e 'type: *ignore' -e 'pylint: *disable' \
+    -e 'eslint-disable' -e '@ts-ignore' -e '@ts-expect-error' \
+    -e 'shellcheck +disable' -e 'nolint'
+} > "$out/suppressions.txt"
+
+# ---------------------------------------------------------------- duplicate-fns
+# Trait-impl names that legitimately recur are excluded; everything else is a candidate.
+{
+  echo "# function names defined in more than one production source file (name, count, files)"
+  echo "# candidates: a method named the same on two types is fine; two free functions with the same body are not"
+  # one rg call per language: the regex engine rejects a named group repeated across -e patterns
+  fn_defs() {
+    local pat
+    for pat in \
+      '^\s*(pub(\([^)]*\))?\s+)?(async\s+)?(unsafe\s+)?fn\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)' \
+      '^\s*(async\s+)?def\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)' \
+      '^\s*(export\s+)?(async\s+)?function\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)' \
+      '^func\s+(\([^)]*\)\s*)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)'; do
+      rg_over SRC -n --no-heading -o --replace '$name' -e "$pat"
+    done
+  }
+  fn_defs \
+  | awk -F: '{file=$1; name=$3; if (index(files[name], file "\n")==0) {files[name]=files[name] file "\n"; n[name]++}}
+      END {for (k in n) if (n[k]>1) {printf "%s\t%d\t", k, n[k]; gsub(/\n$/,"",files[k]); gsub(/\n/,", ",files[k]); print files[k]}}' \
+  | { grep -vE '^(new|default|fmt|from|try_from|into|from_str|deserialize|serialize|drop|clone|eq|ne|partial_cmp|cmp|hash|deref|deref_mut|as_ref|as_mut|next|poll|call|len|is_empty|iter|iter_mut|into_iter|get|set|insert|remove|contains|push|pop|clear|build|run|main|__init__|__str__|__repr__|__eq__|__hash__|__len__|__iter__|setUp|tearDown)\t' || true; } \
+  | sort
+} > "$out/duplicate-fns.txt"
+
+# ---------------------------------------------------------------- test-only-pub (Rust)
+{
+  echo "# Rust pub items whose name has no reference in any production source file other than its definition"
+  echo "# candidates: dead, or test-only and should be #[cfg(test)]; an inline #[cfg(test)] mod counts as production here, so this is a lower bound"
+  echo "# item\tdefined-at\tproduction-refs\ttest-refs"
+  RS_SRC=(); for f in "${SRC[@]}"; do case "$f" in *.rs) RS_SRC+=("$f");; esac; done
+  RS_TEST=(); for f in "${TEST[@]}"; do case "$f" in *.rs) RS_TEST+=("$f");; esac; done
+  if [ ${#RS_SRC[@]} -gt 0 ]; then
+    rg_over RS_SRC -n --no-heading -o --replace '$name' \
+      -e '^\s*pub(\([^)]*\))?\s+(async\s+)?(unsafe\s+)?(fn|struct|enum|trait|type|const|static)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)' \
+    | sort -t: -k3,3 -u \
+    | while IFS=: read -r file line item; do
+        [ "$item" = main ] && continue
+        prod=$(hits RS_SRC -w -e "$item")
+        test=$(hits RS_TEST -w -e "$item")
+        if [ "$prod" -le 1 ]; then printf '%s\t%s:%s\t%s\t%s\n' "$item" "$file" "$line" "$((prod-1))" "$test"; fi
+      done | sort
+  else
+    echo "# no Rust production source under: ${src_dirs[*]}"
+  fi
+} > "$out/test-only-pub.txt"
+
+# ---------------------------------------------------------------- unused-deps
+{
+  echo "# dependencies with no reference in source or tests, and dependencies declared in more than one section"
+  if [ -f Cargo.toml ]; then
+    echo "## Cargo.toml"
+    section=""
+    declare -A where=()
+    while IFS= read -r l; do
+      case "$l" in
+        \[dependencies\]) section=dependencies ;;
+        \[dev-dependencies\]) section=dev ;;
+        \[build-dependencies\]) section=build ;;
+        \[*) section="" ;;
+        *)
+          [ -n "$section" ] || continue
+          dep=$(printf '%s' "$l" | sed -nE 's/^([A-Za-z0-9_-]+)(\.[a-z-]+)? *=.*/\1/p')
+          [ -n "$dep" ] || continue
+          where["$dep"]="${where[$dep]:-}$section "
+          ;;
+      esac
+    done < Cargo.toml
+    ALL_RS=("${SRC[@]}" "${TEST[@]}")
+    for f in build.rs; do [ -f "$f" ] && ALL_RS+=("$f"); done
+    for dep in "${!where[@]}"; do
+      ident=${dep//-/_}
+      n=$(hits ALL_RS -e "\b${ident}::" -e "^\s*use\s+${ident}\b" -e "extern crate ${ident}\b" -e "\b${ident}!")
+      sections=$(printf '%s' "${where[$dep]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+      if [ "$n" -eq 0 ]; then printf 'no-reference\t%s\t[%s]\n' "$dep" "$sections"; fi
+      if [ "$(printf '%s' "${where[$dep]}" | wc -w)" -gt 1 ]; then printf 'declared-twice\t%s\t[%s]\n' "$dep" "$sections"; fi
+    done | sort
+    echo "# note: a crate used only through a macro or a derive can show no-reference; confirm before removing"
+    if [ "$run_cargo" -eq 1 ]; then
+      if cargo +nightly --version >/dev/null 2>&1 && cargo +nightly udeps --version >/dev/null 2>&1; then
+        echo "## cargo +nightly udeps --all-targets"
+        cargo +nightly udeps --all-targets 2>&1 | tail -n +1 || true
+      elif cargo machete --version >/dev/null 2>&1; then
+        echo "## cargo machete"
+        cargo machete 2>&1 || true
+      else
+        echo "## neither cargo-udeps (nightly) nor cargo-machete available; grep census only"
+      fi
+    fi
+  fi
+  if [ -f pyproject.toml ] && command -v ruff >/dev/null; then
+    echo "## ruff F401 (unused imports)"
+    ruff check --select F401 --output-format concise . 2>&1 || true
+  fi
+  if [ -f package.json ] && command -v npx >/dev/null && [ -d node_modules ]; then
+    echo "## depcheck"
+    npx --no-install depcheck 2>&1 || echo "depcheck not installed"
+  fi
+} > "$out/unused-deps.txt"
+
+# ---------------------------------------------------------------- warnings
+{
+  if [ "$run_cargo" -eq 0 ]; then
+    echo "# skipped: --no-cargo"
+  elif [ -f Cargo.toml ]; then
+    echo "# cargo clippy --all-targets --all-features (warnings and errors)"
+    cargo clippy --all-targets --all-features --message-format=short 2>&1 | rg '^\S+:\d+:\d+: (warning|error)' || echo "(none)"
+    echo "# cargo doc --no-deps (warnings)"
+    cargo doc --no-deps 2>&1 | rg -i 'warning' || echo "(none)"
+  else
+    echo "# no Cargo.toml; nothing run"
+  fi
+} > "$out/warnings.txt"
+
+# ---------------------------------------------------------------- doc-links
+{
+  echo "# relative markdown links whose target does not exist (file:line -> target)"
+  rg_over DOCS -n --no-heading -o --replace '$t' -e '\]\((?P<t>[^)\s]+)\)' \
+  | while IFS=: read -r file line target; do
+      t="${target%%#*}"; t="${t%%\?*}"
+      [ -n "$t" ] || continue
+      case "$t" in http://*|https://*|mailto:*|/*|'<'*) continue ;; esac
+      dir=$(dirname "$file")
+      [ -e "$dir/$t" ] || printf '%s:%s -> %s\n' "$file" "$line" "$target"
+    done
+} > "$out/doc-links.txt"
+
+# ---------------------------------------------------------------- doc-symbols
+{
+  echo "# backticked code-like tokens in docs with zero hits in production source (file:line token)"
+  echo "# classes: --flags, identifiers with _ or ::, calls foo(), and *.rs/*.py file names; env vars and shell commands will show up too, confirm each"
+  SRCTEST=("${SRC[@]}" "${TEST[@]}")
+  if [ ${#SRCTEST[@]} -gt 0 ]; then
+    rg_over DOCS -n --no-heading -o --replace '$t' -e '`(?P<t>[^`\s]{2,60})`' \
+    | while IFS=: read -r file line tok; do
+        tok="${tok%%(*}"   # foo(...) -> foo
+        case "$tok" in
+          --[a-z][a-z0-9-]*) key="$tok"; mode=fixed ;;
+          *::*) key="${tok##*::}"; mode=word ;;
+          *.rs|*.py|*.ts|*.go|*.sh) key="$(basename "$tok")"; mode=fixed ;;
+          *[a-z]_[a-z]*) key="$tok"; mode=word ;;
+          *) continue ;;
+        esac
+        case "$key" in *[!A-Za-z0-9_.-]*) continue ;; esac
+        if [ "$mode" = fixed ]; then
+          rg --no-messages -q -F -- "$key" "${SRCTEST[@]}" || printf '%s:%s %s\n' "$file" "$line" "$tok"
+        else
+          rg --no-messages -q -w -- "$key" "${SRCTEST[@]}" || printf '%s:%s %s\n' "$file" "$line" "$tok"
+        fi
+      done | sort -u
+  fi
+} > "$out/doc-symbols.txt"
+
+# ---------------------------------------------------------------- stale-paths
+{
+  echo "# repo-relative paths named in any tracked text file that do not exist (file:line path)"
+  rg_over TEXTS -n --no-heading -o --replace '$p' \
+    -e '(^|[^A-Za-z0-9_./-])(?P<p>(src|docs|examples|tests|bin|\.github)/[A-Za-z0-9_./-]+)' \
+  | while IFS=: read -r file line p; do
+      p="${p%%[.,:;]}"; p="${p%/}"
+      case "$p" in *'*'*|*'{'*|*'<'*) continue ;; esac
+      [ -e "$p" ] || printf '%s:%s %s\n' "$file" "$line" "$p"
+    done | sort -u
+} > "$out/stale-paths.txt"
+
+# ---------------------------------------------------------------- markers
+{
+  echo "# TODO FIXME XXX HACK todo! unimplemented! (file:line: text)"
+  rg_over TEXTS -n --no-heading -w -e 'TODO' -e 'FIXME' -e 'XXX' -e 'HACK' -e 'todo!' -e 'unimplemented!'
+} > "$out/markers.txt"
+
+# ---------------------------------------------------------------- summary
+count() { grep -cvE '^(#|$)' "$1" 2>/dev/null || true; }
+{
+  echo "# census of $name at $(git rev-parse --short HEAD) on $(date +%F)"
+  echo
+  echo "| census | count | file |"
+  echo "|---|---|---|"
+  printf '| manifest (tracked text files) | %s | manifest.tsv |\n' "$(wc -l < "$manifest")"
+  for k in src test doc config ci example other; do
+    printf '| manifest kind=%s | %s files, %s lines | manifest.tsv |\n' "$k" \
+      "$(awk -F'\t' -v k="$k" '$3==k' "$manifest" | wc -l)" \
+      "$(awk -F'\t' -v k="$k" '$3==k{s+=$2} END{print s+0}' "$manifest")"
+  done
+  for f in suppressions duplicate-fns test-only-pub unused-deps warnings doc-links doc-symbols stale-paths markers; do
+    printf '| %s | %s | %s.txt |\n' "$f" "$(count "$out/$f.txt")" "$f"
+  done
+  echo
+  echo "Every list above is complete for its class over every tracked file. Lists marked candidates in their header need one confirmation each; none may be dropped without a stated reason."
+} > "$out/summary.md"
+
+cat "$out/summary.md"
