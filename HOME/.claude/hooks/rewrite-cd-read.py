@@ -539,6 +539,70 @@ CWD_FREE_HEADS = {
 REV_RANGE = re.compile(r"^([A-Za-z0-9._/@^~-]+)\.\.([A-Za-z0-9._/@^~-]+)$")
 
 
+# The sandbox's built-in read-deny list. A recursive search that walks one of
+# these trips a mandatory prompt even when the search has nothing to do with
+# them -- observed live: `git grep -n "tech-spec-scoring-rubric" -- .` in a repo
+# that happens to contain a `.env` drew "git on '.' would read .../.env, which
+# the deny rule Read(./.env) covers". Excluding a file the command is forbidden
+# to read cannot change a legitimate result, so the exclusion is free.
+DENIED_READS = (".env", "secrets")
+
+
+def exclude_denied_reads(toks, stages):
+    """Add an exclusion for the deny-listed paths to recursive searches.
+
+    Returns (inserts, changed) where `inserts` maps a token index -> texts to
+    place after it. Scoped to the three search tools whose recursive form walks
+    a whole tree; anything naming explicit files is left alone, since it is not
+    the tree walk that trips the rule.
+    """
+    inserts: dict[int, list[str]] = {}
+    for s in stages:
+        values = [toks[i]["value"] for i in s]
+        while values and ASSIGNMENT.match(values[0]):
+            values = values[1:]
+        if not values:
+            continue
+        base = values[0].rsplit("/", 1)[-1]
+        idx_last = s[-1]
+        if base == "git":
+            rest = values[1:]
+            i = 0
+            while i < len(rest):
+                if rest[i] in ("-C", "--git-dir", "--work-tree", "--namespace", "-c"):
+                    i += 2
+                    continue
+                if rest[i].startswith("-"):
+                    i += 1
+                    continue
+                break
+            if (rest[i] if i < len(rest) else None) != "grep":
+                continue
+            if any(a.startswith(":(exclude)") or a.startswith(":!") for a in rest):
+                continue
+            # git grep takes pathspecs after `--`; magic exclusions work with or
+            # without one, and appending is safe either way.
+            inserts.setdefault(idx_last, []).extend(
+                [f"':(exclude){d}'" for d in DENIED_READS]
+            )
+        elif base in ("rg", "ugrep"):
+            if any(a.startswith(("--glob", "-g", "--iglob")) for a in values[1:]):
+                continue
+            inserts.setdefault(idx_last, []).extend(
+                [f"--glob '!{d}'" for d in DENIED_READS]
+            )
+        elif base in ("grep", "egrep", "fgrep"):
+            if not any(a.startswith("-") and ("r" in a.lstrip("-") or a in ("--recursive",))
+                       for a in values[1:]):
+                continue
+            if any(a.startswith("--exclude") for a in values[1:]):
+                continue
+            inserts.setdefault(idx_last, []).extend(
+                [f"--exclude='{d}'" for d in DENIED_READS]
+            )
+    return inserts, bool(inserts)
+
+
 def can_drop_cd(flat, stages) -> bool:
     """True when removing the leading `cd` cannot change what the command reads.
 
@@ -833,7 +897,10 @@ def rewrite(cmd: str, start_cwd: str):
     if not stages:
         return None
     heads = [toks[s[0]]["value"] for s in stages]
-    if "cd" not in heads:
+    # A command with no `cd` still needs the deny-read exclusion pass: that
+    # prompt fires on the tree walk, not on an unresolvable relative path.
+    needs_exclusion = exclude_denied_reads(toks, stages)[1]
+    if "cd" not in heads and not needs_exclusion:
         return None
 
     all_safe = True
@@ -894,7 +961,11 @@ def rewrite(cmd: str, start_cwd: str):
             if vals and vals[0] == "git" and not same_dir and "-C" not in vals:
                 inserts[s[0]] = ["-C", cwd]
 
-    if not (replacements or drops):
+    denied_inserts, excluded = exclude_denied_reads(toks, stages)
+    for k, v in denied_inserts.items():
+        inserts.setdefault(k, []).extend(v)
+
+    if not (replacements or drops or excluded):
         log_bail("<nothing-rewritable>", cmd)
         return None
     return splice(cmd, toks, drops, replacements, inserts).strip(), all_safe
