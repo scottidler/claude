@@ -548,6 +548,68 @@ REV_RANGE = re.compile(r"^([A-Za-z0-9._/@^~-]+)\.\.([A-Za-z0-9._/@^~-]+)$")
 DENIED_READS = (".env", "secrets")
 
 
+# Flags that consume the NEXT token as their value, so that token is not an
+# operand. Needed to tell "this search has a path" from "this search has none".
+SEARCH_VALUE_FLAGS = {
+    "-e", "--regexp", "-g", "--glob", "--iglob", "-m", "--max-count",
+    "-A", "--after-context", "-B", "--before-context", "-C", "--context",
+    "-t", "--type", "-T", "--type-not", "--exclude", "--include",
+    "--exclude-dir", "-f", "--file", "-M", "--max-columns", "-j", "--threads",
+    "--sort", "--sortr", "--colors", "--color", "--encoding", "-E",
+}
+
+
+def make_stdin_explicit(toks, stages):
+    """Give a piped, pathless search an explicit `-` operand.
+
+    A search with no path defaults to the working directory, and the permission
+    analyzer reasons on that default: `git show <rev>:<file> | rg -n 'pat'` drew
+    "rg on '.' would read .../.env, which the deny rule Read(./.env) covers"
+    even with `--glob '!.env'` already on it -- the analyzer does not model glob
+    exclusions. But that rg reads the PIPE, never the directory, so `.` was
+    never going to be searched at all.
+
+    `-` means stdin to rg, grep, egrep, fgrep and ugrep alike, and for a piped
+    command it is exactly what already happens implicitly (verified: output is
+    identical with and without it). Making it explicit removes the phantom `.`
+    the analyzer was objecting to.
+    """
+    inserts: dict[int, list[str]] = {}
+    piped_from_prev = False
+    for s in stages:
+        values = [toks[i]["value"] for i in s]
+        end = s[-1]
+        nxt = toks[end + 1] if end + 1 < len(toks) else None
+        was_piped = piped_from_prev
+        piped_from_prev = bool(nxt and nxt["type"] == "sep" and nxt["value"] == "|")
+        while values and ASSIGNMENT.match(values[0]):
+            values = values[1:]
+        if not values:
+            continue
+        base = values[0].rsplit("/", 1)[-1]
+        if base not in ("rg", "grep", "egrep", "fgrep", "zgrep", "ugrep"):
+            continue
+        if not was_piped:
+            continue
+        operands = []
+        i = 1
+        rest = values[1:]
+        while i - 1 < len(rest):
+            tok = rest[i - 1]
+            if tok in SEARCH_VALUE_FLAGS:
+                i += 2
+                continue
+            if tok.startswith("-") and tok != "-":
+                i += 1
+                continue
+            operands.append(tok)
+            i += 1
+        # One operand is the pattern; a second would be a real path.
+        if len(operands) <= 1 and "-" not in operands:
+            inserts.setdefault(end, []).append("-")
+    return inserts, bool(inserts)
+
+
 def exclude_denied_reads(toks, stages):
     """Add an exclusion for the deny-listed paths to recursive searches.
 
@@ -899,7 +961,7 @@ def rewrite(cmd: str, start_cwd: str):
     heads = [toks[s[0]]["value"] for s in stages]
     # A command with no `cd` still needs the deny-read exclusion pass: that
     # prompt fires on the tree walk, not on an unresolvable relative path.
-    needs_exclusion = exclude_denied_reads(toks, stages)[1]
+    needs_exclusion = exclude_denied_reads(toks, stages)[1] or make_stdin_explicit(toks, stages)[1]
     if "cd" not in heads and not needs_exclusion:
         return None
 
@@ -964,8 +1026,11 @@ def rewrite(cmd: str, start_cwd: str):
     denied_inserts, excluded = exclude_denied_reads(toks, stages)
     for k, v in denied_inserts.items():
         inserts.setdefault(k, []).extend(v)
+    stdin_inserts, stdin_marked = make_stdin_explicit(toks, stages)
+    for k, v in stdin_inserts.items():
+        inserts.setdefault(k, []).extend(v)
 
-    if not (replacements or drops or excluded):
+    if not (replacements or drops or excluded or stdin_marked):
         log_bail("<nothing-rewritable>", cmd)
         return None
     return splice(cmd, toks, drops, replacements, inserts).strip(), all_safe
