@@ -745,10 +745,18 @@ def stage_is_dangerous(values: list[str]) -> bool:
                 continue
             break
         sub = rest[i] if i < len(rest) else None
-        # Only the subcommands the deny rules name. Every other git subcommand
-        # -- known read-only or not -- is rewritable; it simply may not be
-        # auto-allowed, which stage_is_safe decides separately.
-        return sub in ("tag", "push")
+        args = rest[i + 1:]
+        # Refuse only the FORMS the deny rules actually match, not the whole
+        # subcommand. `Bash(git tag -d *)` and `Bash(git push * :refs/tags/*)`
+        # key on the command text, and this hook can insert `-C <dir>` after
+        # `git`, which would move such a command out of its own deny pattern.
+        # But `git tag --points-at HEAD` and `git tag -l` are queries, and
+        # blanket-refusing `tag` re-broke a plain bump verification command.
+        if sub == "tag":
+            return any(a in ("-d", "--delete") for a in args)
+        if sub == "push":
+            return any(a == "--delete" or a.startswith(":") or ":" in a for a in args)
+        return False
     return False
 
 
