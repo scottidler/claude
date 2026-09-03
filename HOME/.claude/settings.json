@@ -828,6 +828,10 @@
           },
           {
             "type": "command",
+            "command": "~/.claude/hooks/rewrite-cd-read.py"
+          },
+          {
+            "type": "command",
             "command": "~/.claude/hooks/git-no-dash-c.sh"
           },
           {
