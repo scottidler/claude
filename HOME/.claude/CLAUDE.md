@@ -52,6 +52,9 @@ Conventions — how I write code & config:
 - `cli` — CLI flag behavior: space-separated, no commas (always-on)
 - `logging` — function-level debug logging (always-on)
 - `python` / `rust` / `js-ts` / `yaml` — language-specific (path-scoped)
+- `comments` — name it, don't narrate it: self-explanatory names over
+  restating-comments; comment only tricky/subtle/scar-tissue cases
+  (path-scoped: code files + yaml, not json)
 
 Tool rules — hard constraints on specific tools:
 - `git` — tag/push/working-dir safety (always-on)
