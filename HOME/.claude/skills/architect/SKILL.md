@@ -230,6 +230,7 @@ Identify:
 3. Implementation decisions that deviate from the spec — intentional or not
 4. Code patterns that contradict the design's stated approach
 5. Anything skipped, quietly deferred, or changed without acknowledgment
+6. **Behavioral regressions — a first-class finding, not a sub-case of deviation.** For every commit that changes runtime behavior, ask what a user could observe that changed against the PREVIOUS release: an input, command, config, or ottofile that was accepted or produced result A before, and now errors, hangs, or produces result B. Two failure shapes to hunt specifically: (a) a commit message that claims to fix a CLASS ("every X", "all Y forms", "handles Z") but fixes one instance — name the cases in the class still broken; (b) a change that fixes one phase's target but is reached by another, unrelated code path the phase never touched (a converter that still emits what a new loader rejects, a default that another caller reads). The design doc's stated behavior changes are the ALLOWED set; anything a user could have relied on that changed and is NOT called out there is a regression. For each, emit a concrete differential probe on its own line, prefixed `PROBE:` — the exact command or input, what you believe the previous release did, and what the current tree does — so it can actually be run.
 
 Be specific. Reference exact design sections and cross-check against the actual commits and code.
 Do not praise without cause.
@@ -255,6 +256,18 @@ Display the response as:
 [ARCHITECT]
 <gemini response>
 ```
+
+## Step 4.5: For Mode 2 — Run the differential probes (Claude, not the Architect)
+
+The Architect is read-only and workspace-jailed: it reasons about behavior from the code, it never runs the binary. That is exactly the gap that lets a behavioral regression through a clean design-doc audit — the code matched the doc, but diverged from the previous release. You are not sandboxed, so you close it.
+
+For every `PROBE:` the Architect emitted — and every behavior-changing commit in the range that it did NOT probe — actually run it both ways:
+
+- Build the current tree once.
+- Get the previous-release binary: the installed one is usually it (`which <tool>`, confirm with `<tool> --version` against `$PREV_TAG`); otherwise `git worktree add <tmp> $PREV_TAG` and build there. Never compare the new tree against itself.
+- Run the probe against both binaries and capture both outputs verbatim.
+
+Report under `[CLAUDE]`: a difference the design doc does not call out is a confirmed regression — show the command and both outputs. A probe that behaves identically is a cleared suspicion, worth one line. This step, not the reading, is what catches the class: in the 2026-09-03 audit of otto PR #3, three of four regressions were invisible to every read-only reviewer and fell out of the first old-vs-new run. Running a read-only probe is verification, not fixing — it does not violate the "do not act on findings" rule below.
 
 ## Step 5: Claude's Response
 

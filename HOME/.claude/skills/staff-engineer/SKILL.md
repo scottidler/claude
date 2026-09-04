@@ -188,6 +188,7 @@ Identify:
 3. Implementation decisions that deviate from the spec — intentional or not
 4. Code patterns that contradict the design's stated approach, and any correctness/operability risk in what was built
 5. Anything skipped, quietly deferred, or changed without acknowledgment
+6. **Behavioral regressions — a first-class finding, and the one you are best placed to catch.** You have git in the read-only sandbox: for every commit that changes runtime behavior, read the PRE-change version of the touched function with `git show <PREV_TAG>:<path>` (or `git show <commit>^:<path>`) and compare it to the current one. Identify any input, command, config, or file that was accepted or produced result A before and now errors, hangs, or produces result B. Two shapes to hunt specifically: (a) a commit message claiming to fix a CLASS ("every X", "all Y forms", "handles Z") that fixes one instance — name the cases in the class still broken; (b) a change whose target is reached by an unrelated code path the phase never touched (a converter still emitting what a new loader rejects; a default another caller reads). The design doc's stated behavior changes are the ALLOWED set; anything a user could have relied on that changed and is NOT called out there is a regression. For each, emit a concrete differential probe on its own line, prefixed `PROBE:` — the exact command or input, what the previous release did (quote the base-version code you read), and what the current tree does.
 
 Be specific. Cite exact design sections and cross-check against the actual commits and code (rg/git/read). Report what you verified and how. Do not praise without cause.
 ```
@@ -210,6 +211,18 @@ Display the response as:
 [STAFF-ENGINEER]
 <codex final message>
 ```
+
+## Step 4.5: For Mode 2 — Run the differential probes (Claude, not the Staff Engineer)
+
+Codex runs read-only: it can read the base version with `git show` and reason about divergence, but it cannot build or run a binary. So it can name a suspected regression; it cannot confirm one. You are not sandboxed, so you close it.
+
+For every `PROBE:` the Staff Engineer emitted — and every behavior-changing commit in the range it did NOT probe — actually run it both ways:
+
+- Build the current tree once.
+- Get the previous-release binary: usually the installed one (`which <tool>`, confirm `<tool> --version` against `$PREV_TAG`); otherwise `git worktree add <tmp> $PREV_TAG` and build there. Never compare the new tree against itself.
+- Run the probe against both binaries and capture both outputs verbatim.
+
+Report under `[CLAUDE]`: a difference the design doc does not call out is a confirmed regression — show the command and both outputs. A probe that behaves identically is a cleared suspicion, worth one line. This step, not the reading, is what catches the class: in the 2026-09-03 audit of otto PR #3, three of four regressions were invisible to every read-only reviewer and fell out of the first old-vs-new run. Running a read-only probe is verification, not fixing — it does not violate the "do not act on findings" rule below.
 
 ## Step 5: Claude's Response
 
