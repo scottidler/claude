@@ -437,6 +437,28 @@ git add docs/design/<design-doc>.md
 git commit -m "docs: mark <feature> design doc as implemented"
 ```
 
+### 2. Implementation audit — BEFORE the checkpoint, not after
+
+The doc is now `Status: Implemented`, so the reviewers run in Mode 2 and walk
+every Implementation Plan bullet against the committed code. **Run it here**,
+while every commit is still local and nothing is tagged, pushed, or deployed.
+That is the whole point: a finding at this moment changes what ships. The same
+finding after step 5 can only be fixed forward, on an ungated repo into a
+`main` that is already live and daemons that have already restarted.
+
+Offer it on its own line so the prompt predictor picks it up (Tab + Enter):
+
+```
+send to the review-panel agent for an implementation audit
+```
+
+Then **wait for the user**. They may run it, skip it, or defer it — all three
+are fine, it is their call and it is not a gate. What is NOT fine is sailing
+past it into the checkpoint without offering, or offering it once the push has
+already happened.
+
+Fold anything the audit turns up into the phase commits before continuing.
+
 ### 3. Confirmation checkpoint (REQUIRED before any irreversible action)
 
 The remaining steps — bump, push, tag, install — are irreversible or externally
@@ -502,13 +524,15 @@ verify at the runtime surface:
 ```
 ┌──────────────────────────────────────────────────┐
 │  0. Surface implementation notes (non-blocking)  │
-│  1. Update design doc status to "Implemented"    │
-│  2. Commit the status change (local, reversible) │
+│  1. Update design doc status + commit (local)    │
+│  2. OFFER THE IMPLEMENTATION AUDIT — here, while │
+│     nothing is tagged, pushed, or deployed       │
 │  3. CONFIRMATION CHECKPOINT — get user approval  │
 │     for the irreversible actions below           │
 │  4. /bump (patch by default)        [if approved]│
 │  5. git push && git push --tags     [if approved]│
 │  6. cargo install --path .          [if approved]│
+│  7. Verify at the runtime surface   [if shipped] │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -517,14 +541,14 @@ push, tag, and install — those are gated behind the step 3 confirmation
 checkpoint and run ONLY with explicit user approval. Never bump, push, tag, or
 install without it.
 
-## Closing: suggest the audit
+## Closing
 
-After finalization, the natural next step is the **Implementation Audit** — the
-doc is now `Status: Implemented`, so the reviewers run in Mode 2 and walk every
-Implementation Plan bullet against the committed code. End the turn with the
-recommended command on its **own line**, nothing after it, so Claude Code's
-prompt predictor offers it as the ghost suggestion (Tab + Enter to run):
+Report what shipped: the phase commits, the tag if one was cut, the CI result,
+and anything that came back from the runtime check in step 7. Name explicitly
+whatever is left undone and why — a blocked bullet, a criterion that could only
+be measured after a deploy, an item the user has to run by hand.
 
-```
-send to the review-panel agent for an implementation audit
-```
+Do NOT close by suggesting the implementation audit. It belongs at step 2,
+before the irreversible actions. Suggesting it here asks the user to review
+code that is already tagged, pushed, and deployed, where every finding is
+fix-forward — which is why they will decline, and rightly.
