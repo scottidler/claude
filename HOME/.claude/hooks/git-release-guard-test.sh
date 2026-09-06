@@ -173,6 +173,26 @@ run allow dep-bump  'gh pr create --title "chore(deps): bump" --body "Release: n
 run deny  feat-real 'gh pr create --title "feat: real" --body "no intent line here"'
 run deny  dep-bump  'gh pr create --title "chore(deps): bump" --body "Release: rides this PR (v9.9.9)"'  # claims rides, no version change
 
+# --body-file: the path is read from the RAW command text, so every quoting and
+# expansion form has to land. All four "allow" cases below denied before
+# 2026-09-06 (otto-rs/otto #6, #7): the file test failed silently and the body
+# was never read.
+printf 'Release: rides this PR (v0.1.1)\n\nreal work\n' > "$ROOT/body.md"
+printf 'Release: rides this PR (v0.1.1)\n\nreal work\n' > "$ROOT/body with space.md"
+run allow feat-real "gh pr create --title 'feat: real' --body-file $ROOT/body.md"
+run allow feat-real "gh pr create --title 'feat: real' --body-file '$ROOT/body.md'"
+run allow feat-real "gh pr create --title 'feat: real' --body-file \"$ROOT/body.md\""
+run allow feat-real "gh pr create --title 'feat: real' --body-file=$ROOT/body.md"
+run allow feat-real "gh pr create --title 'feat: real' --body-file \"$ROOT/body with space.md\""
+# Named but unverifiable: still a deny. These three denied before the fix too,
+# so they do not discriminate old from new -- the harness matches the DECISION,
+# not the reason, and the change here is that the reason is now accurate
+# ("cannot be read") instead of the misleading "no release-intent line". They
+# are pinned so a later rewrite cannot quietly let an unreadable body through.
+run deny  feat-real 'gh pr create --title "feat: real" --body-file $BODY/b.md'
+run deny  feat-real 'gh pr create --title "feat: real" --body-file -'
+run deny  feat-real 'gh pr create --title "feat: real" --body-file /nonexistent/body.md'
+
 echo "=== Gate D: applies to versioned-but-NEVER-tagged repos (okta-auth-py #5/#6) ==="
 REPO="$P"
 run deny  py-feat        'gh pr create --title "feat: real" --body "no intent line here"'

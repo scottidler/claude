@@ -283,8 +283,32 @@ check_stmt() {
     done
     if [ -n "$release_managed" ]; then
       gated_body="$cmd"
-      bf=$(printf '%s' "$s" | grep -oE '\-\-body-file(=|[[:space:]]+)[^[:space:]]+' | head -1 | sed -E 's/--body-file(=|[[:space:]]+)//')
-      if [ -n "$bf" ] && [ -f "$bf" ]; then gated_body="$gated_body $(cat "$bf")"; fi
+      # The path is read out of the RAW command text, which the hook never
+      # expands. A quoted path kept its quotes and a $VAR path stayed literal,
+      # so [ -f "$bf" ] failed SILENTLY, gated_body stayed as the command alone,
+      # and a PR whose body file opened with a perfectly good Release: line was
+      # denied for "no release-intent line" (otto-rs/otto #6 and #7 both hit it
+      # on 2026-09-06, costing two retries and a wrong root cause the first
+      # time). Match the quoted forms, strip the quotes, and refuse LOUDLY and
+      # accurately when a body file was named but cannot be read, instead of
+      # judging an empty body and reporting the wrong reason.
+      q="'"
+      bf=$(printf '%s' "$s" | grep -oE "\-\-body-file(=|[[:space:]]+)(\"[^\"]*\"|$q[^$q]*$q|[^[:space:]]+)" | head -1 | sed -E "s/--body-file(=|[[:space:]]+)//")
+      bf=$(printf '%s' "$bf" | sed -E "s/^\"(.*)\"$/\1/; s/^$q(.*)$q$/\1/")
+      if [ -n "$bf" ]; then
+        case "$bf" in
+          *'$'*|*'`'*)
+            deny "DENIED: --body-file path '$bf' carries a shell construct this hook cannot expand, so the PR body cannot be read and its release-intent line cannot be verified. Pass the literal path: this gate reads the raw command text, not the expanded one."
+            ;;
+          -)
+            deny "DENIED: --body-file - takes the PR body from stdin, which this hook cannot see, so the release-intent line cannot be verified. Write the body to a file and pass its literal path."
+            ;;
+        esac
+        if [ ! -r "$bf" ]; then
+          deny "DENIED: --body-file '$bf' cannot be read, so the PR body cannot be checked for a release-intent line. Pass a literal path to an existing, readable file."
+        fi
+        gated_body="$gated_body $(cat "$bf")"
+      fi
       if ! printf '%s' "$gated_body" | grep -Eqi 'release:[[:space:]]*(rides|none)'; then
         deny "DENIED: PR on a release-managed repo without a release-intent line. Decide NOW, in the body: 'Release: rides this PR (vX.Y.Z)' (run 'bump --no-tag' on this branch first so the version commit rides) or 'Release: none -- <why>'. This gate exists because PRs that merge without their bump create the no-legal-path deadlock (slack-cli #14/#15, mcp-io-rs #6/#7): after merge, a bump can only ride the NEXT feature PR or a Scott-ordered standalone bump."
       fi
