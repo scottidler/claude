@@ -33,6 +33,10 @@ powerline/
 # Auto memory (project-scoped, generated per-machine)
 memory/
 
+# Third-party skills managed by the `skills` CLI (https://github.com/vercel-labs/skills),
+# not manifest-managed here. Reinstall: npx skills add <owner/repo> -g --skill <name> --agent claude-code -y
+HOME/.claude/skills/archify/
+
 # Credentials and sessions (per-machine, sensitive)
 .credentials.json
 sessions/
