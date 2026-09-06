@@ -106,7 +106,7 @@ before).
 > Review this design document. Implementation has NOT started. Identify: (1) the top risks to correctness/architecture/operability and why; (2) unverified assumptions or ones that break under load / on the unhappy path; (3) missing design decisions that should be explicit (failure handling, migration, rollback, observability); (4) whether the doc has falsifiable acceptance criteria — overall AND per phase (assert-style statements that evaluate true when done); flag every phase whose success is vague or unstated; (5) unrequested scope — anything in the doc no one asked for; (6) your hardest question for the author. Judge against the Owner's Standards section included in this prompt, not generic best practice. Verify against the actual codebase before asserting. Be specific — cite exact sections, files, lines. Do not praise without cause.
 
 **Mode 2 — Implementation Audit** (embed the COMMIT_CONTEXT from Step 1):
-> Review this design document. The implementation is COMPLETE. Commit log + diff stat since last tag: `<COMMIT_CONTEXT>`. Audit whether the implementation delivered the spec. **COMPLETENESS IS REQUIRED** — walk the Implementation Plan phase by phase, bullet by bullet; for each bullet, verify it was actually implemented by reading the code. Cross-module wiring, config loading/deserialization, daemon/service integration, and registration steps are the most commonly skipped — check these explicitly. Identify: (1) completeness gaps (the primary finding — name the exact bullet and the file/function where it's missing); (2) requirements unimplemented or partial; (3) UNDISCLOSED deviations from the spec (distinguish them from deviations disclosed in the implementation notes — undisclosed ones are the top severity; disclosed-and-reasoned ones may ride); (4) code patterns contradicting the design or the Owner's Standards included in this prompt; (5) acceptance criteria: verify each one in the doc actually holds against the code, and say which you could not verify; (6) anything skipped, deferred, or changed without acknowledgment. Cite files and lines for what you verified. Do not praise without cause.
+> Review this design document. The implementation is COMPLETE. Commit log + diff stat since last tag: `<COMMIT_CONTEXT>`. Audit whether the implementation delivered the spec. **COMPLETENESS IS REQUIRED** — walk the Implementation Plan phase by phase, bullet by bullet; for each bullet, verify it was actually implemented by reading the code. Cross-module wiring, config loading/deserialization, daemon/service integration, and registration steps are the most commonly skipped — check these explicitly. Identify: (1) completeness gaps (the primary finding — name the exact bullet and the file/function where it's missing); (2) requirements unimplemented or partial; (3) UNDISCLOSED deviations from the spec (distinguish them from deviations disclosed in the implementation notes — undisclosed ones are the top severity; disclosed-and-reasoned ones may ride); (4) code patterns contradicting the design or the Owner's Standards included in this prompt; (5) acceptance criteria: verify each one in the doc actually holds against the code, and say which you could not verify; (6) anything skipped, deferred, or changed without acknowledgment; (7) **behavioral regressions** — for every commit that changes runtime behavior, what a user could observe that changed against the PREVIOUS release: an input, command, or config accepted or producing result A before and now erroring, hanging, or producing result B. Hunt two shapes specifically: a commit message claiming to fix a CLASS ("every X", "all Y forms") that fixed one instance (name the cases still broken), and a change reached by an unrelated code path the phase never touched (a converter still emitting what a new loader rejects, a default another caller reads). The doc's stated behavior changes are the ALLOWED set; anything relied upon that changed and is NOT called out is a regression. Read the base version to compare (`git show <PREV_TAG>:<path>`). For each, emit a line prefixed `PROBE:` — the exact command or input, what the previous release did, what the current tree does — so it can be run. Cite files and lines for what you verified. Do not praise without cause.
 
 If the caller gave a focused question, append "Focus specifically on: <focus>."
 
@@ -220,6 +220,17 @@ substitute can read the reference repos. Rules:
 - If the substitute ALSO fails, report both failures plainly and synthesize
   from whichever seat succeeded.
 
+## Step 3.75 — Mode 2 only: run the differential probes yourself
+
+Both reviewers are read-only: Gemini never runs the binary, Codex cannot build or run one. So each can name a suspected behavioral regression and emit a `PROBE:` line, but neither can confirm it. You have Bash. This step is what closes the audit's oldest blind spot — the code matched the design doc bullet for bullet, and still shipped four regressions against the previous release (otto PR #3, 2026-09-03), because nobody ran the old binary next to the new one.
+
+1. Collect every `PROBE:` line from `$RUN_DIR/arch.out` and `$RUN_DIR/staff.out`. Add any behavior-changing commit in COMMIT_CONTEXT that neither reviewer probed — a commit whose message claims to fix or change runtime behavior is in scope even with no `PROBE:`.
+2. Get the previous-release binary once: usually the installed one (`which <tool>`, confirm `<tool> --version` reports `$PREV_TAG`); otherwise `git worktree add "$RUN_DIR/prev" $PREV_TAG` and build there. Build the current tree once. Never compare the new tree against itself.
+3. Run each probe against both binaries, capture both outputs verbatim to `$RUN_DIR/probes.md`: the command, the previous output, the current output, and a one-word verdict — REGRESSION (differs and the design doc does not call the change out), INTENDED (differs and the doc names it), or SAME.
+4. If getting a working previous binary is genuinely impossible (no build for `$PREV_TAG`, toolchain gone), say so in `probes.md` and fall back to reading the base source (`git show $PREV_TAG:<path>`) for each probe — and mark those verdicts `[UNVERIFIED: reasoned, not run]`.
+
+Every REGRESSION is a must-fix finding in the synthesis, carried in with both outputs. This is not optional in Mode 2: a synthesis with unrun probes is incomplete, the same way one written without reading `dispatch-status.txt` is.
+
 ## Step 4 — Synthesize ONCE, to a FILE first
 
 **Why a file first:** the harness's idle/completion signal fires whenever this
@@ -230,9 +241,10 @@ re-querying the agent or reading `$RUN_DIR/{arch,staff}.out` by hand, and never
 fixed at the root (Scott, 2026-08-08: "why does this keep happening"). The fix
 is to never depend on the chat turn as the only completion artifact:
 
-1. Re-check `$RUN_DIR/dispatch-status.txt` (Step 3) and the doc-drift diff
-   (Step 1.1). Both are mandatory inputs to the synthesis — never write it
-   without having actually looked at them first.
+1. Re-check `$RUN_DIR/dispatch-status.txt` (Step 3), the doc-drift diff
+   (Step 1.1), and — in Mode 2 — `$RUN_DIR/probes.md` (Step 3.75). All are
+   mandatory inputs to the synthesis — never write it without having actually
+   looked at them first.
 2. Write the full synthesis to `$RUN_DIR/synthesis.md`: both reviewers' raw
    output under `[ARCHITECT]`/`[STAFF-ENGINEER]` headers, then **one
    reconciled findings list** as `[SYNTHESIS]`:
@@ -279,6 +291,7 @@ until all three of these are true, in this order:**
 
 ```
 [ ] $RUN_DIR/dispatch-status-r$ROUND.txt exists and you have read it back
+[ ] Mode 2 only: $RUN_DIR/probes.md exists, every PROBE was run old-vs-new (or marked UNVERIFIED with a reason), and each REGRESSION is in the synthesis
 [ ] $RUN_DIR/synthesis.md contains this round's section and wc -c > 0
 [ ] SendMessage returned success for this round's report
 ```
