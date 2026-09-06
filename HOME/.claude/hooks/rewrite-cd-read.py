@@ -906,7 +906,8 @@ def main():
     except Exception:
         print("{}")
         return
-    cmd = (payload.get("tool_input") or {}).get("command") or ""
+    tool_input = payload.get("tool_input") or {}
+    cmd = tool_input.get("command") or ""
     start_cwd = payload.get("cwd") or ""
     if not cmd.strip() or not start_cwd:
         print("{}")
@@ -918,9 +919,14 @@ def main():
         return
     rewritten, all_safe = result
 
+    # updatedInput REPLACES tool_input wholesale; it is not merged. Emitting
+    # only `command` silently discarded every sibling field, most damagingly
+    # `dangerouslyDisableSandbox`, so a cd-prefixed `git push` the model asked
+    # to run unsandboxed ran sandboxed instead and died on an unreadable
+    # ~/.ssh ("Host key verification failed"). Carry the original fields.
     out = {
         "hookEventName": "PreToolUse",
-        "updatedInput": {"command": rewritten},
+        "updatedInput": {**tool_input, "command": rewritten},
     }
     if all_safe:
         # Every stage is on the read-only whitelist, so the rewrite AND the
