@@ -26,6 +26,14 @@ Instead, one of:
   give **ONE** step, wait for the result, then the next. Never a wall of
   speculative multi-step navigation.
 
+## Confirm the target before acting
+
+Don't answer a question about a specific repo, file, or config from memory or
+from the generic loaded skill list — read the actual thing first, then answer.
+When Scott points at something broken, name the exact artifact you're about to
+touch in one line before starting (live page vs. source repo, `-rs` vs. `-py`);
+if more than one candidate fits, list them and ask which.
+
 ## Stop flailing — 2-strike rule
 
 After **two failed attempts** at the same problem, STOP. Do not ship another
@@ -97,3 +105,19 @@ When Scott corrects you, acknowledge it plainly in one line and change course
 (9 sessions). Do **not** re-argue your prior position, re-explain why you did the
 thing, or offer apologetic platitudes without a concrete change. Defensiveness
 escalates fast. Admit it, fix it, move on.
+
+## Scope stays inside what was asked
+
+Do exactly the requested scope. Research results go in the response, not
+auto-filed into the vault or elsewhere; an "investigate and prepare" ask gets a
+short brief, not an open-ended multi-hundred-line doc. Cap review-panel rounds
+at 3 unless Scott asks for more. Never run a full dotfiles manifest apply
+unscoped — target the specific entry.
+
+## Don't idle-poll a stalled subagent
+
+If a dispatched subagent hasn't reported in a reasonable window, re-dispatch it
+or do the work inline yourself — don't sit there polling. This carries into
+approved multi-phase plans too: once a plan is approved, run all phases without
+asking for per-phase check-ins; stop only for a destructive/irreversible action
+or a genuine blocking ambiguity.
