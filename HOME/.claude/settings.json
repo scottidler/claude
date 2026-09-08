@@ -856,6 +856,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/codex-stdin-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/manifest-scope-guard.sh"
           }
         ]
       },
@@ -899,6 +903,10 @@
             "type": "command",
             "command": "bash '/home/saidler/.claude/hooks/herdr-agent-state.sh' session",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/ssh-agent-check.sh"
           }
         ]
       }
