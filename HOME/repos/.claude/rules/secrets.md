@@ -94,3 +94,25 @@ this PWD miss and prepend `GH_PERSONA=work` (or `GH_PERSONA=home`). Confirm with
 `gh api user --jq .login`. Do NOT start guessing at raw tokens or cycling auth
 methods -- rapid-fire auth attempts trip Claude Code's auto-mode credential
 classifier. One hypothesis, one deliberate test.
+
+### The rails plugin now does this for you (do not hand-roll it)
+
+`~/.claude/skills/rails` is a function-hooks plugin (`rails@skills-dir`). Its
+`tool.call` hook injects `GH_PERSONA=work|home` into every `gh` invocation the
+Bash tool runs, so a session never has to remember the persona:
+
+- cwd under `/repos/tatari-tv` -> `work`; anywhere else -> `home`.
+- An org named in the gh arguments BEATS the cwd, which is exactly the PWD miss
+  above: `gh api repos/tatari-tv/philo` from `/tmp` gets `work`.
+- A command that names both orgs, or that already sets `GH_PERSONA`, `GH_TOKEN`
+  or `GITHUB_TOKEN`, is left alone.
+- The transcript shows the prefixed command, and the model gets one context line
+  saying which persona was injected and why.
+
+So do NOT wrap `gh` in a manual `eval "$(... decrypt ...)"` + `GH_TOKEN=` dance,
+and do not prepend `GH_PERSONA=` yourself: the hook has it. Setting it by hand
+still wins (the hook stands down), which is the escape hatch.
+
+Off switch: `claude plugin disable rails@skills-dir`, or
+`pluginConfigs.rails.options.gh_persona: false` in settings.json.
+Verbose decisions: same options block, `debug: true`.

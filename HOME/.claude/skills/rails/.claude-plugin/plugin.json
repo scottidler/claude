@@ -1,0 +1,24 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "rails",
+  "version": "0.1.0",
+  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA",
+  "author": {
+    "name": "Scott A. Idler",
+    "email": "scott.a.idler@gmail.com"
+  },
+  "userConfig": {
+    "gh_persona": {
+      "type": "boolean",
+      "default": true,
+      "title": "gh persona",
+      "description": "Inject GH_PERSONA=work|home into every gh invocation the Bash tool runs. Underscore because the plugin schema rejects hyphens in these keys."
+    },
+    "debug": {
+      "type": "boolean",
+      "default": false,
+      "title": "debug",
+      "description": "Log every decision to the transcript and the --debug log"
+    }
+  }
+}
