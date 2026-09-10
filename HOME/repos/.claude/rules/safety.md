@@ -30,7 +30,3 @@ paths:
 ## Python Package Management
 
 - NEVER use `pip install`. EVER. Always use `pipx` for installing Python tools/packages. No exceptions.
-
-## Rust CLI Overrides
-
-- A Rust variant of `tail` is installed at `~/.cargo/bin/tail` and shadows `/usr/bin/tail`. It has incompatible flags. In Bash commands, always use `/usr/bin/tail` instead of bare `tail`.
