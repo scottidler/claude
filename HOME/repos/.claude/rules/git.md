@@ -13,6 +13,23 @@ alwaysApply: true
 - ONLY create tags on `main` or `master`. NEVER tag dev, feature, or any other branch. No exceptions.
 - NEVER introduce a per-crate or multi-scheme tag strategy (e.g. `taskstore-v0.3.0` + `taskstore-traits-v0.1.0`). Always use a single flat `v*` tag for the whole repo/workspace. If a design doc says otherwise, ASK the user before creating any tags.
 
+## Branch names: NEVER a slash
+
+- **NEVER create a branch with `/` in the name. No exceptions, ever.** Not
+  `chore/foo`, not `feat/bar`, not `scottidler/baz`. The branch name is a flat
+  slug: `retire-general-plugin`, `add-viewport-support`.
+- The conventional-commit type belongs in the **PR title**, never the branch:
+  branch `retire-general-plugin` -> title `chore(marketplace): retire general
+  plugin`.
+- Why it is absolute: the branch name is the source of truth for the PR title,
+  and `branch-pr-title-guard.sh` slugifies the title to compare them. Slugifying
+  collapses `/` to `-`, so a slashed branch can never be matched by any title
+  and the PR becomes unopenable. (Scott, furious, 2026-09-12, after a
+  `chore/retire-general-plugin` branch burned four blocked `gh pr create`
+  attempts.)
+- If you find yourself already on a slashed branch: `git branch -m <flat-name>`,
+  delete the remote slashed ref, push the new one. Do not touch the guard hook.
+
 ## Branches (opposite of tags: delete merged ones freely, no asking)
 
 - Branch safety protects **unmerged work, and nothing else**. Once a branch's
