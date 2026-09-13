@@ -272,3 +272,105 @@ edited.
   chunk H, since they are already being edited this phase for the rule-copy
   deletion? Left parked per the doc's non-goal; flagging in case Scott wants
   them folded in now instead.
+
+## Phase 5: rails rm rule
+
+### Design decisions
+- One scanner, parameterized by head word, not two. `ghSpots` is now a thin
+  wrapper over `heads(command)` (`index.ts`), which returns every simple-command
+  head with its offset, quote-aware, stopping at an unquoted `<<`. `headSpots`
+  is the doc's "generalized to take the head word"; `heads` is what the rm rule
+  needs, because it classifies by head (`rm`, a wrapper, `git`) rather than
+  looking for one fixed word. gh behavior is bit-for-bit unchanged: the existing
+  gh test block passes untouched.
+- `heads` gained a `loop` flag, set when the head follows a `do` keyword.
+  Without it the existing `TRANSPARENT` set (which already contains `do`, so
+  `then gh ...` works) would have made `for f in *; do rm -rf $f; done` a
+  rewritable rm stage. The doc says that form passes unchanged because the paths
+  are a variable, so the flag is what implements it.
+- `REGENERABLE` is a named constant carrying the safety.md table verbatim, with
+  a doc comment pointing at `rules/safety.md` File Deletion and restating the
+  positional rule and the `crates/loopr/src/target/tests.rs` scar tissue.
+  `PY_ANCHORS` and `JS_ANCHORS` are spread into the entries so `dist` and
+  `build` carry both anchor families without the table repeating itself.
+- The anchor probe fails toward rkvr, never away from it: `envFor` catches on
+  `$.fs.exists` and `$.fs.list` and returns false / empty, so an unreachable
+  filesystem makes every path non-regenerable and every stage rewrites. Same for
+  `resolvePath` returning null on a variable, a `~` or a glob. The safe default
+  costs one tarball, never data.
+- The session cwd is lazy (`envFor` memoizes one `$.session.cwd()` promise) and
+  the hook is gated behind the `RM_INTEREST` regex. A Bash call with no delete
+  head in it costs one regex test and no engine round trip; a `git status` costs
+  a string scan and still no round trip, because cwd is only awaited when a path
+  actually needs resolving.
+- `$.fs.exists` is the plugin filesystem interface the doc mandates, never a
+  subprocess. `claude plugin validate --strict` confirms the call set it sees:
+  `$.fs.exists (via envFor), $.fs.list (via envFor), $.session.cwd, $.ui.log`.
+  `$.fs.list` is there for the one glob anchor in the table, `.terraform` next
+  to any `*.tf`; every other anchor is a literal `exists` check.
+- `rm_rkvr` is a userConfig off switch mirroring `gh_persona`, and the plugin
+  description now names both rules. Siblings behave identically (taste.md), and
+  `rules/secrets.md` already documents the `pluginConfigs.rails.options` escape
+  hatch for the gh rule; a second always-on Bash rewrite with no off switch
+  would have been the odd one out.
+- `debug()` now takes the rule name instead of hardcoding `rails/gh-persona:`.
+
+### Deviations
+- Signature: the doc's `rmRewrite(command)` is implemented as
+  `async rmRewrite(command, env)` where `env` is `{ cwd, exists, list }`. Same
+  effect, correct seam: the doc's own positional match needs the session cwd and
+  a filesystem probe, which a one-argument pure string function cannot reach. It
+  stays a plain function with no I/O of its own, so `index.test.ts` drives every
+  case with a fake `env` and no harness, which is what "pure" bought.
+- The rewrite preserves a trailing non-marker shell comment:
+  `rm -rf ~/x #regenerable-ish` becomes `rkvr rmrf ~/x #regenerable-ish`. The
+  doc only says the stage becomes `rkvr rmrf <paths>` with the flags dropped and
+  does not say what happens to a comment that is not the marker. Keeping it is
+  lossless (bash ignores it either way) and leaves the model's own note visible
+  in `clyde permit log`.
+- A regenerable pass requires at least one of `-r`, `-R`, `-f`. Read literally
+  from the Overview ("stage head is `rm` with delete flags and EVERY path is a
+  build-output directory"). Consequence: bare `rm target` rewrites to
+  `rkvr rmrf target` even beside a `Cargo.toml`. Harmless, because every name in
+  the set is a directory and plain `rm` cannot delete one.
+- The wrapper deny is deliberately wide: any `sh -c` / `bash -c` payload
+  containing an `rm` word denies, including `sh -c 'echo rm'`. Fails closed, and
+  the recast is trivial. Recorded rather than narrowed, because parsing a
+  wrapper payload is the exact string-rewrite problem the deny exists to avoid.
+- No live checks were run. The Phase 5 criteria list four
+  (`rm -rf ~/probe` rewriting, `rm -rf <repo>/target` passing, `sudo rm -rf
+  /opt/probe` denied, the same three signals from a subagent); all four need the
+  plugin reloaded in a session that has the new `index.ts`, and the phase
+  dispatch scoped them to Phase 6 alongside Phase 2's and Phase 3's inherited
+  live checks. Deferred, not faked.
+- The commit is unsigned (`--no-gpg-sign`). Signing is still broken until the
+  Phase 1 operator prerequisite (the home signing key) lands.
+
+### Tradeoffs
+- Injected `env` vs a two-phase split (a pure `rmParse` that names the anchor
+  paths, then a probe, then a pure `rmApply`). The split would keep the letter
+  of "pure string function" but spreads the four outcomes and their exact
+  context lines across three exported functions and parses the command twice.
+  One function, one place where the strings live, one fake in the tests.
+- A conservative `resolvePath` that gives up on any `$`, `~`, `*`, `?` or `[`
+  vs expanding what it can. Giving up sends `rm -rf target/*` in a Rust repo to
+  rkvr, which is a wasted tarball. Expanding means reimplementing shell
+  expansion inside a hook, where a wrong guess deletes the wrong thing.
+- Scanning stops at the first unquoted `<<`, inherited from the gh rule, so an
+  `rm` stage AFTER a heredoc is never seen and passes silently with no note.
+  Kept for one scanner and one heredoc rule across both hooks; the miss is a
+  pass-through, which is today's behavior.
+- `RM_INTEREST` includes `git` so `git rm` gets its "form not rewritten" context
+  line, as the doc's pass-unchanged list asks. Cost: every git command runs the
+  string scan. Measured cost is a regex plus one pass over a few hundred bytes,
+  with no engine call, because cwd is lazy.
+
+### Open questions
+- The doc's pass-unchanged list says these forms "are logged in the context line
+  so the transcript shows the miss", and `git rm` is on it. Every `git rm` now
+  carries a context line. If that reads as noise in practice, dropping `git`
+  from `RM_INTEREST` is a one-word change.
+- `sudo rm -rf $TMPDIR/probe` passes through to the shell unchanged (scratch
+  carve-out) rather than being rewritten to `sudo rkvr rmrf`. The doc defines the
+  wrapper outcome as deny vs pass only, so pass is what is implemented; flagging
+  in case Scott wants scratch wrappers rewritten too.

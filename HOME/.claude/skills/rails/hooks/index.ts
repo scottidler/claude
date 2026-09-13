@@ -36,16 +36,22 @@ const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/
 /** Keywords a simple command may follow, so `then gh ...` is still a gh spot. */
 const TRANSPARENT = new Set(['then', 'do', 'else', 'elif', '!'])
 
+/** Where one simple command starts, and the word that heads it. */
+type Head = { at: number; word: string; loop: boolean }
+
 /**
- * Byte offsets of every `gh` that starts a simple command, quote-aware.
+ * Every simple-command head in `command`, quote-aware.
  *
- * Scanning stops at an unquoted `<<`: a heredoc body is data, and a `gh` inside
- * one is text in a PR body, not a command.
+ * Scanning stops at an unquoted `<<`: a heredoc body is data, so neither a `gh`
+ * in a PR body nor an `rm` in a script fixture is a command. `loop` marks a head
+ * that follows a `do` keyword; that is a loop body, which the rm rule refuses to
+ * rewrite because the paths are a variable, not text.
  */
-function ghSpots(command: string): number[] {
-    const spots: number[] = []
+function heads(command: string): Head[] {
+    const found: Head[] = []
     let i = 0
     let start = true
+    let loop = false
     let quote = ''
     while (i < command.length) {
         const c = command.charAt(i)
@@ -58,22 +64,38 @@ function ghSpots(command: string): number[] {
         if (c === '\\') { i += 2; continue }
         if (c === '"' || c === "'") { quote = c; start = false; i += 1; continue }
         if (c === '<' && command.charAt(i + 1) === '<') { break }
-        if (SEP.has(c)) { start = true; i += 1; continue }
+        if (SEP.has(c)) { start = true; loop = false; i += 1; continue }
         if (c === ' ' || c === '\t' || c === '\r') { i += 1; continue }
         const word = WORD.exec(command.slice(i))
         if (word === null) { i += 1; continue }
         const text = word[0]
         if (start) {
-            if (text === 'gh') { spots.push(i); start = false; i += text.length; continue }
-            if (ASSIGN.test(text) || TRANSPARENT.has(text)) { i += text.length; continue }
+            if (ASSIGN.test(text) || TRANSPARENT.has(text)) {
+                if (text === 'do') { loop = true }
+                i += text.length
+                continue
+            }
+            found.push({ at: i, word: text, loop })
             start = false
+            i += text.length
+            continue
         }
         i += text.length
     }
-    return spots
+    return found
 }
 
-/** The one gh invocation starting at `at`, cut at the next unquoted separator. */
+/** Byte offsets of every simple command headed by `word`. */
+function headSpots(command: string, word: string): number[] {
+    return heads(command).filter((h) => h.word === word).map((h) => h.at)
+}
+
+/** Byte offsets of every `gh` that starts a simple command. */
+function ghSpots(command: string): number[] {
+    return headSpots(command, 'gh')
+}
+
+/** The one invocation starting at `at`, cut at the next unquoted separator. */
 function segment(command: string, at: number): string {
     let i = at
     let quote = ''
@@ -121,31 +143,310 @@ function inject(command: string, spots: readonly Spot[]): string {
     return out
 }
 
+/**
+ * rails: rm to rkvr rmrf
+ *
+ * The question the rule answers is intent (rules/safety.md, File Deletion):
+ * regenerable build output costs only time and compilation to rebuild, so it is
+ * removed with plain `rm`; everything else goes through `rkvr rmrf`, the
+ * three-week bin. Four outcomes per stage: pass because the path is in the
+ * regenerable set, pass because the model asserted `# regenerable`, rewrite to
+ * `rkvr rmrf`, or deny a wrapper form that deletes through another head.
+ */
+
+/**
+ * The regenerable set, kept in step with its one home in rules/safety.md.
+ *
+ * The match is POSITIONAL: the basename below AND one of its toolchain anchors
+ * in the PARENT directory. Never a bare basename, because
+ * `crates/loopr/src/target/tests.rs` is a tracked Rust source module named
+ * `target`, and seven repos carry tracked `build/`, `dist/`, `out/` and
+ * `coverage/` directories. An anchor beginning with `*` is a suffix glob over
+ * the parent listing. Empty anchors mean the name is regenerable anywhere.
+ *
+ * `pom.xml` is deliberately not an anchor for `target` (a tracked Maven
+ * `target/` in one work repo holds data files), and `bin/` and `vendor/` are
+ * deliberately absent (tracked in 18 and 6 repos; general.md mandates `bin/`).
+ */
+const PY_ANCHORS = ['pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt'] as const
+const JS_ANCHORS = ['package.json'] as const
+const REGENERABLE: ReadonlyArray<{ name: string; anchors: readonly string[] }> = [
+    { name: 'target', anchors: ['Cargo.toml'] },
+    { name: 'node_modules', anchors: JS_ANCHORS },
+    { name: 'dist', anchors: [...JS_ANCHORS, ...PY_ANCHORS] },
+    { name: 'build', anchors: [...JS_ANCHORS, ...PY_ANCHORS] },
+    { name: 'out', anchors: JS_ANCHORS },
+    { name: 'coverage', anchors: JS_ANCHORS },
+    { name: '.next', anchors: JS_ANCHORS },
+    { name: '.turbo', anchors: JS_ANCHORS },
+    { name: '.parcel-cache', anchors: JS_ANCHORS },
+    { name: '.venv', anchors: PY_ANCHORS },
+    { name: 'venv', anchors: PY_ANCHORS },
+    { name: '.tox', anchors: [...PY_ANCHORS, 'tox.ini'] },
+    { name: '.pytest_cache', anchors: [...PY_ANCHORS, 'pytest.ini'] },
+    { name: '.mypy_cache', anchors: PY_ANCHORS },
+    { name: '.ruff_cache', anchors: PY_ANCHORS },
+    { name: '*.egg-info', anchors: PY_ANCHORS },
+    { name: '.gradle', anchors: ['build.gradle', 'build.gradle.kts', 'settings.gradle'] },
+    { name: '.terraform', anchors: ['*.tf'] },
+    { name: '__pycache__', anchors: [] },
+]
+
+/** Heads that delete through another command; rails cannot rewrite these. */
+const WRAPPERS = new Set(['sudo', 'xargs', 'find', 'sh', 'bash', 'ssh', 'docker', 'kubectl'])
+/** The only prefixes a wrapper delete may target without a deny. */
+const SCRATCH = ['$TMPDIR', '/tmp/claude', '/tmp/review-panel']
+/** Words a wrapper carries that are verbs, not paths. */
+const WRAPPER_VERBS = new Set(['rm', 'exec'])
+/** An `rm` word, including one inside a quoted `sh -c` payload. */
+const RM_WORD = /(?:^|[\s;&|(])rm(?=\s|$)/
+/** The only flags a rewritable `rm` may carry. */
+const DELETE_FLAGS = /^-[rRf]+$/
+/** The model's intent marker, matched exactly against the whole stage comment. */
+const MARKER = '# regenerable'
+
+const RM_REWRITE_NOTE = 'rails: rm -> rkvr rmrf (rules/safety.md); archive at /var/tmp/rmrf; if this was regenerable build output, re-issue with a trailing `# regenerable`'
+const RM_SET_NOTE = 'rails: rm kept, regenerable build output (rules/safety.md)'
+const RM_MARKER_NOTE = 'rails: rm kept, model asserted regenerable'
+const RM_DENY = 'rails: this form deletes through another command, which rails cannot rewrite. Run `rkvr rmrf <paths>` yourself (rules/safety.md), or confine the command to $TMPDIR, /tmp/claude or /tmp/review-panel.'
+
+function rmMiss(why: string): string {
+    return 'rails: rm form not rewritten (' + why + ')'
+}
+
+/** One shell word: its source text, its unquoted value, and whether it was quoted. */
+type Word = { raw: string; value: string; quoted: boolean }
+
+/** Split one stage into shell words, honoring quotes and backslash escapes. */
+function splitWords(seg: string): Word[] {
+    const out: Word[] = []
+    let i = 0
+    while (i < seg.length) {
+        const c = seg.charAt(i)
+        if (c === ' ' || c === '\t' || c === '\r') { i += 1; continue }
+        const from = i
+        let value = ''
+        let quote = ''
+        let quoted = false
+        while (i < seg.length) {
+            const d = seg.charAt(i)
+            if (quote !== '') {
+                if (d === '\\' && quote === '"') { value += seg.charAt(i + 1); i += 2; continue }
+                if (d === quote) { quote = ''; i += 1; continue }
+                value += d
+                i += 1
+                continue
+            }
+            if (d === '\\') { value += seg.charAt(i + 1); i += 2; continue }
+            if (d === '"' || d === "'") { quote = d; quoted = true; i += 1; continue }
+            if (d === ' ' || d === '\t' || d === '\r') { break }
+            value += d
+            i += 1
+        }
+        out.push({ raw: seg.slice(from, i), value, quoted })
+    }
+    return out
+}
+
+/**
+ * The trailing shell comment of one stage, with bash's own rule: an unquoted `#`
+ * that STARTS a word. `a# regenerable` opens nothing, it is two filenames.
+ */
+function stageComment(seg: string): { at: number; text: string } | null {
+    let i = 0
+    let quote = ''
+    let wordStart = true
+    while (i < seg.length) {
+        const c = seg.charAt(i)
+        if (quote !== '') {
+            if (c === '\\' && quote === '"') { i += 2; continue }
+            if (c === quote) { quote = '' }
+            i += 1
+            continue
+        }
+        if (c === '\\') { i += 2; wordStart = false; continue }
+        if (c === '"' || c === "'") { quote = c; wordStart = false; i += 1; continue }
+        if (c === ' ' || c === '\t' || c === '\r') { wordStart = true; i += 1; continue }
+        if (c === '#' && wordStart) { return { at: i, text: seg.slice(i).trimEnd() } }
+        wordStart = false
+        i += 1
+    }
+    return null
+}
+
+/**
+ * A path argument as an absolute path, or null when it cannot be resolved by
+ * string work alone. Unresolvable means a variable, a glob or a `~`, and it
+ * falls through to the rkvr rewrite: the safe default costs one tarball.
+ */
+function resolvePath(cwd: string, p: string): string | null {
+    if (p === '') { return null }
+    if (/[$*?~\[]/.test(p)) { return null }
+    let raw = p
+    while (raw.length > 1 && raw.endsWith('/')) { raw = raw.slice(0, -1) }
+    if (!raw.startsWith('/') && !cwd.startsWith('/')) { return null }
+    const parts: string[] = []
+    for (const s of (raw.startsWith('/') ? raw : cwd + '/' + raw).split('/')) {
+        if (s === '' || s === '.') { continue }
+        if (s === '..') { parts.pop(); continue }
+        parts.push(s)
+    }
+    return '/' + parts.join('/')
+}
+
+/** What the rule needs from the world: the session cwd and the plugin filesystem. */
+type Env = {
+    cwd(): Promise<string>
+    exists(path: string): Promise<boolean>
+    list(dir: string): Promise<string[]>
+}
+
+/** Is this one path build output the toolchain can regenerate? Positional match. */
+async function regenerable(value: string, env: Env): Promise<boolean> {
+    const abs = resolvePath(await env.cwd(), value)
+    if (abs === null) { return false }
+    const parts = abs.split('/')
+    const base = parts[parts.length - 1] ?? ''
+    if (base === '') { return false }
+    const entry = REGENERABLE.find((e) => e.name === base)
+        ?? REGENERABLE.find((e) => e.name.startsWith('*') && base.endsWith(e.name.slice(1)))
+    if (entry === undefined) { return false }
+    if (entry.anchors.length === 0) { return true }
+    const parent = parts.slice(0, -1).join('/') || '/'
+    for (const anchor of entry.anchors) {
+        if (anchor.startsWith('*')) {
+            const names = await env.list(parent)
+            if (names.some((n) => n.endsWith(anchor.slice(1)))) { return true }
+            continue
+        }
+        if (await env.exists(parent + '/' + anchor)) { return true }
+    }
+    return false
+}
+
+/** Does a wrapper stage delete anything at all? */
+function deletes(words: readonly Word[]): boolean {
+    return words.some((w) => w.value === '-delete' || RM_WORD.test(w.value))
+}
+
+/**
+ * A wrapper stage is denied unless every literal path argument it carries sits
+ * under a scratch prefix. No literal path at all (bare `xargs rm`) is a deny:
+ * the paths arrive on stdin and rails cannot see them.
+ */
+function wrapperDenied(words: readonly Word[]): boolean {
+    const paths = words.slice(1).filter((w) => !w.value.startsWith('-') && !WRAPPER_VERBS.has(w.value))
+    if (paths.length === 0) { return true }
+    return !paths.every((p) => SCRATCH.some((s) => p.value.startsWith(s)))
+}
+
+/** One rewrite to splice back into the command. */
+type Edit = { at: number; end: number; text: string }
+
+/** What the rm rule decided: a (possibly unchanged) command, or a deny reason. */
+type RmResult = { command?: string; note?: string; deny?: string }
+
+/**
+ * Classify and rewrite every `rm` stage in `command`.
+ *
+ * Pure apart from `env`, which is the only thing that cannot be decided from the
+ * string: the session cwd and whether a toolchain anchor sits beside a path.
+ */
+async function rmRewrite(command: string, env: Env): Promise<RmResult> {
+    const edits: Edit[] = []
+    const notes: string[] = []
+    for (const head of heads(command)) {
+        const seg = segment(command, head.at)
+        if (WRAPPERS.has(head.word)) {
+            const words = splitWords(seg)
+            if (!deletes(words)) { continue }
+            if (wrapperDenied(words)) { return { deny: RM_DENY } }
+            notes.push(rmMiss('wrapper delete confined to scratch'))
+            continue
+        }
+        if (head.word === 'git') {
+            if (splitWords(seg)[1]?.value === 'rm') { notes.push(rmMiss('git rm, an index operation')) }
+            continue
+        }
+        if (head.word !== 'rm') { continue }
+        if (head.loop) { notes.push(rmMiss('loop body, the paths are a variable')); continue }
+
+        const comment = stageComment(seg)
+        const words = splitWords(comment === null ? seg : seg.slice(0, comment.at))
+        const rest = words.slice(1)
+        const flags = rest.filter((w) => !w.quoted && w.value.startsWith('-') && w.value.length > 1)
+        const paths = rest.filter((w) => !flags.includes(w))
+
+        const bad = flags.filter((f) => !DELETE_FLAGS.test(f.value))
+        if (bad.length > 0) {
+            notes.push(rmMiss('flags beyond -r -R -f: ' + bad.map((f) => f.value).join(' ')))
+            continue
+        }
+        if (paths.length === 0) { notes.push(rmMiss('no path argument')); continue }
+        if (comment !== null && comment.text === MARKER) { notes.push(RM_MARKER_NOTE); continue }
+
+        let allRegenerable = flags.length > 0
+        for (const p of paths) {
+            if (!allRegenerable) { break }
+            allRegenerable = await regenerable(p.value, env)
+        }
+        if (allRegenerable) { notes.push(RM_SET_NOTE); continue }
+
+        const rebuilt = ['rkvr', 'rmrf', ...paths.map((p) => p.raw)]
+        if (comment !== null) { rebuilt.push(comment.text) }
+        edits.push({ at: head.at, end: head.at + seg.trimEnd().length, text: rebuilt.join(' ') })
+        notes.push(RM_REWRITE_NOTE)
+    }
+    let out = command
+    for (const edit of [...edits].sort((a, b) => b.at - a.at)) {
+        out = out.slice(0, edit.at) + edit.text + out.slice(edit.end)
+    }
+    return { command: out, note: notes.join(' | ') }
+}
+
+/** Cheap gate so a Bash call with no delete in it never costs an engine round trip. */
+const RM_INTEREST = /(?:^|[\s;&|(])(?:rm|sudo|xargs|find|sh|bash|ssh|docker|kubectl|git)(?=\s|$)/
+
+function envFor($: EngineInterface): Env {
+    let cwd: Promise<string> | null = null
+    return {
+        cwd: () => {
+            if (cwd === null) { cwd = $.session.cwd() }
+            return cwd
+        },
+        // A probe that throws leaves the path unanchored, so the stage falls
+        // through to the rkvr rewrite. Never the other way around.
+        exists: (path) => $.fs.exists(path).catch(() => false),
+        list: (dir) => $.fs.list(dir).then((es) => es.map((e) => e.name)).catch(() => []),
+    }
+}
+
 function withContext<R extends ToolCallResult>(r: R, line: string): R {
     if (r.deny !== undefined || r.isError === true) { return r }
     return { ...r, context: [...(r.context ?? []), line] }
 }
 
-function debug($: EngineInterface, enabled: boolean, line: string): void {
-    if (enabled) { $.ui.log('rails/gh-persona: ' + line) }
+function debug($: EngineInterface, enabled: boolean, rule: string, line: string): void {
+    if (enabled) { $.ui.log('rails/' + rule + ': ' + line) }
 }
 
 export const register: Register = (on, options) => {
-    const active = options['gh_persona'] !== false
+    const persona = options['gh_persona'] !== false
+    const rkvr = options['rm_rkvr'] !== false
     const verbose = options['debug'] === true
 
     on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
         const command = e.command
-        if (!active || typeof command !== 'string') { return next(e) }
+        if (!persona || typeof command !== 'string') { return next(e) }
         if (EXPLICIT.test(command)) {
-            debug($, verbose, 'skip: command sets a persona or token itself')
+            debug($, verbose, 'gh-persona', 'skip: command sets a persona or token itself')
             return next(e)
         }
         const spots = ghSpots(command)
         if (spots.length === 0) { return next(e) }
 
         const cwd = await $.session.cwd()
-        debug($, verbose, 'gh spots=' + spots.length + ' cwd=' + cwd)
+        debug($, verbose, 'gh-persona', 'gh spots=' + spots.length + ' cwd=' + cwd)
 
         const picked: Spot[] = []
         const whys: string[] = []
@@ -161,14 +462,45 @@ export const register: Register = (on, options) => {
         const why = whys.join(' | ')
 
         if (picked.length === 0) {
-            debug($, verbose, 'no rewrite: ' + why)
+            debug($, verbose, 'gh-persona', 'no rewrite: ' + why)
             return withContext(await next(e), 'rails: GH_PERSONA not set (' + why + ')')
         }
         const rewritten = inject(command, picked)
-        debug($, verbose, 'rewrote: ' + rewritten)
+        debug($, verbose, 'gh-persona', 'rewrote: ' + rewritten)
         const r = await next({ ...e, command: rewritten })
         return withContext(r, 'rails: GH_PERSONA injected (' + why + ')')
     })
+
+    on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+        const command = e.command
+        if (!rkvr || typeof command !== 'string') { return next(e) }
+        if (!RM_INTEREST.test(command)) { return next(e) }
+
+        const r = await rmRewrite(command, envFor($))
+        if (r.deny !== undefined) {
+            debug($, verbose, 'rm-rkvr', 'deny: ' + command)
+            return { deny: r.deny }
+        }
+        const rewritten = r.command ?? command
+        const note = r.note ?? ''
+        if (note === '') { return next(e) }
+        debug($, verbose, 'rm-rkvr', note + ' | ' + rewritten)
+        if (rewritten === command) { return withContext(await next(e), note) }
+        return withContext(await next({ ...e, command: rewritten }), note)
+    })
 }
 
-export const internals = { ghSpots, segment, personaFor, inject, inWorkTree }
+export const internals = {
+    ghSpots,
+    headSpots,
+    heads,
+    segment,
+    personaFor,
+    inject,
+    inWorkTree,
+    splitWords,
+    stageComment,
+    resolvePath,
+    rmRewrite,
+    REGENERABLE,
+}

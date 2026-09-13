@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "rails",
   "version": "0.1.0",
-  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA",
+  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA, and rm of anything that cannot be regenerated becomes rkvr rmrf",
   "author": {
     "name": "Scott A. Idler",
     "email": "scott.a.idler@gmail.com"
@@ -13,6 +13,12 @@
       "default": true,
       "title": "gh persona",
       "description": "Inject GH_PERSONA=work|home into every gh invocation the Bash tool runs. Underscore because the plugin schema rejects hyphens in these keys."
+    },
+    "rm_rkvr": {
+      "type": "boolean",
+      "default": true,
+      "title": "rm to rkvr rmrf",
+      "description": "Rewrite an rm of anything outside the regenerable build-output set to rkvr rmrf, and deny the wrapper forms that delete through another command (rules/safety.md). Underscore because the plugin schema rejects hyphens in these keys."
     },
     "debug": {
       "type": "boolean",
