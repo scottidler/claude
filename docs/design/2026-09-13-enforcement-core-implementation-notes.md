@@ -127,3 +127,83 @@ edited.
 - None for the author. One for the operator: auto mode must be off for the
   settings.json and CLAUDE.md half of this phase, and for Phase 3 (hook
   registration) and Phase 5 (the rails plugin under `HOME/.claude/skills/`).
+
+## Phase 3: em-dash PreToolUse emdash.sh
+
+### Design decisions
+- The Bash branch detects an outward stage on the heredoc-STRIPPED text and
+  then scans the RAW command, bodies included (`emdash.sh`, the Bash block).
+  Those are opposite needs: a commit message line reading "git commit" is prose
+  and must not create a stage (the otto-rs/otto b428680 false positive), while
+  the message body is exactly where the character lives, so the scan cannot use
+  the stripped text. Fixtures pin both directions: `commit message arriving by
+  heredoc` denies, `heredoc body mentions git commit, the command is a cat`
+  allows.
+- `strip_heredocs` is a copy of git-release-guard.sh's awk stripper, not a
+  shared library. House hooks are standalone scripts registered by absolute
+  path in settings.json and linked one file at a time; there is no sourcing
+  convention, and a second copy is cheaper than inventing one for two callers.
+- The outward-stage regex allows only git's own option tokens between `git` and
+  `commit` (`-c k=v`, `-C <dir>`), so `git -C <dir> commit` is caught and
+  `git log --grep commit` is not.
+- One jq pass returns both the field label and the first offending LINE, so the
+  deny reason names the exact field (`MultiEdit edits[1].new_string`,
+  `mcp__slack__chat_post_message text`) rather than the tool.
+- The reason string keeps the design doc's wording verbatim as its prefix and
+  appends the offending text, quoted and truncated to 200 codepoints. Same
+  reasoning as Phase 2's resolved decision: a block that only names the rule
+  costs a second attempt.
+- Edit scans `new_string` only. Scanning `old_string` would make REMOVING an
+  existing em-dash impossible, which is the exact operation Phase 4 and every
+  future cleanup needs. Fixture: `Edit REMOVING it: only old_string carries it`.
+- MCP payloads are walked with jq `paths(type=="string")`, so a nested body
+  (`body.value` on a Confluence page) is scanned at any depth, and a matcher
+  added later needs no change here.
+- The path allowlist is checked before any scan and reads `file_path` or
+  `notebook_path`, so it applies to all four write tools and to none of the
+  others.
+- Scar tissue, cost one wasted write: zsh expands `$'...'` inside a heredoc
+  even when the delimiter is QUOTED (`<<'SH'`), which bash does not. Writing
+  the bash escape form of U+2014 through a zsh heredoc silently produced a
+  literal U+2014 in the file, i.e. a hook that denies its own source. Both files
+  were therefore written with the escape inserted by a python pass, and both are
+  verified literal-free by `rg -n` in this phase.
+
+### Deviations
+- The linker step named in the Phase 3 bullet was NOT run: the phase dispatch
+  excluded it, same as Phase 2. The registration is live (the repo's
+  `HOME/.claude/settings.json` IS `~/.claude/settings.json`) but
+  `~/.claude/hooks/emdash.sh` does not exist yet, so the hook is inert until the
+  per-file link step for `HOME/.claude/hooks/*` runs from the repo root with the
+  glob unquoted. Deferred prerequisite, not done and not faked.
+- Only the hooks hunk of `HOME/.claude/settings.json` is in this commit. The
+  working tree carries two unrelated uncommitted edits to that file (an emoji
+  escaped in a permission entry, an `autoMode.allow` block) plus one to
+  `HOME/.claude/CLAUDE.md`; they are none of this phase's business and stay
+  unstaged. The hunk was staged with `git apply --cached` against a filtered
+  diff.
+- The commit is unsigned (`--no-gpg-sign`). Signing is broken until the Phase 1
+  operator prerequisite (the home signing key) is done.
+
+### Tradeoffs
+- Over-inclusive stage detection vs precision: `gh issue` matches any
+  subcommand, including `gh issue list`. The design doc names `gh issue` without
+  a subcommand list, and the failure mode of the wide form is a deny on a
+  command that carries the character for some other reason, which fails closed.
+- A copied stripper vs a shared library: duplication now, one more call site to
+  fix if the heredoc parser ever gains a bug. Chosen because the hook contract
+  is one self-contained file per registration.
+- Scanning the whole raw command once an outward stage exists, rather than only
+  the message argument: a `git commit -m x && rg 'text with the character'`
+  chain denies on the `rg` half. Parsing the message out of every commit and gh
+  form is a bigger surface than the false deny is worth, and the recast is the
+  same either way.
+
+### Open questions
+- The path allowlist includes `*.json`, so any JSON file may carry the literal.
+  That is the design doc's Data Model wording, implemented as written; if Scott
+  meant only JSON fixtures, the entry should be narrowed to the fixtures path.
+- Phase 3's live criterion ("live Write of a file containing U+2014 is denied")
+  cannot be satisfied until the link step runs, because the registered path does
+  not resolve. It belongs with the Phase 6 shakedown, alongside Phase 2's live
+  offer check.

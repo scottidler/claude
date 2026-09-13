@@ -861,6 +861,28 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/manifest-scope-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/emdash.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/emdash.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__slack__chat_post_message|mcp__slack__chat_update|mcp__slack__conversations_add_message|mcp__atlassian__(addCommentToJiraIssue|createJiraIssue|editJiraIssue|createConfluencePage|updateConfluencePage|createConfluenceFooterComment|createConfluenceInlineComment)|mcp__marquee__marquee_(publish|update)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/emdash.sh"
           }
         ]
       },
