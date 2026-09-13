@@ -19,7 +19,7 @@ Non-triggers: code, code comments, terminal replies to Scott in-session, scratch
 
 Self-check before sending:
 
-- No em-dashes. Use `--`, colons, parens, or split the sentence.
+- No em-dashes. Use colons, parens, a comma, or split the sentence.
 - Lead with the point. The ask or verdict goes at the top or as the closer, never buried.
 - Flat verdicts owned in first person; no hedging ceremony ("it might be worth considering").
 - One honest hedge max per claim ("probably", "TBD"). No hedge-stacking, no corporate softeners.

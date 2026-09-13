@@ -33,7 +33,6 @@ tags: []
 
 ## Rules
 
-- Never use em dashes.
 - One combined question to the user maximum (step 2+3); everything else is autonomous.
 - Never delete files. Status edits touch only the `status:` (and `pinned:`) frontmatter lines.
 - If oracle/clyde are unavailable, do the steps that work and say which were skipped.

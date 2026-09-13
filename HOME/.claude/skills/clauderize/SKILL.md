@@ -116,7 +116,6 @@ Write a `CLAUDE.md` at the repo root following this structure:
 - **Lead with commands.** The Quick Reference section is the most-used part
 - **Skip the obvious.** Don't document what's clear from file names or standard patterns
 - **Be specific.** "Run `otto ci`" beats "Run the CI pipeline"
-- **No em dashes.** Use regular dashes, commas, or semicolons
 - **No time estimates.**
 - **Single test commands.** If there's a way to run a single test file or test function, document it (e.g., `cargo test test_name`, `pytest path/to/test.py::test_name`)
 

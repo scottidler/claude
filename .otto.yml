@@ -1,0 +1,49 @@
+otto:
+  api: 1
+  tasks: [ci]
+
+tasks:
+  # Em-dash check over the touched-file lint list (rules/safety.md:17-28's pattern),
+  # plus whitespace. The list grows chunk by chunk as later phases touch more files;
+  # it deliberately excludes review-panel.md (chunk C rewrites it wholesale) and
+  # HOME/.claude/CLAUDE.md (Phase 1's sandbox lines are still owed, blocked by the
+  # auto mode classifier).
+  lint:
+    help: "Em-dash check over the lint list, plus whitespace"
+    bash: |
+      set -e
+      FILES=(
+        HOME/repos/.claude/rules/safety.md
+        HOME/repos/.claude/rules/voice.md
+        HOME/repos/.claude/rules/interaction.md
+        HOME/repos/.claude/rules/secrets.md
+        HOME/.claude/output-styles/edges.md
+        HOME/.claude/hooks/ssh-agent-check.sh
+        HOME/.claude/hooks/prose.sh
+        HOME/.claude/hooks/prose-test.sh
+        HOME/.claude/hooks/emdash.sh
+        HOME/.claude/hooks/emdash-test.sh
+      )
+      if rg -n '\x{2014}' "${FILES[@]}"; then
+        echo "Found an em dash in the lint list above."
+        exit 1
+      fi
+      whitespace -r
+
+  # Every HOME/.claude/hooks/*-test.sh regression matrix, plus the rails plugin's
+  # bun tests.
+  test:
+    help: "Run the hook regression matrices and the rails plugin's bun tests"
+    bash: |
+      set -e
+      for t in HOME/.claude/hooks/*-test.sh; do
+        echo "=== $t ==="
+        bash "$t"
+      done
+      (cd HOME/.claude/skills/rails/hooks && bun test)
+
+  ci:
+    help: "Full CI pipeline (lint + test)"
+    before: [lint, test]
+    bash: |
+      echo "✅ All CI checks passed!"

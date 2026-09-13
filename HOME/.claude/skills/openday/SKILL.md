@@ -56,7 +56,6 @@ tags: []
 
 ## Rules
 
-- Never use em dashes anywhere.
 - Filenames/paths lowercase-hyphenated.
 - Do not mark anything reviewed/starred here - that is /closeday's job.
 - If yesterday's journal doesn't exist, don't guilt-trip; just build today from the digest.

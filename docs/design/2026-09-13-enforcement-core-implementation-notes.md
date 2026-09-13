@@ -207,3 +207,68 @@ edited.
   cannot be satisfied until the link step runs, because the registered path does
   not resolve. It belongs with the Phase 6 shakedown, alongside Phase 2's live
   offer check.
+
+## Phase 4: prose dedupe and overrides
+
+### Design decisions
+- `safety.md`'s File Deletion section is rewritten around intent per Scott's
+  2026-09-13 ruling (closing OQ1): regenerable build output passes as plain
+  `rm`/`rm -rf`, everything else goes through `rkvr rmrf`. It carries the
+  regenerable set with its toolchain anchors verbatim from the Proposed
+  Solution Overview table (one home per G5, rails carries the same table in
+  Phase 5), the positional-match scar-tissue line (`crates/loopr/src/target/tests.rs`),
+  the `# regenerable` marker rule, and the CI-teardown exception (Scott,
+  2026-07-08).
+- Every literal em-dash was stripped from every rule/hook file this phase
+  edits for prose (`interaction.md`, `safety.md`, `voice.md`, `secrets.md`,
+  `edges.md`), matching G5's "leaves with zero em-dashes" bar. The already-
+  landed hook files in the lint list (`ssh-agent-check.sh`, `prose.sh`,
+  `prose-test.sh`, `emdash.sh`, `emdash-test.sh`) were already at zero.
+- The 8 SKILL.md files and `refs/slack.md` got only the bullet's named
+  duplicate-rule-line deletions, not a full em-dash sweep: see Deviations.
+- `.otto.yml`'s `lint` task file list is a closed bash array, not a glob, per
+  the phase bullet's "explicit file list ... until it becomes a glob"; `test`
+  runs every `HOME/.claude/hooks/*-test.sh` plus `bun test` under
+  `HOME/.claude/skills/rails/hooks`, and `ci` runs both.
+
+### Deviations
+- `.otto.yml`'s lint list omits `HOME/.claude/CLAUDE.md`, which the design
+  doc's own "touched set" count names (19 em-dashes today). CLAUDE.md carries
+  a pre-existing uncommitted edit that is explicitly not this phase's to
+  touch (Phase 1's sandbox-line fix is still blocked by the auto mode
+  classifier), and it still holds all 19 literal em-dashes; including it in
+  the lint would fail CI for a file this phase cannot fix. Owed to whichever
+  phase lands the CLAUDE.md fix.
+- The 8 SKILL.md files and `refs/slack.md` are edited (their duplicate
+  "no em-dash" rule-copy lines removed) but not added to the lint list's
+  literal-em-dash check. Reading: the Resolved Decision ("existing em-dashes
+  are stripped only from the files this PR touches... the lint list grows
+  chunk by chunk") together with the tree-wide non-goal ("parked; revisit
+  when chunk H... rewrites the heaviest files anyway") scopes the zero-em-dash
+  bar to the doc's named touched set, not every file that had one duplicate
+  line removed. `anthropic-usage-report/SKILL.md` (40 today) and
+  `create-design-doc/SKILL.md` (15 today) still carry their pre-existing
+  decorative em-dashes elsewhere in the file; only the named lines were
+  touched. Same effect intended by the doc, correct seam for this phase.
+- `whitespace -r` (mandated by `general.md`, run inside the new `lint` task)
+  cleaned trailing whitespace on one unrelated pre-existing file,
+  `docs/design/2026-08-02-per-phase-verification-node-phase0-artifacts/panel-round2-agent-synthesis-KILL.md`.
+  Included in this commit as a side effect of the required lint task, not
+  scope creep.
+- Commit is unsigned (`--no-gpg-sign`): signing is broken until the Phase 1
+  operator prerequisite (home signing key) lands.
+
+### Tradeoffs
+- `safety.md`'s File Deletion section copies the Overview's regenerable table
+  verbatim rather than a shortened summary, so rails (Phase 5) and safety.md
+  never drift on the set; the cost is a longer rule file.
+- `.otto.yml`'s `lint` task inlines the file list as a bash array rather than
+  a glob, matching the design doc's instruction that the list stays named
+  until later chunks make it a glob.
+
+### Open questions
+- Should the SKILL.md files' remaining decorative em-dashes (40 in
+  `anthropic-usage-report`, 15 in `create-design-doc`) move up ahead of
+  chunk H, since they are already being edited this phase for the rule-copy
+  deletion? Left parked per the doc's non-goal; flagging in case Scott wants
+  them folded in now instead.

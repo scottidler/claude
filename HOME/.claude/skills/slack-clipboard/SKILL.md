@@ -22,14 +22,13 @@ Only run when the user explicitly invokes `/slack-clipboard` (or one of the trig
 
 ## Rules
 
-- If Claude composes or reworks the content (anything beyond verbatim relay), it goes out as Scott: keep it terse, direct, Slack-native, and free of em-dashes.
+- If Claude composes or reworks the content (anything beyond verbatim relay), it goes out as Scott: keep it terse, direct, Slack-native.
 - No confirmation gate, no preview, no egress warning. Post on the first ask.
 - Default to the most recent relevant snippet only; widen the selection solely on the user's request.
 - One exception to posting immediately: if the selection contains an actual credential VALUE (a token, key, or password, not an env var name), stop and say which line, because Slack retention keeps it. Nothing else earns a pause.
 - Send the text as-is - do not reformat, rewrite, or convert it beyond stripping leading 2-space terminal indentation from lines.
 - Pass `no_mentions: true`. Leave `raw` unset so Markdown converts to Slack mrkdwn.
 - Do NOT add emoji unless the selected content had them.
-- Do NOT use em dashes.
 - Always send to the user's own channel `C0ANJQAJC7N` (#clipboard); never to any other channel or destination.
 
 ## Known Limitations

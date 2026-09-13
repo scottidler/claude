@@ -106,8 +106,9 @@ Bash tool runs, so a session never has to remember the persona:
   above: `gh api repos/tatari-tv/philo` from `/tmp` gets `work`.
 - A command that names both orgs, or that already sets `GH_PERSONA`, `GH_TOKEN`
   or `GITHUB_TOKEN`, is left alone.
-- The transcript shows the prefixed command, and the model gets one context line
-  saying which persona was injected and why.
+- The transcript records the model's original command, not the rewrite; only
+  `clyde permit log` and the tool result's context line show the prefixed
+  command and why.
 
 So do NOT wrap `gh` in a manual `eval "$(... decrypt ...)"` + `GH_TOKEN=` dance,
 and do not prepend `GH_PERSONA=` yourself: the hook has it. Setting it by hand

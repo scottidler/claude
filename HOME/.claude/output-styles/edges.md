@@ -46,3 +46,9 @@ description: Terse, anchored, letter-addressable. Answer first, bullets for stru
 - Never hard-wrap a PR/issue/ticket description or comment body: one paragraph, one line. Renderers turn in-paragraph newlines into visible breaks.
 - Tailor content to the actual reader (a CODEOWNER doing a merge-gate review needs different framing than a teammate skimming a comment).
 - Don't call people out by name in shared docs; describe the situation generically.
+
+## Overrides of the harness writing block
+- No opening line announcing what is about to happen: start the work, don't narrate the intent to start it.
+- No closing recap and no closing offer: if the next step is in scope, do it; if it isn't, omit the mention.
+- Labels with colons, pipes for alternatives, and `->` for transitions are allowed; so are parens.
+- At most one three-line status block per phase or external wait (see Status above); not one per message.

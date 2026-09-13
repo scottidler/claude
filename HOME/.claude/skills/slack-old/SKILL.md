@@ -44,7 +44,7 @@ python3 $S find   SUBSTR           # fuzzy-search the local cache -> id (no API,
 Anything composed by Claude and posted via `send`/`preview` goes out as Scott.
 Before drafting message text (not verbatim user text), read `~/Claude/writing/VOICE.md`
 and match the chat register: lowercase where natural, terse one-liners, flat verdicts,
-no em-dashes, no filler.
+no filler.
 
 ## Why this exists
 

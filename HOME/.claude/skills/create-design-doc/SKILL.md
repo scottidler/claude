@@ -28,8 +28,7 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
    judged against those standards (copy in-house precedent, decompose along
    change frequency, config drives behavior, fail loudly/closed, phase-0
    spikes for unproven assumptions), not generic best practice. Keep the prose
-   direct: bullets before paragraphs, pipes/arrows where useful, flat verdicts,
-   and no em-dashes.
+   direct: bullets before paragraphs, pipes/arrows where useful, flat verdicts.
 
 1. **Gather context** — understand the problem and explore the codebase.
    **Default: delegate the dig to the `design-research` agent** (pass it the
@@ -121,7 +120,7 @@ See [example.md](example.md) for a sample review process.
 Design-doc prose is Scott's. Before drafting, read `~/Claude/writing/VOICE.md`;
 his planning-doc register is structure-first: Motivation -> Requirements -> Non-Goals,
 bullets over paragraphs, fragments over sentences, owner-per-item, one honest hedge
-max ("probably", "TBD"), no em-dashes.
+max ("probably", "TBD").
 
 ## Prompts for Each Pass
 

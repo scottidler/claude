@@ -25,7 +25,7 @@ KILL. The author's recommendation to "Reshape" is a refusal to accept his own nu
 **2. THE CRITERION DEFECT**
 The author is absolutely right that this is a criterion defect. Measuring a system's recall exclusively against a dataset constructed from things the baseline system missed guarantees a 0% baseline, making any random hit a "pass."
 **Absolute recall floor:** 80% for in-diff semantic defects.
-**Derivation:** This node is designed to stop the line *before* the Mode 2 audit. A gate that lets 67% of defects pass is a sieve, not a gate. It breeds false confidence and forces the Mode 2 audit to catch everything anyway. If it cannot reliably clear 80%, it is not load-bearing and the latency/cost of spawning an agent per phase is unjustified. 
+**Derivation:** This node is designed to stop the line *before* the Mode 2 audit. A gate that lets 67% of defects pass is a sieve, not a gate. It breeds false confidence and forces the Mode 2 audit to catch everything anyway. If it cannot reliably clear 80%, it is not load-bearing and the latency/cost of spawning an agent per phase is unjustified.
 
 **3. GT5**
 I verified this against the `scottidler/manifest` codebase. In `src/age.rs`, `encrypt_named` calls `validate_name` (L854). `deploy_secret_file` (L1478) and `render_secrets_env` (L1256) do not call it. (The fix was eventually placed higher up the stack in `main.rs`). The author's characterization is confirmed.
@@ -48,7 +48,7 @@ The scope split changes everything. If the per-phase node structurally cannot se
 The 33% score stands on the clean runs. The sloppy execution in (c) could have lowered the score by drowning the verifier in extra diffs, but the GT5 miss (which was in-diff and explicitly prompted) proves the fundamental semantic blindness holds regardless.
 
 **7. WHAT IS THE AUTHOR STILL FOOLING HIMSELF ABOUT?**
-The sunk cost fallacy. The author explicitly proved that the agent's premise is false, that its recall is abysmal, and that its only real value is enforcing things cheaper done as bash hooks. Yet he recommends "Reshape" and wants to "reopen Open Questions" to figure out a "code-versus-agent split." There is no split. The agent is dead. He wants the panel to kill it so he doesn't have to throw away his own design work. 
+The sunk cost fallacy. The author explicitly proved that the agent's premise is false, that its recall is abysmal, and that its only real value is enforcing things cheaper done as bash hooks. Yet he recommends "Reshape" and wants to "reopen Open Questions" to figure out a "code-versus-agent split." There is no split. The agent is dead. He wants the panel to kill it so he doesn't have to throw away his own design work.
 
 I am killing it. Accept the null result, abandon the node, and move on.
 

@@ -45,7 +45,6 @@
 | User mention | `<@USERID>` |
 | Channel mention | `<#CHANNELID>` |
 
-- No em dashes - use regular dashes, commas, or semicolons instead
 - Standard Markdown headers (`#`, `##`) do not render in Slack
 
 ## ID Reference

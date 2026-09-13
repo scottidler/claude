@@ -41,16 +41,16 @@ EOF
 
 Reformatted output goes out under Scott's name. Before rewriting, read
 `~/Claude/writing/VOICE.md` and match the chat register: terse, direct,
-no em-dashes, no ceremony. Preserve the content; convert the register.
+no ceremony. Preserve the content; convert the register. Formatting rules
+live in `rules/safety.md` and `rules/voice.md`; this file does not repeat them.
 
 ## Rules
 
-- Content composed by Claude (not user-provided verbatim text) is going out as Scott: keep it terse, direct, Slack-native, and free of em-dashes.
+- Content composed by Claude (not user-provided verbatim text) is going out as Scott: keep it terse, direct, Slack-native.
 - Write standard markdown. pandoc handles the HTML conversion.
 - Tables, headers, bold, italic, code blocks, links, lists all work.
 - Do NOT use Slack mrkdwn syntax (`*bold*`). Use standard markdown (`**bold**`).
 - Do NOT add emoji unless the original content had them.
-- Do NOT use em dashes.
 - Strip leading whitespace/indentation from all lines before piping.
 - If the user provides specific text, send that text VERBATIM.
 
