@@ -5,7 +5,9 @@
     "CLAUDE_COLORSCHEME": "dracula",
     "ENABLE_TOOL_SEARCH": "true",
     "MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES": "3",
-    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
+    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1",
+    "TMPDIR": "/tmp/claude-1000",
+    "RUSTC_WRAPPER": ""
   },
   "attribution": {
     "commit": "",
@@ -606,7 +608,7 @@
       "Bash(gx --help 2>&1)",
       "Bash(gx create:*)",
       "Bash(gx status:*)",
-      "Bash(gx --cwd ~/repos/scottidler status 2>&1 | grep -v '🟢' | head -40)",
+      "Bash(gx --cwd ~/repos/scottidler status 2>&1 | grep -v '\ud83d\udfe2' | head -40)",
       "Bash(for f:*)",
       "Bash(for id:*)",
       "mcp__multi-account-github__get_repo",
@@ -1013,18 +1015,32 @@
         "/home/saidler/go",
         "/media/saidler/intel-480gb-ssd",
         "/home/saidler/.codex",
-        "/home/saidler/.gemini"
+        "/home/saidler/.gemini",
+        "/var/tmp/rmrf",
+        "/var/tmp/bkup"
       ],
       "allowRead": [
         "/tmp/review-panel",
         "/home/saidler/.codex",
-        "/home/saidler/.gemini"
+        "/home/saidler/.gemini",
+        "/home/saidler/.ssh/identities/home/signing",
+        "/home/saidler/.ssh/identities/home/signing.pub",
+        "/home/saidler/.ssh/identities/work/signing",
+        "/home/saidler/.ssh/identities/work/signing.pub",
+        "/home/saidler/.ssh/allowed_signers"
       ]
     },
     "excludedCommands": [
       "cargo *",
       "otto *",
-      "release *"
+      "release *",
+      "bump *",
+      "systemctl *",
+      "journalctl *",
+      "crontab *",
+      "ssh *",
+      "~/.claude/skills/architect/script.sh *",
+      "~/.claude/skills/staff-engineer/script.sh *"
     ]
   },
   "effortLevel": "high",
@@ -1032,5 +1048,11 @@
   "autoMemoryEnabled": false,
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
-  "skipWorkflowUsageWarning": true
+  "skipWorkflowUsageWarning": true,
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Reading the user's own Gmail inbox via the `gws gmail` CLI (search, list threads, fetch messages) and processing or printing the results locally in this session's terminal is allowed: it is the user's own task-directed access to his own mailbox, not exfiltration to a third party or an external audience. This does not clear writing that content to a new file, cloud storage, or any destination outside this session's terminal output."
+    ]
+  }
 }

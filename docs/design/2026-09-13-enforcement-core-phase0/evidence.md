@@ -184,7 +184,7 @@ sandboxed subprocess, which is why option A was rejected.
 Escalated to Scott, who ruled **option D** on 2026-09-13: mint a home signing-only key so that
 both allowRead'd private keys are signing-only. See `Resolved Decisions` in the design doc.
 
-## 0g: excludedCommands path prefix -- UNPROVEN (test invalid), mechanism confirmed live
+## 0g: excludedCommands matching semantics -- ANY STAGE, whole compound exempted (the prefix reading was wrong)
 
 Attempted in a nested session with three pattern forms
 (`/tmp/.../m1.sh *`, `/tmp/.../m2.sh`, `m3.sh *`). All three ran **sandboxed**, and one run
@@ -199,18 +199,41 @@ $ cargo --version >/dev/null 2>&1; python3 -c "<AF_UNIX socket test>"
 after-cargo-head: UNSANDBOXED
 ```
 
-So `excludedCommands` works, matches on the command **string prefix**, and carries the whole
-compound command out of the sandbox. Whether an absolute **path** head is accepted is still
-unproven and needs a test in a real session with the entry added to `~/.claude/settings.json`.
+So `excludedCommands` works and carries the whole compound command out of the sandbox.
+
+**CORRECTION, 2026-09-13, after Phase 1 landed.** This section originally concluded that matching
+is on the command **string prefix**. That is WRONG. `excludedCommands` matches **any stage
+anywhere** in a compound and exempts the ENTIRE compound. Measured in a live session with the
+AF_UNIX marker, which is decisive because position does not matter:
+
+```
+$TMPDIR/marker.sh                          -> SANDBOXED
+ssh -V 2>/dev/null; $TMPDIR/marker.sh      -> UNSANDBOXED   (excluded stage LEADING)
+$TMPDIR/marker.sh; ssh -V 2>/dev/null      -> UNSANDBOXED   (excluded stage TRAILING)
+$TMPDIR/marker.sh; cargo --version         -> UNSANDBOXED   (pre-existing entry, same)
+```
+
+The trailing case rules out prefix matching. The original conclusion was drawn from a single
+`cargo`-headed compound, which is consistent with BOTH readings; the trailing test is the one that
+separates them, and it was not run until after Phase 1 had already shipped the wider list.
+
+Consequence: **every `excludedCommands` entry is a general sandbox-escape hatch.** Appending
+`; ssh -V` to any command runs that command fully outside the sandbox with no approval prompt.
+Phase 1 grew the list from 3 entries to 10, so it widened that surface from 3 hatches to 10 while
+fixing the tool failures audit item 1 counted. Under review; see the design doc's Open Questions.
+
+The absolute-path-head question is now moot for the reviewer scripts: since any stage matches,
+a script path entry exempts any compound that mentions it.
 
 Note: an earlier 0g attempt used `curl https://generativelanguage.googleapis.com/` as the
 discriminator and returned HTTP 404 both inside and outside the sandbox -- that host is reachable
 through the egress proxy regardless, so it is not a sandbox marker. The AF_UNIX socket test is.
 
-## 0c: rails deny -- NOT RUN
+## 0c: rails deny -- SUPERSEDED
 
-Deferred: it needs a throwaway rails plugin copy plus a session, and nested sessions are not a
-reliable harness (see 0g). To be run in a real session before Phase 5.
+The throwaway probe was never run: nested sessions are not a reliable harness (see 0g). It is now
+moot. The rule under test is the real excluded-compound deny added to Phase 5 under OQ3, and its
+live check (`$TMPDIR/marker.sh; ssh -V` denied, in main and in a subagent) is a Phase 6 criterion.
 
 ## 0d: sandbox edits apply live -- NOT RUN
 
@@ -232,5 +255,5 @@ mode off. Two auto-mode classifier denials were hit during Phase 0
 | 0e TMPDIR | PASS, fix confirmed necessary |
 | 0f sccache over UDS | FAIL -- sandbox denies `socket(AF_UNIX)`; fallback `RUSTC_WRAPPER=""` applies |
 | 0f corollary | Phase 1 signing fix insufficient; needs private key readable or another route |
-| 0g excludedCommands path prefix | unproven (nested-sandbox harness invalid); string-prefix matching confirmed live |
+| 0g excludedCommands semantics | ANY-STAGE matching, whole compound exempted; path-head form moot; the mixed-compound deny is assigned to rails (Phase 5, absorbing spike 0c) |
 | 0h prompt extraction | FAIL -- predicate misses slash-command turns; `last-prompt` records are the better source |
