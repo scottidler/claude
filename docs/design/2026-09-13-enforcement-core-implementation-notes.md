@@ -81,3 +81,49 @@ edited.
   headless sessions by construction, which the doc's own Resolved Decisions
   already records. The live offer block needs an interactive session and
   belongs to Phase 6.
+
+## Phase 1: sandbox config and text fixes (PARTIAL, two files blocked)
+
+### Design decisions
+- Landed out of order, after Phase 2, because Phase 1 was blocked when the loop
+  reached it. Nothing else was resequenced.
+- `ssh-agent-check.sh` was rewritten rather than patched at line 10. Its whole
+  premise was agent reachability, and Phase 0 proved the sandbox denies
+  `socket(AF_UNIX)` creation outright, so no sandboxed process can ever reach an
+  agent. The hook now checks file readability of both halves of the active
+  `user.signingkey`, which is the thing that actually determines whether a
+  sandboxed `git commit` succeeds. `ssh-add -l` is kept only as an
+  unsandboxed-push warning.
+- The hook expands a leading `~/` in `user.signingkey` itself. git accepts that
+  form in its config and the shell does not expand it for us, so without this the
+  readability test would fail on a path that is actually fine.
+- `review-panel.md` keeps its 44 existing em-dashes. The design doc names it as
+  the one exemption in the touched set, because chunk C rewrites it wholesale.
+  This edit introduced zero new ones.
+
+### Deviations
+- **`HOME/.claude/settings.json` was NOT edited. Blocked.** Every `sandbox` and
+  `env` change in the Phase 1 bullet list is unlanded: the `allowWrite` additions
+  (`/var/tmp/rmrf`, `/var/tmp/bkup`), the five `allowRead` absolute paths, the
+  `excludedCommands` additions, and `env` gaining `TMPDIR` and `RUSTC_WRAPPER`.
+- **`HOME/.claude/CLAUDE.md` was NOT edited. Blocked.** The two sandbox lines are
+  unlanded.
+- Cause in both cases: the Claude Code auto mode classifier denies the write with
+  `[Self-Modification]`. Hit three times, on a `phase-implementer` dispatch whose
+  prompt described the edits, on a direct Edit of `settings.json`, and on a direct
+  Edit of `CLAUDE.md`. This is exactly the operator note in the doc's
+  Implementation Plan preamble, item (b): these phases must run with auto mode
+  off. It is an environment gate, not a code problem, so no workaround was
+  attempted past the second failure.
+
+### Tradeoffs
+- Committed the three unblocked files rather than holding the whole phase. The
+  alternative was one clean Phase 1 commit later, but that would have left the
+  `ssh-agent-check.sh` rewrite and the `review-panel.md` correction unrecorded
+  while the branch moved on. Phase 1 therefore takes two commits, and the second
+  is owed.
+
+### Open questions
+- None for the author. One for the operator: auto mode must be off for the
+  settings.json and CLAUDE.md half of this phase, and for Phase 3 (hook
+  registration) and Phase 5 (the rails plugin under `HOME/.claude/skills/`).

@@ -40,3 +40,4 @@ HOME/.claude/skills/archify/
 # Credentials and sessions (per-machine, sensitive)
 .credentials.json
 sessions/
+HOME/.claude/hooks/__pycache__/

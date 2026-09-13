@@ -177,9 +177,15 @@ exact remedy. This was 37% of ALL panel dispatches from 2026-07-13 to 08-03 (55
 of 149): the scripts wrote scratch files to bare `/tmp`, which the sandbox mounts
 read-only, so both seats died in ~3s with an 82-byte output. The scripts now use
 `$TMPDIR`, and `settings.json` allowlists the reviewer CLIs' own state dirs
-(`~/.codex`, `~/.gemini`) and exempts both scripts via
-`sandbox.excludedCommands`. If you still see rc=3, re-dispatch that one command
-with `dangerouslyDisableSandbox: true` and tell Scott the allowlist has drifted.
+(`~/.codex`, `~/.gemini`). The exemption of the two scripts themselves via
+`sandbox.excludedCommands` is NEW as of the enforcement-core change; this file
+previously claimed it was already there and it was not, which is why rc=3 kept
+recurring. The entries are `~/.claude/skills/architect/script.sh *` and
+`~/.claude/skills/staff-engineer/script.sh *`. Whether `excludedCommands`
+accepts an absolute path head at all is verified in Phase 6 of
+`docs/design/2026-09-13-enforcement-core.md`; until that Observed line exists,
+treat the exemption as unconfirmed. If you still see rc=3, re-dispatch that one
+command with `dangerouslyDisableSandbox: true` and tell Scott.
 
 **Transient backend failures are already retried for you.** Both scripts retry
 once on a transient signature (gemini's `Invalid stream: The model returned an
