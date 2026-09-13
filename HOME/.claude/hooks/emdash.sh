@@ -36,7 +36,7 @@
 #                 character passes and `git commit -m` carrying it does not.
 #   mcp__*        every string value in tool_input, at any depth
 #
-# PATH ALLOWLIST, the only carve-out: tests/fixtures/, *.golden, *.json.
+# PATH ALLOWLIST, the only carve-out: tests/fixtures/, *.golden.
 #
 # MECHANICS: the Bash branch strips heredoc bodies BEFORE looking for an outward
 # stage (a commit message line reading "git commit" is prose, not a command),
@@ -101,11 +101,14 @@ reason() {  # reason <field-label> <offending-line>
 }
 
 # ---- path allowlist -------------------------------------------------------
-# Verbatim material that must keep the character lives under a fixtures path, a
-# golden file, or JSON data. Everything else is prose the rule owns.
+# Verbatim material that must keep the character lives under a fixtures path or
+# a golden file. Everything else is prose the rule owns.
+# A bare *.json was in the original spec and was dropped 2026-09-13: it exempted
+# every config and data file in the tree, far wider than the fixture case it was
+# there for. A JSON fixture that needs the character goes under tests/fixtures/.
 path=$(field '.tool_input.file_path // .tool_input.notebook_path // ""')
 case "$path" in
-  tests/fixtures/*|*/tests/fixtures/*|*.golden|*.json) allow ;;
+  tests/fixtures/*|*/tests/fixtures/*|*.golden) allow ;;
 esac
 
 # ---- Bash: outward stages only -------------------------------------------

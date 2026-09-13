@@ -6,7 +6,7 @@
 # Bash outward stages (git commit, gh pr, gh issue) including heredoc bodies,
 # and MCP post bodies at any depth. Also pins the two things the design doc is
 # explicit about: the escape text exempts nothing, and the path allowlist
-# (tests/fixtures/, *.golden, *.json) is the only carve-out.
+# (tests/fixtures/, *.golden) is the only carve-out.
 #
 # Run directly, or via: emdash.sh --self-test
 set -u
@@ -57,8 +57,11 @@ run deny "literal PLUS the escape text (the escape exempts nothing)" \
   "$(write_p "docs/note.md" "Write it as ${ESCAPE_TEXT}, not as ${EMDASH} itself.")"
 run allow "literal in a .golden file" \
   "$(write_p "crates/x/golden/out.golden" "rendered${EMDASH}output")"
-run allow "literal in a .json file" \
+run deny "literal in a plain .json file (no longer exempt)" \
   "$(write_p "data/fixture.json" "{\"s\":\"a${EMDASH}b\"}")"
+
+run allow "literal in a .json UNDER tests/fixtures/" \
+  "$(write_p "tests/fixtures/payload.json" "{\"s\":\"a${EMDASH}b\"}")"
 run allow "clean content" \
   "$(write_p "docs/note.md" "The fix landed: CI is green.")"
 

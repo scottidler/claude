@@ -374,3 +374,31 @@ edited.
   carve-out) rather than being rewritten to `sudo rkvr rmrf`. The doc defines the
   wrapper outcome as deny vs pass only, so pass is what is implemented; flagging
   in case Scott wants scratch wrappers rewritten too.
+
+## Finalization amendments (2026-09-13, team lead)
+
+### Design decisions
+- Em-dash path allowlist narrowed from `tests/fixtures/`, `*.golden`, `*.json` to
+  `tests/fixtures/`, `*.golden`. The bare `*.json` exempted every config and data
+  file in the tree, which is far wider than the JSON-fixture case it existed for,
+  and a JSON fixture needing the character already qualifies under
+  `tests/fixtures/`. Doc defect, not an implementation gap: Phase 3 implemented
+  the spec exactly as written. Spec, hook and fixture matrix all updated together;
+  `emdash-test.sh` is 31 passed / 0 failed, with a new deny case for a plain
+  `data/fixture.json` and a new allow case for `tests/fixtures/payload.json`.
+
+### Deviations
+- None.
+
+### Tradeoffs
+- Narrowing rather than keeping the wider allowlist costs nothing measurable: the
+  only material that legitimately needs a literal em-dash is verbatim captured
+  text, which belongs under a fixtures path by the same rule.
+
+### Open questions
+- **STILL OWED, blocked:** dropping `git` from `RM_INTEREST` in the rails plugin
+  (`HOME/.claude/skills/rails/hooks/index.ts:408`). `git rm` stages a deletion
+  whose content stays recoverable from git history, so it is not the class rkvr
+  protects, and the current code emits a "rails: rm form not rewritten" context
+  line on every one. The one-word edit was denied by the auto mode classifier
+  with `[Self-Modification]`. Owed alongside Phase 1's settings.json half.
