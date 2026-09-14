@@ -215,3 +215,18 @@ Append-only record of how the implementation interprets or departs from
   }
   ```
   This is the dead-hook window the preflight exists to surface: three files this PR's phases add are not yet symlinked into `~/.claude/hooks/`, because that link step is the post-merge operator step, not part of any phase commit.
+
+## Orchestrator note after Phase 7: the link step ran mid-build
+
+### Design decisions
+- Ran `manifest -l HOME/.claude/hooks/*.sh HOME/.claude/hooks/*.py | bash` right after Phase 7, not after the merge. The Phase 7 preflight, run against the live settings file, reported `lib.sh` unreadable, and a fed-JSON probe through the live symlink path confirmed every guard ported in Phases 2 to 5 was returning `{}` (the release guard allowed `git tag -fa v1 -m moved`). Linking restored them: the same probe denies, the preflight is silent, `bin/hooks-resolve` exits 0.
+- Scoped the glob to `*.sh` and `*.py` because the doc's bare `*` also links `__pycache__/rewrite-cd-read.cpython-311.pyc`.
+
+### Deviations
+- The doc placed the link step after the merge. In a live-session build that leaves every ported guard failing open from the phase that ports it until the merge lands. Recorded in the doc's Rollout Plan as a rule for later chunks.
+
+### Tradeoffs
+- Linking early means the live guards now run the branch's code before it is on `main`. That is the intended end state of the branch and the matrices are green; the alternative was finishing Phases 8 and 9 with the irreversible-operation gates inert.
+
+### Open questions
+- The dangling `~/.claude/hooks/git-no-dash-c.sh` link is still there: `rkvr rmrf` follows it and fails with `No such file or directory`. Needs a plain `rm` from Scott or an rkvr fix.
