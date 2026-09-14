@@ -324,3 +324,17 @@ wrote.
 - A backslash-newline continuation still splits the statement: `git push \` + newline + `origin --tags` allows. Pre-existing (`probes.md` marks it SAME on both sides) and not in the audit's must-fix set, so it was left alone. The fix is a class for the escaped newline so `split_one` does not read it as a separator.
 - `secret-echo-guard.sh` has no command-word anchor, so a SINGLE-quoted verb hides the print: `'echo' $GH_TOKEN` allows, because `mask_squote` erases the verb's characters. The double-quoted spelling denies (that guard does not mask double quotes) and the wrapper sweep covers it. Closing the single-quoted case means giving that guard a `cmdword_is` anchor, which is a design change, not a fold-in.
 - The design doc's Data Model masker table does not list `unquote` or `heredoc_expanded`, and its `stmts` paragraph does not mention compound-command boundaries or `eval`. The doc is Status: Implemented and point-in-time, so it was not edited here; if it is reopened, those are the rows to add.
+
+## Phase 9 (post-push): shakedown and close
+
+### Design decisions
+- The seven criteria re-ran at 10:10 against `origin/main` = `e6b58ee` through the `~/.claude/hooks/` paths, after the audit fold-in, and every one passed; the Observed lines are in the doc. The tracker row flipped to `done` with the compare link and chunk C to `next`.
+
+### Deviations
+- The push carried one commit that is not this chunk's (`e6b58ee`, Scott's removal of the obsidian-skills entries), because Scott committed it on this branch before the push. The tracker's compare link ends at `96e6a79`, the chunk's last commit.
+
+### Tradeoffs
+- None.
+
+### Open questions
+- None. The three known limits are in the doc's Implementation Audit section with their owning chunks.
