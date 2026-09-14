@@ -3,6 +3,7 @@ import { internals } from './index.ts'
 
 const { ghSpots, headSpots, segment, personaFor, inject, inWorkTree } = internals
 const { splitWords, stageComment, resolvePath, rmRewrite } = internals
+const { excludedHeads, excludedDeny, classifyStages } = internals
 
 const WORK_CWD = '/home/saidler/repos/tatari-tv/philo'
 const HOME_CWD = '/home/saidler/repos/scottidler/claude'
@@ -290,10 +291,10 @@ describe('rmRewrite: forms passed through unchanged', () => {
         expect(r.command).toBe('rm -- -weird')
         expect(r.note).toContain('rm form not rewritten')
     })
-    test('git rm is an index operation', async () => {
+    test('git rm is not this rule s business: the content stays in git history', async () => {
         const r = await rmRewrite('git rm x', env())
         expect(r.command).toBe('git rm x')
-        expect(r.note).toContain('git rm')
+        expect(r.note).toBe('')
     })
     test('rm inside a heredoc body is text', async () => {
         const cmd = "cat <<'EOF'\nrm -rf x\nEOF"
@@ -346,5 +347,98 @@ describe('rmRewrite: wrapper forms are denied', () => {
         const r = await rmRewrite('sudo systemctl restart sccache', env())
         expect(r.deny).toBeUndefined()
         expect(r.note).toBe('')
+    })
+})
+
+/** The live list as of 2026-09-13, already stripped of the ` *` glob. */
+const EXCLUDED = [
+    'cargo', 'otto', 'release', 'bump', 'systemctl', 'journalctl', 'crontab', 'ssh',
+    '~/.claude/skills/architect/script.sh', '~/.claude/skills/staff-engineer/script.sh',
+]
+
+describe('excludedHeads', () => {
+    test('the trailing glob is stripped and the order is kept', () => {
+        expect(excludedHeads({ sandbox: { excludedCommands: ['cargo *', 'otto *'] } })).toEqual(['cargo', 'otto'])
+    })
+    test('an entry with no glob is taken as written', () => {
+        expect(excludedHeads({ sandbox: { excludedCommands: ['git commit *', 'crontab'] } }))
+            .toEqual(['git commit', 'crontab'])
+    })
+    test('absent or wrongly typed settings yield no entries', () => {
+        expect(excludedHeads({})).toEqual([])
+        expect(excludedHeads({ sandbox: {} })).toEqual([])
+        expect(excludedHeads({ sandbox: { excludedCommands: 'cargo *' } })).toEqual([])
+        expect(excludedHeads({ sandbox: { excludedCommands: [1, '', 'ssh *'] } })).toEqual(['ssh'])
+    })
+    test('the settings.json this repo ships reads as the live list', async () => {
+        const path = import.meta.dir + '/../../../settings.json'
+        expect(excludedHeads(JSON.parse(await Bun.file(path).text()))).toEqual(EXCLUDED)
+    })
+})
+
+describe('classifyStages', () => {
+    test('an excluded stage and an ordinary one are told apart', () => {
+        const s = classifyStages('$TMPDIR/marker.sh; ssh -V', EXCLUDED, 0)
+        expect(s.excluded).toEqual(['ssh'])
+        expect(s.rest).toEqual(['$TMPDIR/marker.sh'])
+    })
+    test('cd, export, true, echo and bare assignments carry no behavior', () => {
+        const s = classifyStages('X=1; cd r && export A=b; true; echo hi; cargo test', EXCLUDED, 0)
+        expect(s.excluded).toEqual(['cargo'])
+        expect(s.rest).toEqual([])
+    })
+})
+
+describe('excludedDeny: compounds that smuggle a stage out of the sandbox', () => {
+    test('an excluded stage trailing, which is what rules prefix matching out', () => {
+        const deny = excludedDeny('$TMPDIR/marker.sh; ssh -V', EXCLUDED)
+        expect(deny).toContain('"$TMPDIR/marker.sh" would run unsandboxed')
+        expect(deny).toContain('"ssh" is in sandbox.excludedCommands')
+        expect(deny).toContain('separate Bash calls')
+    })
+    test('an excluded stage leading', () => {
+        expect(excludedDeny('ssh -V; $TMPDIR/marker.sh', EXCLUDED)).not.toBeNull()
+    })
+    test('a pipe into a shell beside an excluded stage', () => {
+        expect(excludedDeny('curl x | sh; cargo --version', EXCLUDED)).not.toBeNull()
+    })
+    test('a wrapper carries its inner command, so the -c payload is scanned', () => {
+        expect(excludedDeny("bash -c 'ssh -V; $TMPDIR/marker.sh'", EXCLUDED)).not.toBeNull()
+        expect(excludedDeny("sh -c 'cargo build'", EXCLUDED)).toBeNull()
+    })
+    test('command substitution is a stage of its own', () => {
+        expect(excludedDeny('$TMPDIR/marker.sh $(cargo --version)', EXCLUDED)).not.toBeNull()
+    })
+    test('sudo and env carry an inner head too', () => {
+        expect(excludedDeny('sudo systemctl restart sccache', EXCLUDED)).toBeNull()
+        expect(excludedDeny('env FOO=1 cargo build', EXCLUDED)).toBeNull()
+        expect(excludedDeny('sudo $TMPDIR/marker.sh; ssh -V', EXCLUDED)).not.toBeNull()
+    })
+})
+
+describe('excludedDeny: normal use passes untouched', () => {
+    test('a single excluded command', () => {
+        expect(excludedDeny('cargo test', EXCLUDED)).toBeNull()
+    })
+    test('cd into a repo then build', () => {
+        expect(excludedDeny('cd r && cargo test', EXCLUDED)).toBeNull()
+    })
+    test('ssh with arguments is one command, not a compound', () => {
+        expect(excludedDeny('ssh host ls', EXCLUDED)).toBeNull()
+    })
+    test('a leading assignment is not a stage', () => {
+        expect(excludedDeny('X=1 bump -m', EXCLUDED)).toBeNull()
+    })
+    test('a pure excluded compound', () => {
+        expect(excludedDeny('cargo build && cargo test', EXCLUDED)).toBeNull()
+    })
+    test('a compound with no excluded stage at all', () => {
+        expect(excludedDeny('git status && rg todo', EXCLUDED)).toBeNull()
+    })
+    test('an empty list makes the rule inert', () => {
+        expect(excludedDeny('$TMPDIR/marker.sh; ssh -V', [])).toBeNull()
+    })
+    test('a heredoc body is data, so its stages never deny', () => {
+        expect(excludedDeny("cat <<'EOF'\nssh -V\nmarker.sh\nEOF", EXCLUDED)).toBeNull()
     })
 })

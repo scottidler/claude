@@ -402,3 +402,73 @@ edited.
   protects, and the current code emits a "rails: rm form not rewritten" context
   line on every one. The one-word edit was denied by the auto mode classifier
   with `[Self-Modification]`. Owed alongside Phase 1's settings.json half.
+
+## Phase 5b: rails excluded-compound deny (2026-09-13)
+
+### Design decisions
+- Third `tool.call` rule in `HOME/.claude/skills/rails/hooks/index.ts`, beside
+  gh-persona and rm-rkvr. `excludedDeny(command, entries)` is pure and takes the
+  entry list, so every case is a unit test; the engine only supplies the list.
+- The entry list comes from `$.settings.read()` (`readExcluded`), the engine's
+  own merged settings view, read once per session on the first Bash call and
+  cached in a register-scope promise. One source of truth: the ten entries are
+  never restated in the plugin.
+- Classification reuses `heads()`, `segment()` and `splitWords()` unchanged. No
+  second scanner, so the quote awareness and the heredoc stop come for free: a
+  heredoc body naming `ssh -V` is data and never denies.
+- Wrappers (`sh -c`, `bash -c`, `zsh -c`, `sudo`, `xargs`, `env`, `nohup`) are
+  classified by their inner head, recursively to depth 3. `ssh` is deliberately
+  NOT a wrapper here even though the rm rule treats it as one: `ssh host ls` is
+  one command, and an inner-head reading would make `host` a REST stage and deny
+  a positive case.
+- `git` left `RM_INTEREST` and the `git rm` branch left `rmRewrite`. A comment on
+  `RM_INTEREST` says why: `git rm` stages a deletion whose content stays
+  recoverable from git history, so it is not the class rkvr protects.
+
+### Deviations
+- Spec said "read `sandbox.excludedCommands` from `~/.claude/settings.json` at
+  plugin load". Implemented at the correct seam instead: `$.settings.read()`,
+  lazily on the first Bash call. A hooks module may import nothing but its own
+  files and `claude-code`, so `node:fs` is unavailable; `claude plugin validate
+  --strict` refuses it by name (`cannot import "node:fs" (from hooks/index.ts)`).
+  Same effect, and strictly better: the engine's merged view carries `--settings`
+  and project overrides that a path read would miss.
+- Spec named only `RM_INTEREST` for the `git` removal, but the stated goal (stop
+  the context line on every `git rm`) needed the `head.word === 'git'` branch in
+  `rmRewrite` gone too: `git rm x` still matches `RM_INTEREST` through its bare
+  `rm` alternative, so dropping the word alone would have changed nothing
+  observable. Both removed.
+- The test that pinned the old behavior (`git rm is an index operation`,
+  expecting a note) was inverted by name rather than deleted: it now asserts
+  `note === ''`.
+
+### Tradeoffs
+- Deny over rewrite. Rails could in principle split a mixed compound into its
+  stages and run them separately, but that changes shell semantics (exit codes,
+  pipes, redirections) invisibly. A deny that names both heads and says "run them
+  as separate Bash calls" keeps the model in charge of the split.
+- Inert on a settings read failure rather than falling back to a hardcoded list.
+  A stale hardcoded list would deny on entries that no longer exist and miss ones
+  that do; failing open matches the rest of rails, which is early access.
+- Wrapper depth capped at 3 rather than unbounded: past any use that is not
+  deliberately adversarial, and adversarial nesting is not the threat model here
+  (the model composing a convenience compound is).
+
+### Open questions
+- **The rule's blast radius on pipes, measured 2026-09-13 against the live ten
+  entries, raised to the team lead before commit and still open.** Any pipe or
+  `&&` beside an excluded stage is a deny, because REST is "every non-excluded
+  stage minus `cd`, `export`, assignments, `true`, `echo`". So `otto ci 2>&1 |
+  tail -50`, `cargo test | rg fail` and `git -C p status && cargo test` are all
+  denied and have to be split into separate Bash calls, which cannot pipe.
+  The narrowing on the table is a read-only consumer set (`tee`, `tail`, `head`,
+  `cat`, `rg`, `grep`, `jq`, `sort`, `uniq`, `wc`, `less`) joining the transparent
+  list, which keeps `; ssh -V` and `| sh` denied. Not taken unilaterally: it is a
+  rule-semantics call. Scott's to settle.
+- Whether the engine's `excludedCommands` matcher looks inside a `sh -c` payload
+  is unmeasured. The rule denies either way, so the answer does not change
+  behavior, but it would change how the hole is described.
+- `sudo -u scott cargo build` classifies `scott` as a REST stage, because the
+  wrapper unwrap skips flags but not their arguments. It over-denies only when an
+  excluded stage is also present. No live case observed; recorded rather than
+  fixed with an option table that would need per-wrapper knowledge.

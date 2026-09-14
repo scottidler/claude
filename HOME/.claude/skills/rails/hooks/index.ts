@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
+import type { EngineInterface, Register, Settings, ToolCallResult } from 'claude-code'
 
 /**
  * rails: gh persona
@@ -364,10 +364,6 @@ async function rmRewrite(command: string, env: Env): Promise<RmResult> {
             notes.push(rmMiss('wrapper delete confined to scratch'))
             continue
         }
-        if (head.word === 'git') {
-            if (splitWords(seg)[1]?.value === 'rm') { notes.push(rmMiss('git rm, an index operation')) }
-            continue
-        }
         if (head.word !== 'rm') { continue }
         if (head.loop) { notes.push(rmMiss('loop body, the paths are a variable')); continue }
 
@@ -404,8 +400,130 @@ async function rmRewrite(command: string, env: Env): Promise<RmResult> {
     return { command: out, note: notes.join(' | ') }
 }
 
-/** Cheap gate so a Bash call with no delete in it never costs an engine round trip. */
-const RM_INTEREST = /(?:^|[\s;&|(])(?:rm|sudo|xargs|find|sh|bash|ssh|docker|kubectl|git)(?=\s|$)/
+/**
+ * Cheap gate so a Bash call with no delete in it never costs an engine round trip.
+ *
+ * `git` is deliberately absent: `git rm` stages a deletion whose content stays
+ * recoverable from git history, so it is not the class rkvr protects, and
+ * noting it cost a context line on every one.
+ */
+const RM_INTEREST = /(?:^|[\s;&|(])(?:rm|sudo|xargs|find|sh|bash|ssh|docker|kubectl)(?=\s|$)/
+
+/**
+ * rails: excluded-compound deny
+ *
+ * `sandbox.excludedCommands` does NOT match a command-string prefix. It matches
+ * any stage ANYWHERE in a compound and exempts the ENTIRE compound. Measured
+ * 2026-09-13 with an AF_UNIX socket-creation marker (the sandbox denies
+ * `socket(AF_UNIX)` outright, so creating one succeeds only outside it):
+ * `marker.sh` alone is sandboxed, `ssh -V; marker.sh` is not, and neither is
+ * `marker.sh; ssh -V`, which rules prefix matching out.
+ *
+ * So every entry is a general escape hatch: appending `; ssh -V` to anything
+ * opts it out of the sandbox with no approval prompt. The only party who can
+ * compose such a command is the model itself, so removing the composition
+ * closes the hole. Scott's ruling 2026-09-13 (option D): keep all ten entries,
+ * fix it here rather than in settings.json.
+ */
+
+/** Heads that carry an inner command; the inner head is what actually runs. */
+const EX_WRAPPERS = new Set(['sh', 'bash', 'zsh', 'sudo', 'xargs', 'env', 'nohup'])
+/** Of those, the ones whose inner command arrives as a `-c` payload. */
+const EX_SHELLS = new Set(['sh', 'bash', 'zsh'])
+/** `-c`, `-lc`, `-ec`: any short-flag cluster ending in c. */
+const SHELL_C = /^-[A-Za-z]*c$/
+/** Stages that carry no behavior of their own, so they never make a compound. */
+const EX_TRANSPARENT = new Set(['cd', 'export', 'true', 'echo'])
+/** A `sh -c` payload may itself be a compound; three levels is past any real use. */
+const EX_MAX_DEPTH = 3
+/** Every entry is written `<head> *`; the glob is not part of the head. */
+const EX_GLOB_SUFFIX = ' *'
+
+type Stages = { excluded: string[]; rest: string[] }
+
+/**
+ * The excluded heads from the engine's own merged settings, the one source of
+ * truth. An absent or wrongly typed list yields none, which makes the rule inert.
+ */
+function excludedHeads(settings: Settings): string[] {
+    const sandbox = (settings as { sandbox?: { excludedCommands?: unknown } }).sandbox
+    const raw = sandbox?.excludedCommands
+    if (!Array.isArray(raw)) { return [] }
+    return raw
+        .filter((e): e is string => typeof e === 'string')
+        .map((e) => (e.endsWith(EX_GLOB_SUFFIX) ? e.slice(0, -EX_GLOB_SUFFIX.length) : e).trim())
+        .filter((e) => e !== '')
+}
+
+/** Which excluded head this stage is, or null. Multi-word entries match the stage text. */
+function excludedAs(seg: string, head: string, entries: readonly string[]): string | null {
+    const text = seg.trim()
+    for (const entry of entries) {
+        if (head === entry) { return entry }
+        if (text === entry || text.startsWith(entry + ' ')) { return entry }
+    }
+    return null
+}
+
+/** The command a wrapper stage runs, as text, or null when it carries none. */
+function innerCommand(words: readonly Word[]): string | null {
+    const head = words[0]?.value ?? ''
+    if (EX_SHELLS.has(head)) {
+        const at = words.findIndex((w, i) => i > 0 && SHELL_C.test(w.value))
+        if (at === -1) { return null }
+        return words[at + 1]?.value ?? null
+    }
+    for (let i = 1; i < words.length; i += 1) {
+        const w = words[i]
+        if (w === undefined) { continue }
+        if (w.value.startsWith('-') || ASSIGN.test(w.value)) { continue }
+        return words.slice(i).map((x) => x.raw).join(' ')
+    }
+    return null
+}
+
+/** Split a command into its excluded stages and every other stage that acts. */
+function classifyStages(command: string, entries: readonly string[], depth: number): Stages {
+    const out: Stages = { excluded: [], rest: [] }
+    for (const head of heads(command)) {
+        const seg = segment(command, head.at)
+        if (excludedAs(seg, head.word, entries) !== null) { out.excluded.push(head.word); continue }
+        if (EX_TRANSPARENT.has(head.word)) { continue }
+        if (depth < EX_MAX_DEPTH && EX_WRAPPERS.has(head.word)) {
+            const inner = innerCommand(splitWords(seg))
+            if (inner !== null) {
+                const nested = classifyStages(inner, entries, depth + 1)
+                out.excluded.push(...nested.excluded)
+                out.rest.push(...nested.rest)
+                continue
+            }
+        }
+        out.rest.push(head.word)
+    }
+    return out
+}
+
+/** The deny reason for a compound that smuggles a stage out of the sandbox, or null. */
+function excludedDeny(command: string, entries: readonly string[]): string | null {
+    if (entries.length === 0) { return null }
+    const { excluded, rest } = classifyStages(command, entries, 0)
+    if (excluded.length === 0 || rest.length === 0) { return null }
+    return 'rails: "' + rest[0] + '" would run unsandboxed because "' + excluded[0]
+        + '" is in sandbox.excludedCommands; run them as separate Bash calls'
+}
+
+/**
+ * The live list, read once per session and cached.
+ *
+ * `$.settings.read()` is the engine's own merged view (user, project, local,
+ * `--settings`, policy), which beats reading `~/.claude/settings.json` by path:
+ * a hooks module may import nothing but its own files and `claude-code`, so
+ * `node:fs` is not available to it (`claude plugin validate --strict` refuses
+ * it outright). A read that rejects leaves the rule inert.
+ */
+function readExcluded($: EngineInterface): Promise<string[]> {
+    return $.settings.read().then(excludedHeads).catch(() => [])
+}
 
 function envFor($: EngineInterface): Env {
     let cwd: Promise<string> | null = null
@@ -433,7 +551,9 @@ function debug($: EngineInterface, enabled: boolean, rule: string, line: string)
 export const register: Register = (on, options) => {
     const persona = options['gh_persona'] !== false
     const rkvr = options['rm_rkvr'] !== false
+    const compound = options['excluded_compound'] !== false
     const verbose = options['debug'] === true
+    let excluded: Promise<string[]> | null = null
 
     on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
         const command = e.command
@@ -488,6 +608,16 @@ export const register: Register = (on, options) => {
         if (rewritten === command) { return withContext(await next(e), note) }
         return withContext(await next({ ...e, command: rewritten }), note)
     })
+
+    on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+        const command = e.command
+        if (!compound || typeof command !== 'string') { return next(e) }
+        if (excluded === null) { excluded = readExcluded($) }
+        const deny = excludedDeny(command, await excluded)
+        if (deny === null) { return next(e) }
+        debug($, verbose, 'excluded-compound', 'deny: ' + command)
+        return { deny }
+    })
 }
 
 export const internals = {
@@ -503,4 +633,7 @@ export const internals = {
     resolvePath,
     rmRewrite,
     REGENERABLE,
+    excludedHeads,
+    excludedDeny,
+    classifyStages,
 }
