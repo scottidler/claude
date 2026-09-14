@@ -139,7 +139,9 @@ case "$tool" in
       idx=$((idx + 1))
       masked=$(printf '%s' "$stmt" | mask_comment)
       printf '%s' "$masked" | cmdword_is gh || continue
-      printf '%s' "$masked" | grep -Eq '(^|[[:space:]])pr[[:space:]]+create([[:space:]]|$)' || continue
+      # Matched on the UNQUOTED copy: `"gh" "pr" create` is the same invocation
+      # gh receives, spelled to dodge a matcher (audit CW1).
+      printf '%s' "$masked" | unquote | grep -Eq '(^|[[:space:]])pr[[:space:]]+create([[:space:]]|$)' || continue
       title=$(printf '%s' "$stmt" | flag_value --title -t)
       branch=$(printf '%s' "$stmt" | flag_value --head -H)
       branch="${branch##*:}"

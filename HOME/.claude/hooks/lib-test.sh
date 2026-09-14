@@ -71,7 +71,16 @@ case_args() { # case_args <label> <input> <expected, arguments joined by |>
   eq "$1" "$3" "$(printf '%s' "$2" | args | tr '\n' '|' | sed -e 's/|$//' | vis)"
 }
 
+case_unquote() { # case_unquote <label> <input> <expected>
+  eq "$1" "$3" "$(printf '%s' "$2" | unquote | vis)"
+}
+
+case_hdx() { # case_hdx <label> <input> <expected>
+  eq "$1" "$3" "$(printf '%s' "$2" | heredoc_expanded | vis)"
+}
+
 SQ=\'
+DQ='"'
 TAGS="--ta""gs"
 SECRET="SOME_""TOKEN"
 
@@ -189,6 +198,36 @@ case_stmts 'a single-quoted && does not split' \
   "echo ${SQ}a && b${SQ}" \
   "echo ${SQ}a && b${SQ}"
 
+echo "=== stmts: compound commands are statements, not decoration ==="
+case_stmts 'a subshell body is a statement of its own' \
+  '(git push origin main)' 'git push origin main'
+case_stmts 'a brace group is a statement of its own' \
+  '{ git reset --hard; }' 'git reset --hard'
+case_stmts 'a list operator in front of a subshell still splits' \
+  'true && (ls /tmp)' 'true|ls /tmp'
+case_stmts 'a case arm yields the command it guards' \
+  'case x in x) ls;; esac' 'case x in x|ls|esac'
+case_stmts 'a one-line function definition yields its body' \
+  'f(){ ls; }; f' 'f|ls|f'
+case_stmts 'a parameter expansion is not a brace group' \
+  'git push origin ${x:-main}' 'git push origin ${x:-main}'
+case_stmts 'an xargs placeholder is not a brace group' \
+  'xargs -I {} ls {}' 'xargs -I {} ls {}'
+case_stmts 'a process substitution body is yielded and neutralized' \
+  'echo <(ls /tmp)' "echo <($(mk 'ls /tmp'))|ls /tmp"
+case_stmts 'an output process substitution is yielded too' \
+  'echo >(ls /tmp)' "echo >($(mk 'ls /tmp'))|ls /tmp"
+case_stmts 'a quoted eval argument is a nested statement' \
+  "eval ${DQ}ls /tmp${DQ}" "eval ${DQ}$(mk 'ls /tmp')${DQ}|ls /tmp"
+case_stmts 'an unquoted eval argument is a nested statement too' \
+  'eval ls /tmp' "eval $(mk 'ls /tmp')|ls /tmp"
+case_stmts 'eval as an operand is not an eval' \
+  'echo eval ls' 'echo eval ls'
+case_stmts 'a combined short flag is still a -c body' \
+  "bash -lc ${SQ}ls /tmp${SQ}" "bash -lc ${SQ}$(mk 'ls /tmp')${SQ}|ls /tmp"
+case_stmts 'a combined short flag on a non-shell command is not a -c body' \
+  "grep -lc ${SQ}ls /tmp${SQ} f" "grep -lc ${SQ}ls /tmp${SQ} f"
+
 echo "=== flag_value ==="
 case_flag 'recovers a quoted value verbatim' \
   'gh pr create --title "fix(x): a b" --body z' --title -t 'fix(x): a b'
@@ -215,6 +254,51 @@ case_cmdword 'env assignments, a wrapper and a path prefix are allowed' \
   'FOO=1 sudo /usr/bin/git status' git 0
 case_cmdword 'manifest in command position matches' 'manifest -l x' manifest 0
 case_cmdword 'manifest as an argument does not match' 'echo manifest' manifest 1
+
+echo "=== cmdword_is: every prefix the shell steps over ==="
+case_cmdword 'an env assignment' 'FOO=1 git status' git 0
+case_cmdword 'an assignment AFTER env, which is the same prefix in the other order' \
+  'env X=1 git status' git 0
+case_cmdword 'a then keyword' 'then git status' git 0
+case_cmdword 'a do keyword' 'do git status' git 0
+case_cmdword 'a negation' '! git status' git 0
+case_cmdword 'a time keyword' 'time git status' git 0
+case_cmdword 'a coproc keyword' 'coproc git status' git 0
+case_cmdword 'timeout with an option, its value, and a duration' \
+  'timeout -k 5 30s git status' git 0
+case_cmdword 'nice with an option value' 'nice -n 5 git status' git 0
+case_cmdword 'sudo with an option value' 'sudo -u root git status' git 0
+case_cmdword 'xargs with an attached option' 'xargs -I{} git status' git 0
+case_cmdword 'a quoting backslash on the verb' '\git status' git 0
+case_cmdword 'quote characters around the verb' "${DQ}git${DQ} status" git 0
+case_cmdword 'quote characters inside the verb' "g${DQ}${DQ}it status" git 0
+case_cmdword 'a for header names no command' 'for x in 1' git 1
+case_cmdword 'the loop variable is not the command' 'for git in 1' git 1
+case_cmdword 'a wrapper alone wraps nothing' 'sudo' git 1
+case_cmdword 'the word as an operand is still not the command' 'ls git' git 1
+
+echo "=== unquote ==="
+case_unquote 'a split flag reads as the flag it is' \
+  "git push origin --ta${DQ}${DQ}gs" "git push origin $TAGS"
+case_unquote 'a wholly quoted flag is still that flag' \
+  "git push origin ${DQ}$TAGS${DQ}" "git push origin $TAGS"
+case_unquote 'a partly quoted flag too' \
+  "git push origin -${DQ}-tags${DQ}" "git push origin $TAGS"
+case_unquote 'a single-quoted verb is the verb' "${SQ}git${SQ} status" 'git status'
+case_unquote 'quotes inside a heredoc body are content, not quoting' \
+  "$(printf 'cat <<EOF\nsay %shi%s\nEOF' "$DQ" "$DQ")" \
+  "$(printf 'cat <<EOF\nsay %shi%s\nEOF' "$DQ" "$DQ")"
+case_unquote 'a command with no quotes is untouched' 'git status' 'git status'
+
+echo "=== heredoc_expanded: only the bodies bash substitutes into ==="
+case_hdx 'an unquoted delimiter body is expanded, so the guard sees it' \
+  "$(printf 'cat <<EOF\nhas %s in it\nEOF' "\$$SECRET")" \
+  "$(printf '\nhas %s in it' "\$$SECRET")"
+case_hdx 'a quoted delimiter body is inert, so nothing comes back' \
+  "$(printf 'cat <<%sEOF%s\nhas %s in it\nEOF' "$SQ" "$SQ" "\$$SECRET")" ''
+case_hdx 'the terminator line is never a body' \
+  "$(printf 'cat <<EOF\nbody\nEOF\nls')" "$(printf '\nbody')"
+case_hdx 'a command with no heredoc has no expanded body' 'git status' ''
 
 echo "=== cd_target ==="
 case_cd 'picks the last of three' 'cd /a && cd /b && cd /c && bump' '/c'

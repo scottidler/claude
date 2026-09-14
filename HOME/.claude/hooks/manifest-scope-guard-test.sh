@@ -8,7 +8,9 @@
 set -u
 export LC_ALL=C
 
-HOOK="$(cd "$(dirname "$0")" && pwd)/manifest-scope-guard.sh"
+HOOKS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+HOOK="$HOOKS/manifest-scope-guard.sh"
+. "$HOOKS/shapes.sh" || exit 1
 pass=0
 fail=0
 
@@ -58,6 +60,20 @@ run allow "$(printf 'cat > notes.md <<EOF\nrun manifest to apply\nEOF\nrg -n x n
 echo "=== a nested statement is still a command word ==="
 run deny "$(printf 'cat > notes.md <<EOF\nprose\nEOF\nmanifest')"
 run allow "$(printf 'cat > notes.md <<EOF\nprose\nEOF\nmanifest -l x')"
+
+echo "=== the command word is the verb, whatever sits in front of it (audit MF1) ==="
+# Both rows the differential probe measured on this guard. The subshell form
+# allowed on the baseline too; it is the same class and it is closed here.
+run deny '(manifest apply)'
+run deny 'if true; then manifest apply; fi'
+
+echo "=== an unscoped apply holds in every shape bash offers ==="
+runwrapped() { # runwrapped <command>
+  local w
+  while IFS= read -r w; do run deny "$w"; done < <(wrap_shapes "$1")
+}
+runwrapped 'manifest'
+runwrapped 'manifest apply'
 
 echo
 echo "pass=$pass fail=$fail"

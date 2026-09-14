@@ -28,7 +28,9 @@
 # inside "..." and not inside '...', so the double-quoted form is the exact
 # vector this hook exists to catch while the single-quoted and backslash-escaped
 # forms cannot leak anything. It is the one guard that deviates from the shared
-# bare-word masker set, and the deviation is the shell's own semantics.
+# bare-word masker set, and the deviation is the shell's own semantics. For the
+# same reason it takes a second input, `heredoc_expanded`: the bodies bash
+# substitutes into before running anything, which the shared masker erases.
 . "$(dirname "$0")/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }
 
 input=$(cat)
@@ -43,10 +45,20 @@ while IFS= read -r -d '' stmt; do
 "
 done < <(printf '%s' "$command" | stmts)
 
-reason=$(GUARD_CMD="$scan" python3 <<'PY'
+# The one place the h/H heredoc split is visible. A heredoc body whose delimiter
+# is UNQUOTED is expanded by bash before the command ever runs, so
+# `cat <<EOF` / `$GH_TOKEN` / `EOF` prints the secret to the transcript, which is
+# this hook's whole subject. `cat <<'EOF'` prints the ten literal characters and
+# stays inert. `mask_heredoc` erases both kinds (a heredoc body is never a
+# command, which is the false-positive class the other guards need), so the
+# expanded bodies arrive here as their own input instead (audit MF4).
+heredocs=$(printf '%s' "$command" | heredoc_expanded)
+
+reason=$(GUARD_CMD="$scan" GUARD_HEREDOC="$heredocs" python3 <<'PY'
 import os, re, sys
 
 cmd = os.environ.get("GUARD_CMD", "")
+heredoc = os.environ.get("GUARD_HEREDOC", "")
 
 # Distinctive secret-name components. Underscore-anchored _KEY/_PAT avoid PATH,
 # "monkey", "compatible", etc. TOKEN/SECRET/PASSWORD/CREDENTIAL are distinctive
@@ -85,6 +97,14 @@ if re.search(rf"\b(?:echo|printf)\b[^\n;|&]*\$\{{?{NAME}", stripped, re.IGNORECA
     sys.exit(0)
 if re.search(rf"\bprintenv\b[^\n;|&]*{NAME}", stripped, re.IGNORECASE):
     print("printenv-secret")
+    sys.exit(0)
+
+# 3) A secret var referenced in a heredoc body bash EXPANDS. No command check:
+#    the substitution has already happened by the time any command sees the
+#    body, so `cat` prints it, `tee` prints and writes it, and a redirect
+#    writes it to a file. Every one of those is a place the value must not go.
+if re.search(rf"\$\{{?{NAME}", heredoc, re.IGNORECASE):
+    print("heredoc-secret")
     sys.exit(0)
 PY
 )

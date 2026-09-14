@@ -99,18 +99,27 @@ judge() { # judge <offered new branch name>
 # anchors where Gate C anchors (git-release-guard.sh's bump-name gate), which is
 # what keeps `git branch -d x` and `git branch --list 'x*'` out: the flag
 # between `branch` and the name breaks the match. A rename is the sanctioned fix
-# for a bad name, so `-m` is judged on where it LANDS: the last operand.
+# for a bad name, so `-m` is judged on where it LANDS: the last operand. The
+# ATTACHED spelling counts too (`git checkout -bfix/x`, `git switch -cfix/x`):
+# it is valid git, and an exact token comparison walks straight past it (audit
+# CW3, 2026-09-14).
 new_names() { # new_names <masked statement>
   printf '%s' "$1" | args | awk '
     { t[NR] = $0 }
     END {
       for (i = 1; i <= NR; i++) {
         if (t[i] == "checkout") {
-          for (j = i + 1; j <= NR; j++) if (t[j] == "-b" || t[j] == "-B") { print t[j + 1]; break }
+          for (j = i + 1; j <= NR; j++) {
+            if (t[j] == "-b" || t[j] == "-B") { print t[j + 1]; break }
+            if (t[j] ~ /^-[bB]./) { print substr(t[j], 3); break }
+          }
           exit
         }
         if (t[i] == "switch") {
-          for (j = i + 1; j <= NR; j++) if (t[j] == "-c" || t[j] == "-C" || t[j] == "--create") { print t[j + 1]; break }
+          for (j = i + 1; j <= NR; j++) {
+            if (t[j] == "-c" || t[j] == "-C" || t[j] == "--create") { print t[j + 1]; break }
+            if (t[j] ~ /^-[cC]./) { print substr(t[j], 3); break }
+          }
           exit
         }
         if (t[i] == "branch") {
@@ -127,7 +136,10 @@ new_names() { # new_names <masked statement>
         }
         if (t[i] == "worktree") {
           for (j = i + 1; j <= NR; j++) if (t[j] == "add") break
-          for (k = j + 1; k <= NR; k++) if (t[k] == "-b" || t[k] == "-B") { print t[k + 1]; break }
+          for (k = j + 1; k <= NR; k++) {
+            if (t[k] == "-b" || t[k] == "-B") { print t[k + 1]; break }
+            if (t[k] ~ /^-[bB]./) { print substr(t[k], 3); break }
+          }
           exit
         }
       }
@@ -154,7 +166,9 @@ while IFS= read -r -d '' stmt; do
   # ref. An `owner:branch` form is split on the LAST `:`, the same as
   # branch-pr-title-guard.sh does.
   printf '%s' "$masked" | cmdword_is gh || continue
-  printf '%s' "$masked" | grep -Eq '(^|[[:space:]])pr[[:space:]]+create([[:space:]]|$)' || continue
+  # Matched on the UNQUOTED copy: `"gh" "pr" create` is the same invocation gh
+  # receives, spelled to dodge a matcher (audit CW1).
+  printf '%s' "$masked" | unquote | grep -Eq '(^|[[:space:]])pr[[:space:]]+create([[:space:]]|$)' || continue
   head=$(printf '%s' "$stmt" | flag_value --head -H)
   head="${head##*:}"
   [ -z "$head" ] && continue

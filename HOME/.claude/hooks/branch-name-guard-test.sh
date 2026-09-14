@@ -16,7 +16,9 @@
 set -u
 export LC_ALL=C
 
-HOOK="$(cd "$(dirname "$0")" && pwd)/branch-name-guard.sh"
+HOOKS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+HOOK="$HOOKS/branch-name-guard.sh"
+. "$HOOKS/shapes.sh" || exit 1
 pass=0
 fail=0
 
@@ -130,6 +132,26 @@ run allow "cd $O && git checkout -b flat-slug"
 echo "=== an unknowable name passes through ==="
 run allow 'git checkout -b "$(gen-name)"'
 run allow 'git checkout -b `gen-name`'
+
+echo "=== the command word is the verb, and -b takes its name attached ==="
+# Every bypass the 2026-09-14 differential probe measured on this guard.
+run deny '(git checkout -b feat/thing)' 'Use `feat-thing`'
+run deny 'if true; then git checkout -b feat/thing; fi' 'Use `feat-thing`'
+run deny '"git" checkout -b feat/thing' 'Use `feat-thing`'
+run deny 'git checkout -bfix/x' 'Use `fix-x`'
+run deny 'git checkout -Bfix/x' 'Use `fix-x`'
+run deny 'git switch -cfix/x' 'Use `fix-x`'
+run deny 'git switch -Cfix/x' 'Use `fix-x`'
+run deny 'git worktree add -ba/b ../w' 'Use `a-b`'
+run allow 'git checkout -bflat-slug'
+
+echo "=== a slashed creation holds in every shape bash offers ==="
+runwrapped() { # runwrapped <command>
+  local w
+  while IFS= read -r w; do run deny "$w"; done < <(wrap_shapes "$1")
+}
+runwrapped 'git checkout -b fix/x'
+runwrapped 'git switch -c Bad_Name'
 
 echo
 echo "pass=$pass fail=$fail"

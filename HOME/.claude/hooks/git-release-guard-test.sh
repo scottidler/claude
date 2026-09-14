@@ -28,7 +28,11 @@
 #
 # Run directly, or via: git-release-guard.sh --self-test
 set -u
-HOOK="$(cd "$(dirname "$0")" && pwd)/git-release-guard.sh"
+HOOKS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+HOOK="$HOOKS/git-release-guard.sh"
+# Sourced HERE, before the fixture setup cd's away, and fatally: a shape list
+# that fails to load would otherwise print "command not found" and still exit 0.
+. "$HOOKS/shapes.sh" || exit 1
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/guard-test.XXXXXX")
 trap 'chmod -R u+w "$ROOT" 2>/dev/null' EXIT
 
@@ -438,6 +442,63 @@ run deny  main 'git add -A && git commit -m "fix: something"'
 REPO="$V"
 run allow main 'git commit -m "fix: something"'
 REPO="$R"
+
+echo "=== the command word is the verb, whatever sits in front of it (audit MF1/MF2) ==="
+# Every row the 2026-09-14 differential probe measured as a deny-to-allow flip,
+# with the command text verbatim from probes.md. The wrapped sweep below is the
+# structural half; these are the exact inputs that were measured broken.
+run deny  main '(git push origin --tags)'
+run deny  main '{ git push origin --tags; }'
+run deny  main 'true && (git push origin --tags)'
+run deny  main 'if git push origin --tags; then echo ok; fi'
+run deny  main 'while git push origin --tags; do :; done'
+run deny  main 'until git push origin --tags; do :; done'
+run deny  main 'for x in 1; do git push origin --tags; done'
+run deny  main 'case x in x) git push origin --tags;; esac'
+run deny  main 'time git push origin --tags'
+run deny  main '! git push origin --tags'
+run deny  main 'nohup git push origin --tags'
+run deny  main 'timeout 5 git push origin --tags'
+run deny  main 'coproc git push origin --tags'
+run deny  main 'eval "git push origin --tags"'
+run deny  main 'eval git push origin --tags'
+run deny  main 'xargs -I{} git push origin --tags </dev/null'
+run deny  main 'echo <(git push origin --tags)'
+run deny  main 'echo >(git push origin --tags)'
+run deny  main 'f(){ git push origin --tags; }; f'
+run deny  main '\git tag -d v1'
+run deny  main '{ git push --force origin main; }'
+run deny  main 'bash -c "(git push origin --tags)"'
+run deny  main 'bash -c "if true; then git push origin --tags; fi"'
+run deny  main '"git" push origin --tags'
+run deny  main '"git" tag -fa v1 -m moved'
+run deny  main 'git push origin --ta""gs'
+run deny  main 'git push origin -"-tags"'
+runcwd deny "$D" "$D" '(git reset --hard)'
+runcwd deny "$D" "$D" 'if true; then git reset --hard; fi'
+# Known static limit, pinned so it is a decision and not a surprise: the verb
+# arrives through a variable, so no matcher that does not RUN the command can
+# know what it is. The audit reached the same verdict independently.
+run allow main 'g=git; $g push origin --tags'
+
+echo "=== every irreversible deny holds in every shape bash offers ==="
+# One list, in shapes.sh, shared by four matrices. See that file's header for
+# why this is a sweep and not twenty more pinned fixtures.
+runwrapped() { # runwrapped <branch> <command>
+  local br="$1" w
+  while IFS= read -r w; do run deny "$br" "$w"; done < <(wrap_shapes "$2")
+}
+runcwdwrapped() { # runcwdwrapped <payload cwd> <hook cwd> <command>
+  local pc="$1" hc="$2" w
+  while IFS= read -r w; do runcwd deny "$pc" "$hc" "$w"; done < <(wrap_shapes "$3")
+}
+runwrapped main 'git tag -d v0.1.0'
+runwrapped main 'git tag -fa v1 -m moved'
+runwrapped main 'git push --tags'
+runwrapped main 'git push origin --force main'
+runcwdwrapped "$D" "$D" 'git reset --hard'
+runcwdwrapped "$D" "$D" 'git clean -fd'
+runcwdwrapped "$D" "$D" 'git checkout -- .'
 
 echo
 echo "pass=$pass fail=$fail"

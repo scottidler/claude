@@ -28,7 +28,13 @@ deny() {
 
 while IFS= read -r -d '' stmt; do
   masked=$(printf '%s' "$stmt" | mask_heredoc | mask_squote | mask_dquote | mask_comment)
-  printf '%s' "$masked" | cmdword_is manifest || continue
+  # The command word is read WITHOUT the quote maskers: `"manifest" -l x` is the
+  # manifest command, quoting and all, and a masked verb reads as no verb at all
+  # (audit CW1). Nothing is lost by that, because what keeps
+  # `echo "=== manifest entry ==="` out is the anchor and not the masking: the
+  # command word there is echo. The quote-masked copy stays the input to the
+  # scope-flag and exemption matches below, where a quoted flag is not a flag.
+  printf '%s' "$stmt" | mask_heredoc | mask_comment | cmdword_is manifest || continue
   printf '%s' "$masked" | grep -Eq -- '(^|[[:space:]])(age|secrets|help|--help|-h|--version|-V)([[:space:]]|$)' && continue
   printf '%s' "$masked" | grep -Eq -- '(-l|--link|-p|--ppa|-a|--apt|-d|--dnf|-n|--npm|-P|--pip3|-x|--pipx|--uv-tool|-f|--flatpak|-c|--cargo|-g|--github|-G|--git-crypt|-s|--script)([[:space:]=]|$)' && continue
   deny "Blocked: bare \`manifest\` with no scope flag applies the WHOLE manifest.yml unscoped. Target the specific entry, e.g. \`manifest -l some-dotfile\`."

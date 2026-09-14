@@ -12,7 +12,9 @@
 set -u
 export LC_ALL=C
 
-HOOK="$(cd "$(dirname "$0")" && pwd)/secret-echo-guard.sh"
+HOOKS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+HOOK="$HOOKS/secret-echo-guard.sh"
+. "$HOOKS/shapes.sh" || exit 1
 pass=0
 fail=0
 
@@ -73,6 +75,30 @@ run allow 'rg -n "GH_TOKEN" notes.md'
 run allow 'echo hi # echo "$GH_TOKEN"'
 run allow "$(printf "cat > notes.md <<%sEOF%s\nnever echo \"\$GH_TOKEN\" in a session\nEOF\n" "'" "'")"
 run allow "$(printf 'cat > notes.md <<EOF\nnever echo it\nEOF\nrg -n never notes.md')"
+
+echo "=== a combined short flag is still -c (audit MF3) ==="
+# `bash -lc 'x'` runs x exactly as `bash -c 'x'` does, and the guard read only
+# the exact token -c, so the body was neither yielded as a statement nor
+# neutralized. Measured deny-to-allow against 8ee8f60.
+run deny "bash -lc 'echo \$GH_TOKEN'"
+run deny "sh -xc 'printenv GH_TOKEN'"
+run deny "zsh -lec 'echo \$GITHUB_PAT'"
+
+echo "=== a heredoc body bash EXPANDS is a leak; a quoted one is not (audit MF4) ==="
+# The delimiter's quoting is the whole difference: <<EOF substitutes the value
+# into the body before cat ever runs, <<'EOF' prints the ten characters.
+run deny "$(printf 'cat <<EOF\n$GH_TOKEN\nEOF')"
+run deny "$(printf 'cat > notes.md <<EOF\ntoken: ${GITHUB_TOKEN}\nEOF')"
+run allow "$(printf "cat <<'EOF'\n\$GH_TOKEN\nEOF")"
+run allow "$(printf 'cat <<EOF\nno secret named here\nEOF')"
+
+echo "=== every leak holds in every shape bash offers ==="
+runwrapped() { # runwrapped <command>
+  local w
+  while IFS= read -r w; do run deny "$w"; done < <(wrap_shapes "$1")
+}
+runwrapped 'echo $GH_TOKEN'
+runwrapped 'printenv AWS_SECRET_ACCESS_KEY'
 
 echo
 echo "pass=$pass fail=$fail"

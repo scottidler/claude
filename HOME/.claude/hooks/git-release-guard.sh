@@ -274,8 +274,17 @@ check_stmt() {
   # substitution spans already neutralized (the nested ones arrive as their own
   # statements), so what is left to mask here is the pair the Data Model's row
   # for these gates names: comments, and the VALUE of a message-carrying flag.
-  local m
+  local m mu
   m=$(printf '%s' "$s" | mask_comment | mask_optarg)
+
+  # Every gate MATCHES on $mu and EXTRACTS from $m or $s. `unquote` deletes the
+  # quote characters and keeps their contents, which is what the shell itself
+  # does before git ever sees the word: `git push origin --ta""gs` and
+  # `"git" push origin --tags` are the plain command, spelled to dodge a
+  # matcher (audit MF1/CW1). It is NOT quote masking: `git push origin
+  # "--tags"` still reads as the flag it is and still denies. Extraction stays
+  # on $m because unquote changes the byte length and merges words.
+  mu=$(printf '%s' "$m" | unquote)
 
   # The command word, computed once. Every gate below that matches a git or gh
   # operation is anchored on it: the gate regexes match anywhere in a statement,
@@ -301,7 +310,7 @@ check_stmt() {
   fi
 
   # ---- Tags: never delete, never bulk-push (git.md "Tags") ----
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+tag[[:space:]]+(-d|--delete)\b'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+tag[[:space:]]+(-d|--delete)\b'; then
     deny "git.md: NEVER delete a tag (refusing 'git tag -d/--delete'). If a tag must move or be recreated, ask Scott to do it himself."
   fi
   # Moving a tag is Scott's call and never an agent's, so -f/--force on `git tag`
@@ -311,8 +320,8 @@ check_stmt() {
   # (a message file), which the lowercase-only `f` keeps out of the match, and
   # `git tag -a v1 -m "added --force"` is prose: mask_optarg erased that value
   # before this line ran.
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+tag\b' \
-     && printf '%s' "$m" | grep -Eq '(^|[[:space:]])(--force([[:space:]]|=|$)|-[a-zA-Z]*f[a-zA-Z]*([[:space:]]|$))'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+tag\b' \
+     && printf '%s' "$mu" | grep -Eq '(^|[[:space:]])(--force([[:space:]]|=|$)|-[a-zA-Z]*f[a-zA-Z]*([[:space:]]|$))'; then
     deny "git.md: NEVER move a tag. If a tag must move, ask Scott to do it himself."
   fi
 
@@ -322,8 +331,8 @@ check_stmt() {
   # gate above). The name check runs on the MASKED statement, so the `-d` inside
   # `git tag -a v1 -m "fix the -d flag"` is a message word and that command is
   # correctly read as a creation rather than a deletion.
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+tag\b' \
-     && ! printf '%s' "$m" | grep -Eq '(^|[[:space:]])(-d|--delete|-l|--list|-v|--verify|-n[0-9]*|--contains|--no-contains|--points-at|--merged|--no-merged|--sort|--format|--column)([[:space:]]|=|$)'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+tag\b' \
+     && ! printf '%s' "$mu" | grep -Eq '(^|[[:space:]])(-d|--delete|-l|--list|-v|--verify|-n[0-9]*|--contains|--no-contains|--points-at|--merged|--no-merged|--sort|--format|--column)([[:space:]]|=|$)'; then
     local tagname="" targ seen_tag=0
     while IFS= read -r targ; do
       if [ "$seen_tag" -eq 0 ]; then
@@ -346,12 +355,12 @@ check_stmt() {
     fi
   fi
 
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+push\b.*(--tags|--follow-tags)\b'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+push\b.*(--tags|--follow-tags)\b'; then
     deny "git.md: never 'git push --tags'/'--follow-tags' (the tag lands even if the branch push is rejected, and this orphaned okta-auth-rs v0.2.0). Push the branch first, then the tag by explicit name: git push origin vX.Y.Z"
   fi
   if [ "$is_git" -eq 1 ] \
-     && { printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+push\b.*(--delete|[[:space:]]-d\b).*(refs/tags/|(^|[[:space:]])v[0-9])' \
-          || printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+push\b.*:[[:space:]]*(refs/tags/|v[0-9])'; }; then
+     && { printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+push\b.*(--delete|[[:space:]]-d\b).*(refs/tags/|(^|[[:space:]])v[0-9])' \
+          || printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+push\b.*:[[:space:]]*(refs/tags/|v[0-9])'; }; then
     deny "git.md: refusing what looks like a remote TAG deletion. NEVER delete tags. (If you truly meant a branch, delete it via 'gh' or name 'refs/heads/<branch>' explicitly.)"
   fi
 
@@ -367,17 +376,23 @@ check_stmt() {
   # `git commit -m 'mention bump-1.0.0'` does not, because there is no branch
   # name in it at all.
   local newbr=""
-  if printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+(checkout|switch|branch)\b'; then
+  if printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+(checkout|switch|branch)\b'; then
     newbr=$(printf '%s' "$m" | args | awk '
       { t[NR] = $0 }
       END {
         for (i = 1; i <= NR; i++) {
           if (t[i] == "checkout") {
-            for (j = i + 1; j <= NR; j++) if (t[j] == "-b" || t[j] == "-B") { print t[j + 1]; exit }
+            for (j = i + 1; j <= NR; j++) {
+              if (t[j] == "-b" || t[j] == "-B") { print t[j + 1]; exit }
+              if (t[j] ~ /^-[bB]./) { print substr(t[j], 3); exit }
+            }
             exit
           }
           if (t[i] == "switch") {
-            for (j = i + 1; j <= NR; j++) if (t[j] == "-c" || t[j] == "-C" || t[j] == "--create") { print t[j + 1]; exit }
+            for (j = i + 1; j <= NR; j++) {
+              if (t[j] == "-c" || t[j] == "-C" || t[j] == "--create") { print t[j + 1]; exit }
+              if (t[j] ~ /^-[cC]./) { print substr(t[j], 3); exit }
+            }
             exit
           }
           if (t[i] == "branch") {
@@ -393,8 +408,8 @@ check_stmt() {
   fi
 
   # ---- Force-push to main/master (git.md "Pushing to main") ----
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+push\b.*(--force|--force-with-lease|[[:space:]]-f\b)'; then
-    if printf '%s' "$m" | grep -Eqw '(main|master)' || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+push\b.*(--force|--force-with-lease|[[:space:]]-f\b)'; then
+    if printf '%s' "$mu" | grep -Eqw '(main|master)' || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
       deny "git.md: never force-push main/master without explicit approval from Scott. Stop and report; let him run it."
     fi
   fi
@@ -406,7 +421,7 @@ check_stmt() {
   # repos, whose main takes direct pushes, are untouched. Reading the remote can
   # fail (no origin, not a repo), and this is a deny, so a failed read falls
   # through to allowing rather than to refusing a commit it knows nothing about.
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+commit\b'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+commit\b'; then
     resolve_stmt_tree
     if [ "$stmt_branch" = "main" ] || [ "$stmt_branch" = "master" ]; then
       if git -C "$stmt_dir" remote get-url origin 2>/dev/null | grep -q 'tatari-tv'; then
@@ -422,13 +437,13 @@ check_stmt() {
   # *mentioning* bump: `git commit -m "...bump..."`, a `bump-*` branch name,
   # `echo bump`, etc.
   if [ "$is_bump" -eq 1 ] \
-     && ! printf '%s' "$m" | grep -Eq 'bump.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
+     && ! printf '%s' "$mu" | grep -Eq 'bump.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
     if [ -n "$bump_branch" ] && [ "$bump_branch" != "main" ] && [ "$bump_branch" != "master" ]; then
       # On a feature branch exactly ONE bump form is legal: `bump --no-tag`.
       # That is the gated flow, where the version commit rides the feature PR.
       # Any tag-creating form (plain bump, -m/-M without --no-tag, --tag-only)
       # is blocked: a tag cut on a branch is burnt forever (squash rewrites the SHA).
-      if ! printf '%s' "$m" | grep -Eq '\bbump\b.*--no-tag'; then
+      if ! printf '%s' "$mu" | grep -Eq '\bbump\b.*--no-tag'; then
         deny "Release flow: on a feature branch the ONLY legal bump is 'bump --no-tag', because the version commit rides the feature PR (never a tag on a branch, never a bump-only release branch). Tags are cut on main AFTER the PR merges: git checkout main && git pull --ff-only origin main && bump --tag-only && git push origin vX.Y.Z. (Target worktree '$bump_dir' is on '$bump_branch'.)"
       fi
       # Gate A: 'bump --no-tag' is legal ONLY on a branch that carries real work.
@@ -440,7 +455,7 @@ check_stmt() {
         deny "DENIED: 'bump --no-tag' on branch '$bump_branch', which has ZERO commits ahead of $base, so the bump commit would be this branch's ONLY content, i.e. a bump-only release branch, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work, it rides a feature branch WITH its work: commit the real change first, THEN 'bump --no-tag' on that branch, push, PR; after merge: git checkout main && git pull --ff-only && bump --tag-only && git push origin vX.Y.Z. WHAT TO DO NOW: if the work already merged without its bump, the ONLY sanctioned move is STOP and ask Scott: his default is folding the bump into the NEXT feature PR, never a retrofitted branch. DO NOT retry on a renamed branch or hand-edit the version; sibling gates catch those too. Read the /bump skill."
       fi
     fi
-    if ! printf '%s' "$m" | grep -Eq '\bbump\b.*--tag-only'; then
+    if ! printf '%s' "$mu" | grep -Eq '\bbump\b.*--tag-only'; then
       if [ -n "$bump_porcelain" ]; then
         deny "bump stages everything (git add -A) and the target worktree '$bump_dir' is dirty, so it would sweep untracked/modified files into the version commit (this is exactly how scratch jpgs got committed). Commit your real changes, then 'rkvr rmrf' or stash the strays, THEN bump on a clean tree."
       fi
@@ -453,10 +468,10 @@ check_stmt() {
   # version lines + lockfiles, it IS a bump-only release branch. Deletions
   # (--delete / ':ref' refspecs) push no content and are skipped.
   if [ "$scott_override" -eq 0 ] && { [ "$is_git" -eq 1 ] || [ "$is_gh" -eq 1 ]; } \
-     && printf '%s' "$m" | grep -Eq '\b(git[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+create)\b' \
-     && ! printf '%s' "$m" | grep -Eq '(--delete|[[:space:]]-d[[:space:]]|[[:space:]]:[^[:space:]])'; then
+     && printf '%s' "$mu" | grep -Eq '\b(git[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+create)\b' \
+     && ! printf '%s' "$mu" | grep -Eq '(--delete|[[:space:]]-d[[:space:]]|[[:space:]]:[^[:space:]])'; then
     gateb_ref=""
-    if [ "$is_gh" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
+    if [ "$is_gh" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
       gateb_ref=$(printf '%s' "$s" | flag_value --head)
     else
       # git push [flags] <remote> <refspec>: take the last non-flag token, strip a src: prefix
@@ -490,7 +505,7 @@ check_stmt() {
   # manifest that is pure tool config (no version) still passes ungated.
   # The Release: line is searched in the FULL command (bodies are multi-line and
   # statement-splitting would sever them from the gh invocation).
-  if [ "$is_gh" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
+  if [ "$is_gh" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
     release_managed=""
     for mf in "$bump_dir/Cargo.toml" "$bump_dir/pyproject.toml"; do
       if [ -f "$mf" ] && grep -Eq '^[[:space:]]*"?version"?[[:space:]]*[:=]' "$mf"; then
@@ -558,13 +573,13 @@ check_stmt() {
   # All three read the worktree the STATEMENT runs in, not the session's. The
   # tree these commands destroy is the tree they run in, and those are different
   # directories whenever a `cd` sits in the chain.
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+clean\b.*-[a-z]*f'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+clean\b.*-[a-z]*f'; then
     resolve_stmt_tree
     if [ "$stmt_untracked" -gt 0 ]; then
       deny "git clean -f would permanently delete untracked files, and '$stmt_dir' has $stmt_untracked right now. Untracked files are the one class 'reset --hard' never touches, so nothing else in git is holding them. Use 'rkvr rmrf <paths>' for recoverable deletion instead."
     fi
   fi
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+reset[[:space:]]+--hard'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+reset[[:space:]]+--hard'; then
     resolve_stmt_tree
     if [ -n "$stmt_porcelain" ]; then
       deny "Refusing 'git reset --hard' while '$stmt_dir' is dirty, because it discards every uncommitted change in the tree irreversibly. Commit or stash first; 'rkvr rmrf' anything you want to drop. To revert specific files instead, name them: 'git checkout -- path/to/file' is allowed on a dirty tree. (If the tree were clean this would be allowed.)"
@@ -580,11 +595,11 @@ check_stmt() {
   # -- "$(pwd)"` is tree-wide), no explicit path at all, and the index-
   # discarding restore forms, which lose strictly more than the worktree revert
   # the 66 denials were about.
-  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+(checkout[[:space:]]+--|restore\b)'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+(checkout[[:space:]]+--|restore\b)'; then
     resolve_stmt_tree
     if [ -n "$stmt_porcelain" ]; then
-      if printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+restore\b' \
-         && printf '%s' "$m" | grep -Eq '(^|[[:space:]])(--staged|-S|--source)([[:space:]]|=|$)'; then
+      if printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+restore\b' \
+         && printf '%s' "$mu" | grep -Eq '(^|[[:space:]])(--staged|-S|--source)([[:space:]]|=|$)'; then
         deny "Refusing 'git restore --staged/--source' while '$stmt_dir' is dirty: those forms discard the INDEX as well as the worktree, which is strictly more loss than a path-scoped worktree revert. A plain 'git restore path/to/file' naming explicit literal paths is allowed here."
       fi
       local parg seen_verb=0 operands=0 badarg=""

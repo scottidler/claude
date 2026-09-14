@@ -39,7 +39,9 @@ fi
 
 if [ "${#missing[@]}" -gt 0 ]; then
   detail=$(printf '%s; ' "${missing[@]}")
-  msg="hooks-preflight: unresolved hook(s): ${detail}fix: cd ~/repos/scottidler/claude && manifest -l HOME/.claude/hooks/* | bash"
+  # The globs are spelled out rather than a bare `hooks/*`, which also emits a
+  # link for every __pycache__/*.pyc (measured 2026-09-14, Phase 7).
+  msg="hooks-preflight: unresolved hook(s): ${detail}fix: cd ~/repos/scottidler/claude && manifest -l HOME/.claude/hooks/*.sh HOME/.claude/hooks/*.py | bash"
   jq -n --arg ctx "$msg" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}'
 fi
 

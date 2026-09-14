@@ -21,9 +21,19 @@
 #
 # The rule the maskers obey, and the one that took three rounds to find: a
 # masker may only erase a span the shell will never execute. Heredoc bodies,
-# single-quoted data, and comments are inert. Subshell bodies, backtick bodies
-# and the argument of `bash -c` are NOT: they are nested statements, so `stmts`
-# yields them as statements of their own instead of any masker erasing them.
+# single-quoted data, and comments are inert. Subshell bodies, backtick bodies,
+# process-substitution bodies, and the arguments of `bash -c` and `eval` are
+# NOT: they are nested statements, so `stmts` yields them as statements of their
+# own instead of any masker erasing them.
+#
+# Two functions are outside the offset-preserving contract on purpose, and both
+# say so at their definition:
+#   unquote           deletes the quote CHARACTERS and keeps their contents, so
+#                     an option gate reads `--ta""gs` as `--tags`. Shorter than
+#                     its input, so it is for MATCHING only, never extraction.
+#   heredoc_expanded  emits only the heredoc bodies bash EXPANDS (an unquoted
+#                     delimiter), for the one guard whose concern is expansion.
+#                     Every other caller keeps seeing both kinds masked.
 #
 # Run directly, or via: lib.sh --self-test
 
@@ -34,6 +44,16 @@ BEGIN {
   MK = sprintf("%c", 1)
   HDRE = "^<<-?[ \t]*(\"[^\"]*\"|'[^']*'|[A-Za-z_][A-Za-z0-9_-]*)"
   SEPCH = ";&|()<>"
+  BCH = " \t\n;&|()"
+  # THE WRAPPER TABLES. Words the shell steps over on the way to the verb, so
+  # `sudo git push` and `timeout 5 git push` are git commands. To teach every
+  # guard a new one, add the word to WRAPPERS here and nowhere else; if it takes
+  # an option whose VALUE is a separate token, add that option to OPTVALFLAGS.
+  # RESERVED is bash's own grammar rather than a policy choice, so it grows only
+  # when bash does. Both are space-delimited for `index(TABLE, " " w " ")`.
+  RESERVED = " if then elif else fi do done while until for select case esac time coproc ! "
+  WRAPPERS = " command builtin exec sudo env nohup time nice stdbuf timeout xargs "
+  OPTVALFLAGS = " -u -n -I -k -s "
 }
 
 { if (NR > 1) buf = buf RS; buf = buf $0 }
@@ -42,11 +62,21 @@ BEGIN {
 #   .  plain, unquoted code          q  a quote character itself
 #   S  single-quoted content         c  single-quoted content that is a -c argument
 #   D  double-quoted content         E  a backslash-escaped $ (both bytes)
-#   H  heredoc body or terminator    #  comment
-#   P  command substitution body ($( ) or backticks), which no masker may erase
+#   H  INERT heredoc span: a quoted-delimiter body, or any terminator line
+#   h  EXPANDED heredoc body: an unquoted delimiter, so bash substitutes $VAR
+#   #  comment
+#   P  command substitution body ($( ), backticks, <( ), >( )), which no masker
+#      may erase, because the shell runs it
+#
+# H and h are one class to every command-position gate (a heredoc body is never
+# a command, which is the measured false positive) and two classes to the secret
+# guard (an unquoted body IS expanded, so a secret name in it leaks). nd[i] marks
+# the delimiter bytes of a nested span, `$(`/`<(`/`>(` and their closing `)`, so
+# split_one does not read them as compound-command parens.
 function scan(s,   n, i, ch, nx, rest, tok, w, j) {
   n = length(s)
   delete cls
+  delete nd
   delete nsb
   delete nse
   nsn = 0
@@ -86,6 +116,9 @@ function scan(s,   n, i, ch, nx, rest, tok, w, j) {
     if (ch == "\"") { cls[i] = "q"; q = 2; i++; continue }
     if (ch == "`") { i = subspan(s, i, n, "`"); continue }
     if (ch == "$" && substr(s, i + 1, 1) == "(") { i = subspan(s, i, n, ")"); continue }
+    # Process substitution runs its body in a child shell, so it is a nested
+    # statement exactly like `$( )`, not a redirection target (audit MF2).
+    if ((ch == "<" || ch == ">") && substr(s, i + 1, 1) == "(") { i = subspan(s, i, n, ")"); continue }
     if (ch == "#" && wordstart(s, i)) {
       while (i <= n && substr(s, i, 1) != "\n") { cls[i] = "#"; i++ }
       continue
@@ -99,6 +132,7 @@ function scan(s,   n, i, ch, nx, rest, tok, w, j) {
         pdash[npend] = (substr(tok, 3, 1) == "-") ? 1 : 0
         w = tok
         sub(/^<<-?[ \t]*/, "", w)
+        pquo[npend] = (substr(w, 1, 1) == "\"" || substr(w, 1, 1) == "'") ? 1 : 0
         gsub(/"/, "", w)
         gsub(/'/, "", w)
         pdelim[npend] = w
@@ -121,21 +155,28 @@ function scan(s,   n, i, ch, nx, rest, tok, w, j) {
 # 2026-09-01: a wrapped commit-message line starting with "bump" was read as a
 # command). The newline that ENDS the last terminator is plain, so the command
 # on the next line stays a statement of its own.
-function eatbodies(s, i, n,   j, line, t, k) {
+#
+# A body whose delimiter was UNQUOTED gets class h instead of H: bash expands
+# $VAR in it, so `cat <<EOF` / `$GH_TOKEN` / `EOF` prints the secret while
+# `cat <<'EOF'` prints the six literal characters (audit MF4). A terminator line
+# is never expanded, so it is H whichever kind of body it closes.
+function eatbodies(s, i, n,   j, line, t, k, isterm, bc) {
   while (npend > 0 && i <= n) {
     j = i
     while (j <= n && substr(s, j, 1) != "\n") j++
     line = substr(s, i, j - i)
-    for (k = i; k < j; k++) cls[k] = "H"
     t = line
     if (pdash[1]) sub(/^[ \t]+/, "", t)
     sub(/[ \t]+$/, "", t)
-    if (t == pdelim[1]) {
-      for (k = 1; k < npend; k++) { pdelim[k] = pdelim[k + 1]; pdash[k] = pdash[k + 1] }
+    isterm = (t == pdelim[1])
+    bc = (isterm || pquo[1]) ? "H" : "h"
+    for (k = i; k < j; k++) cls[k] = bc
+    if (isterm) {
+      for (k = 1; k < npend; k++) { pdelim[k] = pdelim[k + 1]; pdash[k] = pdash[k + 1]; pquo[k] = pquo[k + 1] }
       npend--
     }
     if (j > n) return j
-    cls[j] = (npend == 0) ? "." : "H"
+    cls[j] = (npend == 0) ? "." : (pquo[1] ? "H" : "h")
     i = j + 1
   }
   return i
@@ -145,6 +186,8 @@ function subspan(s, start, n, kind,   i, depth, ch, qq, bs) {
   if (kind == ")") {
     cls[start] = "."
     cls[start + 1] = "."
+    nd[start] = 1
+    nd[start + 1] = 1
     i = start + 2
     bs = i
     depth = 1
@@ -159,7 +202,7 @@ function subspan(s, start, n, kind,   i, depth, ch, qq, bs) {
       if (ch == "(") depth++
       if (ch == ")") {
         depth--
-        if (depth == 0) { cls[i] = "."; record_sub(bs, i - 1); return i + 1 }
+        if (depth == 0) { cls[i] = "."; nd[i] = 1; record_sub(bs, i - 1); return i + 1 }
       }
       cls[i] = "P"
       i++
@@ -194,13 +237,23 @@ function wordstart(s, i,   p) {
   return (p == " " || p == "\t" || p == "\n" || p == ";" || p == "&" || p == "|" || p == "(")
 }
 
+# `-c` is also spelled inside a combined short-flag cluster: `bash -lc 'x'`,
+# `sh -xc 'x'` (audit MF3). Same test as find_dashc's, so the class map and the
+# nested-statement yield agree about what a -c argument is.
+function is_dashc(w) { return (w ~ /^-[A-Za-z]*c[A-Za-z]*$/) }
+
 function dashc_before(s, i,   j, e) {
   j = i - 1
   while (j >= 1 && (substr(s, j, 1) == " " || substr(s, j, 1) == "\t")) j--
   e = j
   while (j >= 1 && substr(s, j, 1) != " " && substr(s, j, 1) != "\t") j--
-  return (substr(s, j + 1, e - j) == "-c")
+  return is_dashc(substr(s, j + 1, e - j))
 }
+
+# A span no gate may read as a command: an inert heredoc, an expanded heredoc
+# body, a comment, or a command-substitution body (which arrives as a nested
+# statement of its own instead).
+function skipcls(c) { return (c == "H" || c == "h" || c == "#" || c == "P") }
 
 function masked(s, set,   n, i, out, c) {
   n = length(s)
@@ -282,7 +335,7 @@ function optarg_eq(w,   f, i) {
 function mask_optarg_text(s,   k, w, i, j, out, n, c) {
   delete om
   for (k = 1; k <= tn; k++) {
-    if (cls[tb[k]] == "H" || cls[tb[k]] == "#" || cls[tb[k]] == "P") continue
+    if (skipcls(cls[tb[k]])) continue
     w = tokword(s, k)
     if (is_optflag(w)) {
       if (k < tn && !tsep[k + 1]) for (i = tb[k + 1]; i <= te[k + 1]; i++) om[i] = 1
@@ -303,7 +356,7 @@ function mask_optarg_text(s,   k, w, i, j, out, n, c) {
 
 function flag_value(s, lng, shrt,   k, w, e) {
   for (k = 1; k <= tn; k++) {
-    if (cls[tb[k]] == "H" || cls[tb[k]] == "#" || cls[tb[k]] == "P") continue
+    if (skipcls(cls[tb[k]])) continue
     w = tokword(s, k)
     if ((lng != "" && w == lng) || (shrt != "" && w == shrt)) {
       if (k < tn && !tsep[k + 1]) return tokword(s, k + 1)
@@ -327,16 +380,62 @@ function cd_last(s,   k, r) {
   return r
 }
 
-function first_word(s, k,   j, w) {
+function stmt_start(k,   j) {
   j = k
   while (j > 1 && !tsep[j]) j--
-  while (j <= tn) {
-    w = tokword(s, j)
-    if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w == "command" || w == "builtin" || w == "exec" || w == "sudo" || w == "env") { j++; continue }
-    sub(/^.*\//, "", w)
-    return w
+  return j
+}
+
+# The token index of the VERB, found by stepping over what the shell steps over:
+# env assignments, reserved words, and wrapper commands with their own options.
+# This is a structural walk over the token map and not a regex over the raw
+# statement prefix, because a prefix regex is what let `{ git reset --hard; }`,
+# `timeout 5 git push --tags`, `then git push --tags` and `\git tag -d v1` past
+# every gate in the tree (audit MF1/S1, 2026-09-14). Returns 0 when the
+# statement has no verb (`fi`, `for x in 1`, a bare wrapper).
+function cmdword_index(s, start,   k, raw, w, o) {
+  k = start
+  while (k <= tn) {
+    raw = tokword(s, k)
+    if (raw ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { k++; continue }
+    w = verbword(raw)
+    if (w == "for" || w == "select") {
+      k++
+      if (k <= tn) k++
+      if (k <= tn && tokword(s, k) == "in") k++
+      continue
+    }
+    if (index(RESERVED, " " w " ") > 0) { k++; continue }
+    if (index(WRAPPERS, " " w " ") > 0) {
+      k++
+      while (k <= tn) {
+        o = tokword(s, k)
+        if (substr(o, 1, 1) != "-" || o == "-") break
+        k++
+        if (index(OPTVALFLAGS, " " o " ") > 0 && k <= tn) k++
+      }
+      if (w == "timeout" && k <= tn && tokword(s, k) ~ /^[0-9]+([.][0-9]+)?[smhd]?$/) k++
+      continue
+    }
+    return k
   }
-  return ""
+  return 0
+}
+
+# The word a token names as a command: quote characters are already gone
+# (tokword drops them, so `"git"` and `g""it` are both git), then a quoting
+# backslash and a path prefix come off.
+function verbword(raw,   w) {
+  w = raw
+  sub(/^\\/, "", w)
+  sub(/^.*\//, "", w)
+  return w
+}
+
+function first_word(s, k,   ci) {
+  ci = cmdword_index(s, stmt_start(k))
+  if (ci == 0) return ""
+  return verbword(tokword(s, ci))
 }
 
 # The argument of `bash -c` is a nested statement, not data: the child shell
@@ -344,8 +443,8 @@ function first_word(s, k,   j, w) {
 function find_dashc(s,   k, w, i) {
   delete dcm
   for (k = 1; k < tn; k++) {
-    if (cls[tb[k]] == "H" || cls[tb[k]] == "#" || cls[tb[k]] == "P") continue
-    if (tokword(s, k) != "-c") continue
+    if (skipcls(cls[tb[k]])) continue
+    if (!is_dashc(tokword(s, k))) continue
     if (tsep[k + 1]) continue
     w = first_word(s, k)
     if (w != "bash" && w != "sh" && w != "zsh") continue
@@ -355,13 +454,65 @@ function find_dashc(s,   k, w, i) {
   }
 }
 
+# `eval <rest>` hands its argument to THIS shell as code, so the argument is a
+# nested statement for the same reason a `bash -c` body is. The quote characters
+# come off because the shell removes them before it parses what is left, which
+# is what makes `eval "git push origin --tags"` and the unquoted
+# `eval git push origin --tags` the same command (audit MF1).
+function find_eval(s,   k, i, b, e, body) {
+  for (k = 1; k < tn; k++) {
+    if (skipcls(cls[tb[k]])) continue
+    if (tokword(s, k) != "eval") continue
+    if (tsep[k + 1]) continue
+    if (cmdword_index(s, stmt_start(k)) != k) continue
+    b = tb[k + 1]
+    e = eval_end(s, b)
+    body = ""
+    for (i = b; i <= e; i++) {
+      if (cls[i] == "q") continue
+      dcm[i] = 1
+      body = body substr(s, i, 1)
+    }
+    if (body ~ /^[ \t\n]*$/) continue
+    wn++
+    wq[wn] = body
+  }
+}
+
+function eval_end(s, from,   i, n) {
+  n = length(s)
+  i = from
+  while (i <= n) {
+    if (boundary_at(s, i)) return i - 1
+    i++
+  }
+  return n
+}
+
+# `(` `)` `{` `}` open and close compound commands whose contents the shell
+# RUNS, so they end a statement the same way `;` does. Two exclusions keep that
+# from eating things that only look like them: a paren belonging to `$(`, `<(`
+# or `>(` is marked in nd[] by subspan, and a brace counts only when it is its
+# own word, which is bash's own rule and what leaves `${x:---tags}` and
+# `xargs -I {}` whole.
+function boundary_at(s, i,   c, p, x) {
+  if (cls[i] != ".") return 0
+  c = substr(s, i, 1)
+  if (c == ";" || c == "\n" || c == "&" || c == "|") return 1
+  if (c == "(" || c == ")") return ((i in nd) ? 0 : 1)
+  if (c != "{" && c != "}") return 0
+  p = (i == 1) ? " " : substr(s, i - 1, 1)
+  x = (i == length(s)) ? " " : substr(s, i + 1, 1)
+  return (index(BCH, p) > 0 && index(BCH, x) > 0)
+}
+
 function emit_piece(s, a, b,   i, c, out, bare) {
   if (b < a) return
   out = ""
   bare = ""
   for (i = a; i <= b; i++) {
     c = substr(s, i, 1)
-    if (c != "\n" && (cls[i] == "P" || cls[i] == "H" || (i in dcm))) c = MK
+    if (c != "\n" && (cls[i] == "P" || cls[i] == "H" || cls[i] == "h" || (i in dcm))) c = MK
     out = out c
     if (c != MK) bare = bare c
   }
@@ -377,21 +528,24 @@ function split_one(s,   n, i, c, a, k) {
   scan(s)
   tokenize(s)
   find_dashc(s)
+  find_eval(s)
   for (k = 1; k <= nsn; k++) { wn++; wq[wn] = substr(s, nsb[k], nse[k] - nsb[k] + 1) }
   n = length(s)
   a = 1
   i = 1
   while (i <= n) {
     c = substr(s, i, 1)
-    if (cls[i] == ".") {
-      if (c == "\n" || c == ";") { emit_piece(s, a, i - 1); a = i + 1; i++; continue }
-      if (c == "&" || c == "|") {
-        if (substr(s, i + 1, 1) == c) { emit_piece(s, a, i - 1); a = i + 2; i += 2; continue }
+    if (boundary_at(s, i)) {
+      if ((c == "&" || c == "|") && substr(s, i + 1, 1) == c) {
         emit_piece(s, a, i - 1)
-        a = i + 1
-        i++
+        a = i + 2
+        i += 2
         continue
       }
+      emit_piece(s, a, i - 1)
+      a = i + 1
+      i++
+      continue
     }
     i++
   }
@@ -413,16 +567,46 @@ function build_stmts(s,   qi) {
   }
 }
 
-function cmdword_ok(s, word,   t, re) {
-  t = s
-  sub(/^[ \t\n]+/, "", t)
-  sub(/[ \t\n]+$/, "", t)
-  re = "^([A-Za-z_][A-Za-z0-9_]*=[^ \t]+[ \t]+)*((command|builtin|exec|sudo|env)[ \t]+)*(/?[^ \t]*/)?" word "([ \t]|$)"
-  return (t ~ re)
+function cmdword_ok(s, word,   k) {
+  scan(s)
+  tokenize(s)
+  k = cmdword_index(s, 1)
+  if (k == 0) return 0
+  return (verbword(tokword(s, k)) == word)
+}
+
+# Quote REMOVAL, not quote masking, and the difference is the whole point: the
+# shell hands git `--tags` for every one of `--tags`, `"--tags"`, `--ta""gs` and
+# `-"-tags"`, so an option gate has to see them all the same way. Masking the
+# span instead would erase the flag and turn `git push origin "--tags"` into an
+# allow, which is the round-1 finding the Data Model's "option detection never
+# masks quotes" rule exists for. Heredoc, comment and command-substitution
+# contents keep their own classes, so nothing inside them is touched.
+# NOT length preserving: no offset taken on this output is valid in the original.
+function unquote_text(s,   n, i, out) {
+  n = length(s)
+  out = ""
+  for (i = 1; i <= n; i++) if (cls[i] != "q") out = out substr(s, i, 1)
+  return out
+}
+
+# Only the heredoc bodies bash EXPANDS, line structure preserved. The secret
+# guard's input, and the one place the h/H split is visible outside this file.
+function heredoc_expanded_text(s,   n, i, c, out) {
+  n = length(s)
+  out = ""
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (cls[i] == "h") out = out c
+    else if (c == "\n") out = out c
+  }
+  return out
 }
 
 END {
-  if (mode == "heredoc") { scan(buf); printf "%s", masked(buf, "H"); exit 0 }
+  if (mode == "heredoc") { scan(buf); printf "%s", masked(buf, "Hh"); exit 0 }
+  if (mode == "unquote") { scan(buf); printf "%s", unquote_text(buf); exit 0 }
+  if (mode == "hdexpand") { scan(buf); printf "%s", heredoc_expanded_text(buf); exit 0 }
   if (mode == "squote")  { scan(buf); printf "%s", masked(buf, "SE"); exit 0 }
   if (mode == "dquote")  { scan(buf); printf "%s", masked(buf, "D"); exit 0 }
   if (mode == "comment") { scan(buf); printf "%s", masked(buf, "#"); exit 0 }
@@ -476,6 +660,9 @@ mask_squote()  { _lib_run squote; }
 mask_dquote()  { _lib_run dquote; }
 mask_comment() { _lib_run comment; }
 mask_optarg()  { _lib_run optarg; }
+
+unquote()           { _lib_run unquote; }
+heredoc_expanded()  { _lib_run hdexpand; }
 
 stmts()        { _lib_run stmts; }
 args()         { _lib_run args; }
