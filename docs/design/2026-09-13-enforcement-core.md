@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-13
-**Status:** Partially Implemented (Phases 2 to 5 landed; Phase 1 partial, Phase 6 pending; see Observed table)
+**Status:** Partially Implemented (Phases 1 to 5 landed, Phase 6 run; outstanding: the GitHub signing-key registration, the two CLAUDE.md sandbox lines, and the tracker flip on merge)
 **Review Passes Completed:** 5/5
 **Program:** chunk A of `docs/design/2026-09-13-setup-audit-program.md` (audit items 1, 2, 3)
 
@@ -285,16 +285,49 @@ Each criterion gets an `Observed on main:` line before this doc is marked ready;
 | AC2 `rkvr rmrf` in-sandbox | **PASS** | `rkvr rmrf $TMPDIR/ac2probe` exits 0 and prints `-> /var/tmp/rmrf/2026-09-13-162946-000/`. |
 | AC3 Stop hook fixtures | **PASS** | `prose-test.sh`: 27 passed, 0 failed. Break-the-code run twice (stale guard inverted: 5 failures; em-dash predicate negated: 16). |
 | AC4 em-dash PreToolUse fixtures | **PASS** | `emdash-test.sh`: 30 passed, 0 failed. Break-the-code run once (escape-exempts-payload predicate: 29/30). |
-| AC5 live `rm` rewrite | **DEFERRED to Phase 6** | The rails rule is unit-tested (66 tests, 109 assertions, `claude plugin validate --strict` passes) but inert until the linker step runs. No live `rm` was executed. |
+| AC5 live `rm` rewrite | **PASS in Phase 6** | Deferred here because the rule was inert until a fresh session loaded it. Run live in Phase 6 below. |
 | AC6 prose dedupe greps | **PASS** | Both commands print nothing. |
+
+### Observed in Phase 6 (2026-09-13, branch `enforcement-core`, nothing merged)
+
+Harness note that changes this phase's shape: `~/.claude/skills` and `~/.claude/hooks` are symlinks into this repo, so the shell hooks went live the moment they were committed and needed no linker step. The rails plugin is different: function-hook plugins load once at session start, so its rules only became testable in a session started after Phase 5 landed. That is a phasing rule for chunks B through J, not a defect.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Marker alone | SANDBOXED | `socket(AF_UNIX)` raises `PermissionError [Errno 1] Operation not permitted`. |
+| `cargo --version` alone | RUNS | `cargo 1.98.0 (797e8a9bc 2026-08-05)`. |
+| `marker.sh; cargo --version` | DENIED | `rails: "printf" would run unsandboxed because "cargo" is in sandbox.excludedCommands; run them as separate Bash calls`. |
+| AC5 live `rm` rewrite | PASS | `rm -f docs/design/2026-09-13-enforcement-core-handoff.md` ran as `rkvr rmrf`, archive `/var/tmp/rmrf/2026-09-13-174035-000/`, context line present. The permit-log record shows the rewritten command. |
+| AC5 regenerable pass | PASS | Literal absolute path to a `target/` with `Cargo.toml` beside it: `rails: rm kept, regenerable build output`, no archive. |
+| `sudo rm -rf /opt/probe` | DENIED | `rails: this form deletes through another command, which rails cannot rewrite.` |
+| AC5 from a subagent | PASS, all three signals | Permit log `rkvr rmrf /home/saidler/repos/scottidler/claude/.probe2` at `2026-09-14T00:46:28Z`; the subagent quoted the context line verbatim; archive `/var/tmp/rmrf/2026-09-13-174629-000/` holds `.probe2.tar.gz` containing `.probe2/inner/file.txt`. |
+| Offer rule live (inherited from Phase 2) | PASS | Blocked once, quoted the offending sentence, cited `output-styles/edges.md` and `rules/interaction.md`, echoed the prompt it judged imperative. The next turn carried no offer. |
+| F7.3 `cd x && cargo` | DOES NOT REPRODUCE | `cd ~/repos/scottidler/rkvr && cargo check` succeeded (`Finished dev profile in 12.84s`). Any-stage matching holds; the audit's failures were child processes under `bump`/`otto`/`python3 -`, not stages. |
+| `otto ci` | GREEN | 27 hook fixtures, 100 bun tests, 0 fail. |
+| AC1 both personas, signed in-sandbox | PASS | Scratch repo under `~/repos/scottidler/`: `Good "git" signature for scott.a.idler@gmail.com with ED25519 key SHA256:9YsW/1jYsliBbkKfUK9UVBU0QzWvwGc83UFjl81zZNE`. Scratch repo under `~/repos/tatari-tv/`: `Good "git" signature for scott.idler@tatari.tv with ED25519 key SHA256:+QE1D2NN2bQE+7mWxbidiOYWtUndgQU0wYW87qu6Trg`. |
+| AC1b, signing key is not an auth key | PASS on the GitHub half | `home/signing` is registered as signing key id `1174943` and its blob is absent from `scottidler`'s authentication keys (public endpoint, 0 matches). The `ssh -T` half is not verifiable from a session: it reads a private key the credential gate denies. |
+
+#### Three findings from this phase
+
+1. **The redirect limit is worse than Risks records.** `cargo --version > $TMPDIR/redirect-probe` ran fully unsandboxed, so `$TMPDIR` resolved to the host shell's value and the file landed at `/tmp/claude-1000/redirect-probe`, not the sandbox `$TMPDIR` of `/tmp/claude-1000/claude-1000`. The redirect target is not merely unguarded by the rails rule: it resolves outside the sandbox's own namespace. Sizing input for whether a redirect-target guard earns its own chunk.
+
+2. **The regenerable anchor is cwd-bound.** `cd "$S" && rm -rf target`, with `Cargo.toml` beside that `target`, ARCHIVED instead of passing: the anchor is resolved against the Bash tool's cwd, not against the `cd` stage's target, and a variable path is never expanded. The direction is conservative (archive, never delete), so there is no data loss, but it is absent from the Phase 5 test matrix and it costs an archive on every cd-prefixed build clean.
+
+3. **Guard false positive, for chunk B.** `rg -n 'handoff|skills' <path>/manifest.yml` was hard-denied by the bare-`manifest` guard, which matched the string `manifest.yml` as a path ARGUMENT rather than as a `manifest` command.
 
 Phases 1 to 5 commits: `7fde500` (Phase 1, PARTIAL), `3ff78d1` (Phase 2), `1523d22` (Phase 3), `4ef9019` (Phase 4), `544df56` (Phase 5). `otto ci` exits 0 as of Phase 4.
 
 **What is owed before this doc can be marked Implemented:**
-1. Scott's operator prerequisite: mint `~/.ssh/identities/home/signing`, register it on scottidler as a Signing key (needs `admin:ssh_signing_key`, which neither PAT carries today), add the `allowed_signers` line, point dotfiles `user.signingkey` at it.
-2. Phase 1's second commit, which needs auto mode off: the `settings.json` `sandbox`/`env` block and the two `CLAUDE.md` sandbox lines. Denied three times with `[Self-Modification]`.
-3. `HOME/.claude/CLAUDE.md` added to the `.otto.yml` lint list once its em-dashes can be fixed (Phase 4 omitted it because it could not fix what it could not edit).
-4. Phase 6 itself: the linker step on desk.lan, then every live criterion re-run.
+1. DONE 2026-09-13. `admin:ssh_signing_key` was added to the `scottidler '25` classic PAT (scopes now `admin:org, admin:ssh_signing_key, repo`; editing scopes does not rotate the token, so `github-pat-home.age` is unchanged), and `home/signing` is registered as signing key id `1174943`. AC1 and AC1b's GitHub half both pass; see the Observed table.
+
+   Follow-up, closed 2026-09-13 on Scott's say-so: `scottidler`'s single authentication key `IKxZAWHNS9hq...` (`SHA256:H0/DLY...`) had ALSO been registered as a signing key since 2026-06-07 (id `986346`), so the auth key was still a valid Verified signer and the split bought nothing. That signing registration was deleted; the authentication key (id `59551725`) was NOT touched and still reports Read/write in use. Signing keys now hold exactly one entry, the signing-only `1174943`. Re-probed after the deletion: `Good "git" signature ... with ED25519 key SHA256:9YsW/1jY...`. The deleted record is backed up in the session scratchpad as `signing-key-986346-backup.json`, and it is restorable with one POST since a public key is not a secret.
+
+   Still carrying the old key locally: line 1 of `~/.ssh/allowed_signers` still trusts `H0/DLY...`, which is what lets pre-2026-09-13 commits signed by the auth key keep verifying on this machine. Harmless, and deliberately left in place.
+2. The two `CLAUDE.md` sandbox lines. The `settings.json` `sandbox`/`env` half of Phase 1's second commit LANDED in `6185e5e`; only the `CLAUDE.md` lines are still outstanding, still behind the `[Self-Modification]` gate.
+3. `HOME/.claude/CLAUDE.md` added to the `.otto.yml` lint list once item 2 lets its em-dashes be fixed (Phase 4 omitted it because it could not fix what it could not edit). `.otto.yml:8` carries the comment recording why.
+4. Chunk A's row flipped to `done` in the tracker, which waits on the merge.
+
+Phase 6 itself is RUN: see the Observed table above. It needed no linker step, because `~/.claude/skills` and `~/.claude/hooks` symlink into this repo; it needed a session started after Phase 5 landed, because function-hook plugins load once at startup.
 
 ## Resolved Decisions
 
