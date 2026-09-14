@@ -156,3 +156,28 @@ Append-only record of how the implementation interprets or departs from
 
 ### Open questions
 - None.
+
+## Phase 6: the `git -C <cwd>` strip folds into `rewrite-cd-read.py`
+
+### Design decisions
+- The strip is two functions, not one: `points_at_session_cwd` (the match) and `git_dash_c_drops` (the scan), both in `rewrite-cd-read.py` beside the `cd` rewrite. The scan returns token indices, so the strip and the `cd` rewrite go through the ONE existing `splice` call. Two independent splices could not compose: the second would be applying byte offsets measured against a string that no longer exists.
+- `git_dash_c_drops` is deliberately NOT subject to `stage_is_dangerous`, which the `cd` rewrite bails on. That gate exists because a rewrite can move a command OUT of a `permissions.deny` pattern; removing `-C <cwd>` only ever moves one IN, since every pattern is written against the canonical form (`Bash(git tag -d *)` matches `git -C <cwd> tag -d v1` only after the strip). Checked against the live deny list: no pattern mentions `-C`. `git -C <cwd> tag -d v1` is a matrix case pinning this.
+- `rewrite()` returns `(command, all_safe, kind)` with `kind` in `cd` / `strip-c` / `cd+strip-c`. The caller needs to tell a strip-only rewrite from a composed one to pick the log tag and the reason, and a third boolean would have encoded the same thing less legibly.
+- A strip-only rewrite takes the REWRITE branch (`updatedInput` + `permissionDecisionReason`, no `permissionDecision`), per the doc. A strip riding a read-only `cd` rewrite keeps that branch's `allow`: dropping `-C <cwd>` cannot change what runs, so it cannot cost an auto-allow that was already earned.
+- `log()` gains `STRIP-C` as a decision for a strip-only rewrite; a composed one keeps `ALLOW`/`REWRITE` and carries `+strip-c` in the detail column. One invocation stays one line (the log's stated contract) and `rg -i strip-c` finds every strip either way.
+- `GIT_GLOBAL_VALUE_FLAGS` is extracted and the three existing copies of the literal tuple now use it. The strip's position test ("a `-C` before the subcommand") has to mean exactly what the three subcommand scans already mean, and four copies of that list is how they drift apart.
+- `LOG` is now `REWRITE_CD_READ_LOG` with the live path as its default (it was a hardcoded path), so the matrix asserts on the log without appending to the live one.
+- `drop_cd`'s docstring said `git-no-dash-c.sh` denies the redundant `-C` form. That file is deleted, so the sentence now names `git_dash_c_drops`. The function itself is dead code (its logic is inlined in `rewrite`) and was left alone otherwise.
+
+### Deviations
+- The doc says "in its own function"; there are two, because the match rule (cwd, `.`, `$PWD`, one trailing slash) is worth naming and testing separately from the position scan. Same effect, correct seam.
+- The matrix is 33 assertions, more than the doc's case list: it adds bare `$PWD`, `git -C <cwd>x` (the near-miss), `git commit -C <cwd>` and `git switch -C <cwd>` (the overload with a value that WOULD match), the `git tag -d` canonicalization case, and direct assertions on the decision shape per branch and on the two log tags.
+- The doubled-space case strips to `git  status`, with the two spaces the model typed between the flag and the subcommand. `splice` passes through every byte it is not dropping, and collapsing them would mean re-rendering, which this file abandoned for good reasons. The matrix asserts the two spaces.
+- `-C` inside a heredoc body is unchanged because the pre-pass refuses any command containing a `<<` redirect, not because the strip scan understands heredocs. The matrix case is real and the comment says which mechanism earns it.
+
+### Tradeoffs
+- String match with no filesystem access, per the doc, so `git -C $(pwd) status`, `git -C ~ status` from `$HOME`, and a symlinked spelling of the cwd are all misses. A miss leaves the command exactly as written and it runs correctly anyway, which is the whole argument.
+- The strip runs before the `cd` rewrite's dangerous-stage bail, so a command like `cd /x && git -C <cwd> tag -d v1` now gets the strip alone rather than being left untouched. Chosen over "one bail covers everything" because the bail's reason (deny-pattern evasion) does not apply to the strip, and the alternative silently drops the strip in exactly the composed case the fold exists to serve.
+
+### Open questions
+- None.

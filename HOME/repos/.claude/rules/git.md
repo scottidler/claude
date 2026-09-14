@@ -47,10 +47,6 @@ alwaysApply: true
 - This is the exact scope of "protect unmerged work"; it does NOT extend to tags
   (tags are never deleted, ever) or to unmerged branches.
 
-## Working Directory
-
-- `git -C /some/path` is ONLY valid when targeting a repo that is NOT the current working directory. If CWD is already the repo, run `git` directly. Never use `-C` as a "safety" anchor when you're already there.
-
 ## Pushing to main
 
 - Before pushing to main on a `tatari-tv/*` repo, check BOTH live gates: don't infer from local git config, and never trust either gate alone:

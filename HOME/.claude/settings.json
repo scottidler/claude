@@ -842,10 +842,6 @@
           },
           {
             "type": "command",
-            "command": "~/.claude/hooks/git-no-dash-c.sh"
-          },
-          {
-            "type": "command",
             "command": "~/.claude/hooks/git-release-guard.sh"
           },
           {

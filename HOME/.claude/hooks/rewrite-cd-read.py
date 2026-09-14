@@ -85,6 +85,13 @@ GIT_READONLY_SUBCOMMAND_ARGS = {
     "submodule": {"status", "summary", "foreach"},
     "bundle": {"verify", "list-heads"},
 }
+# git's GLOBAL options that take a separate value token, i.e. the ones that sit
+# BEFORE the subcommand. Every scan that wants the subcommand has to skip these
+# together with their values, or the value is mistaken for the subcommand
+# (`git -C /repo log` reads as subcommand "/repo"). Naming the set once is also
+# what makes the `-C` position test in git_dash_c_drops mean the same thing the
+# other scans mean.
+GIT_GLOBAL_VALUE_FLAGS = ("-C", "--git-dir", "--work-tree", "--namespace", "-c")
 # Flags whose separate-token value is a pattern, never a path -- e.g.
 # `find -name '*.rs'` or `grep -e '-> Result'`. Deliberately NOT "anything
 # starting with -": a grep pattern that itself starts with '-' (like the
@@ -425,7 +432,7 @@ def stage_is_safe(values: list[str]) -> bool:
         rest = values[1:]
         i = 0
         while i < len(rest):
-            if rest[i] in ("-C", "--git-dir", "--work-tree", "--namespace", "-c"):
+            if rest[i] in GIT_GLOBAL_VALUE_FLAGS:
                 i += 2
                 continue
             if rest[i].startswith("-"):
@@ -471,7 +478,9 @@ def stage_is_safe(values: list[str]) -> bool:
     return head in READONLY_HEADS
 
 
-LOG = os.path.expanduser("~/.cache/claude/rewrite-cd-read.log")
+# The regression matrix points this at a scratch file so a test run never
+# appends to the live log; unset, it is the live path it has always been.
+LOG = os.environ.get("REWRITE_CD_READ_LOG") or os.path.expanduser("~/.cache/claude/rewrite-cd-read.log")
 
 
 def log(decision: str, detail: str, cmd: str, rewritten: str = "") -> None:
@@ -481,7 +490,14 @@ def log(decision: str, detail: str, cmd: str, rewritten: str = "") -> None:
     Columns: iso-time, decision, detail, original, rewritten.
       decision  ALLOW  (rewritten and auto-allowed)
                 REWRITE (rewritten, permission left to the normal rules)
+                STRIP-C (a `git -C <cwd>` strip with no cd rewrite alongside it)
                 BAIL   (untouched; `detail` is the head or reason that stopped it)
+
+    A strip that rode along with a cd rewrite keeps that rewrite's decision and
+    carries `strip-c` in `detail` instead, so one invocation stays one line and
+    `rg -i strip-c` still finds every strip. This log is the ONLY place a strip
+    is observable: measured 2026-09-14 (design doc spike 0b), a rewrite's
+    `permissionDecisionReason` never reaches the model.
     Best-effort and silent: a hook that failed on its own logging would block
     the command it exists to unblock, so every error here is swallowed.
     """
@@ -594,7 +610,7 @@ def drop_cd(flat, stages, cd_dir: str, session_cwd: str):
     """Remove the leading `cd <dir>` stage and re-target git stages with `-C`.
 
     `-C` is omitted when <dir> IS the session cwd: it would be redundant, and
-    git-no-dash-c.sh denies exactly that form.
+    git_dash_c_drops strips exactly that form back out again.
     """
     if not stages:
         return flat, False
@@ -641,7 +657,7 @@ def split_git_diff_ranges(flat, stages):
         rest = values[1:]
         i = 0
         while i < len(rest):
-            if rest[i] in ("-C", "--git-dir", "--work-tree", "--namespace", "-c"):
+            if rest[i] in GIT_GLOBAL_VALUE_FLAGS:
                 i += 2
                 continue
             if rest[i].startswith("-"):
@@ -737,7 +753,7 @@ def stage_is_dangerous(values: list[str]) -> bool:
         rest = values[1:]
         i = 0
         while i < len(rest):
-            if rest[i] in ("-C", "--git-dir", "--work-tree", "--namespace", "-c"):
+            if rest[i] in GIT_GLOBAL_VALUE_FLAGS:
                 i += 2
                 continue
             if rest[i].startswith("-"):
@@ -813,8 +829,74 @@ def resolve_path_arg(cwd: str, arg: str):
     return os.path.normpath(os.path.join(cwd, arg)), False
 
 
+def points_at_session_cwd(arg: str, session_cwd: str) -> bool:
+    """True when `arg` names the directory the command already runs in.
+
+    A string match on purpose: no realpath, no filesystem access. realpath
+    resolves symlinks and can therefore disagree with the path the model typed,
+    which is what the guard this replaced got wrong. `$PWD` covers its
+    double- and single-quoted spellings too, because tokenize_spans has already
+    removed the quotes by the time the value gets here.
+    """
+    if arg in (".", "$PWD"):
+        return True
+    if not session_cwd:
+        return False
+    trimmed = arg[:-1] if arg.endswith("/") and len(arg) > 1 else arg
+    return trimmed == session_cwd
+
+
+def git_dash_c_drops(toks, stages, session_cwd: str) -> set:
+    """Token indices of every `git -C <cwd>` pair that points at the cwd already.
+
+    249 denials of this form were measured over 2026-08/09 with zero cross-repo
+    saves and every one immediately reissued without the flag, so the flag is
+    dropped instead of refused. A miss leaves the command exactly as written and
+    `git -C <cwd>` runs correctly anyway, so the match can afford to be strict.
+
+    Only a `-C` in git's GLOBAL option position, before the subcommand, is a
+    candidate: git overloads the letter as `git commit -C <commit>` and
+    `git switch -C <branch>`, where dropping it would change what runs.
+
+    Deliberately NOT subject to stage_is_dangerous, unlike the cd rewrite:
+    that gate exists because a rewrite can move a command OUT of a
+    `permissions.deny` pattern, and removing `-C <cwd>` only ever canonicalizes
+    a command INTO one (`git -C <cwd> tag -d v1` matches `Bash(git tag -d *)`
+    only after the strip). Checked against the live deny list, which carries no
+    `-C` pattern.
+    """
+    drops = set()
+    for s in stages:
+        values = [toks[i]["value"] for i in s]
+        pos = 0
+        while pos < len(values) and ASSIGNMENT.match(values[pos]):
+            pos += 1
+        if pos >= len(values) or values[pos] != "git":
+            continue
+        pos += 1
+        while pos < len(values):
+            val = values[pos]
+            if val in GIT_GLOBAL_VALUE_FLAGS:
+                if (
+                    val == "-C"
+                    and pos + 1 < len(values)
+                    and points_at_session_cwd(values[pos + 1], session_cwd)
+                ):
+                    drops.update((s[pos], s[pos + 1]))
+                pos += 2
+                continue
+            if val.startswith("-"):
+                pos += 1
+                continue
+            break
+    return drops
+
+
 def rewrite(cmd: str, start_cwd: str):
-    """Return (new_command, all_safe) or None to leave the command untouched.
+    """Return (new_command, all_safe, kind) or None to leave the command alone.
+
+    `kind` is "cd", "strip-c" or "cd+strip-c", naming which rewrites fired so
+    the caller can log and explain the right one.
 
     Works by splicing the ORIGINAL bytes: only spans that change are replaced,
     so quoting, `$VAR` expansion and operators survive exactly as written.
@@ -832,14 +914,27 @@ def rewrite(cmd: str, start_cwd: str):
     stages = group_stages(toks)
     if not stages:
         return None
+
+    strip_drops = git_dash_c_drops(toks, stages, start_cwd)
+
+    def strip_only():
+        """The strip runs with or without a `cd` prefix; on its own it takes the
+        REWRITE branch, since dropping `-C <cwd>` cannot change what runs and so
+        buys an auto-allow nothing."""
+        if not strip_drops:
+            return None
+        return splice(cmd, toks, strip_drops, {}, {}).strip(), False, "strip-c"
+
     heads = [toks[s[0]]["value"] for s in stages]
     if "cd" not in heads:
-        return None
+        return strip_only()
 
     all_safe = True
     for s in stages:
         values = [toks[i]["value"] for i in s]
         if stage_is_dangerous(values):
+            if strip_drops:
+                return strip_only()
             log_bail(values[0] if values else "<empty>", cmd)
             return None
         if not stage_is_safe(values):
@@ -895,9 +990,20 @@ def rewrite(cmd: str, start_cwd: str):
                 inserts[s[0]] = ["-C", cwd]
 
     if not (replacements or drops):
+        if strip_drops:
+            return strip_only()
         log_bail("<nothing-rewritable>", cmd)
         return None
-    return splice(cmd, toks, drops, replacements, inserts).strip(), all_safe
+    # One splice, both rewrites: two updatedInput hooks would each be handed the
+    # ORIGINAL input and only the last to complete would keep its edit (design
+    # doc spike 0e, 2026-09-14), which is why the strip lives in this file.
+    drops |= strip_drops
+    kind = "cd+strip-c" if strip_drops else "cd"
+    return splice(cmd, toks, drops, replacements, inserts).strip(), all_safe, kind
+
+
+def detail_for(kind: str, detail: str) -> str:
+    return detail + "+strip-c" if kind == "cd+strip-c" else detail
 
 
 def main():
@@ -917,7 +1023,7 @@ def main():
     if result is None:
         print("{}")
         return
-    rewritten, all_safe = result
+    rewritten, all_safe, kind = result
 
     # updatedInput REPLACES tool_input wholesale; it is not merged. Emitting
     # only `command` silently discarded every sibling field, most damagingly
@@ -928,11 +1034,20 @@ def main():
         "hookEventName": "PreToolUse",
         "updatedInput": {**tool_input, "command": rewritten},
     }
-    if all_safe:
+    if kind == "strip-c":
+        # No cd to drop and no path to absolutize, so there is no ambiguity to
+        # remove and nothing an auto-allow would buy: the normal permission
+        # rules judge the command, exactly as they would have without the flag.
+        log("STRIP-C", "flag-pointed-at-cwd", cmd, rewritten)
+        out["permissionDecisionReason"] = (
+            "Dropped `-C <cwd>`; the flag pointed at the directory git already runs in"
+        )
+    elif all_safe:
         # Every stage is on the read-only whitelist, so the rewrite AND the
-        # auto-allow are both justified.
+        # auto-allow are both justified. A strip riding along changes nothing
+        # about what runs, so it does not cost the allow.
         out["permissionDecision"] = "allow"
-        log("ALLOW", "all-stages-read-only", cmd, rewritten)
+        log("ALLOW", detail_for(kind, "all-stages-read-only"), cmd, rewritten)
         out["permissionDecisionReason"] = (
             "Dropped the cd and absolutized paths; removes the ambiguity that forces manual approval"
         )
@@ -942,7 +1057,7 @@ def main():
         # unresolvable-relative-path ambiguity, so the command is judged by the
         # normal permission rules instead of escalating to a prompt that a
         # subagent has nobody to answer.
-        log("REWRITE", "not-auto-allowable", cmd, rewritten)
+        log("REWRITE", detail_for(kind, "not-auto-allowable"), cmd, rewritten)
         out["permissionDecisionReason"] = (
             "Dropped the cd and absolutized paths; leaving the permission decision to the normal rules"
         )
