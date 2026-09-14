@@ -10,6 +10,12 @@ alwaysApply: true
 - Same courtesy for issues: a `#<number>` that is an issue gets its issue URL.
 - Rationale: a bare number forces Scott to go hunt the link. He has said this is "so fucking annoying." Don't make him ask.
 
+# Pull Requests: declare the release intent in the body
+
+- On any release-managed repo (root manifest carries a version line), `git-release-guard.sh` Gate D denies `gh pr create` unless the body carries a release-intent line. Two forms are accepted, case-insensitively: `Release: rides this PR (vX.Y.Z)` (run `bump --no-tag` on the branch first so the version commit actually rides) or `Release: none - <why>`.
+- A `rides` claim is checked against the diff: if no version line changes vs the PR's base, the gate denies even with the line present. Write the line only after the bump commit is on the branch.
+- This is decided at PR-open time on purpose: a PR that merges without its bump creates a deadlock no later gate can fix, since a bump can then only ride the next feature PR or a Scott-ordered standalone bump.
+
 # Pull Requests: babysit every one we open to green
 
 - Every time we create a PR, we OWN it to done -- do not open-and-walk-away. "Done" is CI green AND every CodeRabbit thread handled, not "PR opened."

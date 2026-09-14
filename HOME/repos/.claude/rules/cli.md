@@ -1,6 +1,3 @@
-<!-- WORKAROUND: YAML array syntax for paths: is broken in Claude Code.
-     See https://github.com/anthropics/claude-code/issues/26868
-     Fix: use alwaysApply: true for catch-all rules -->
 ---
 alwaysApply: true
 ---
@@ -10,7 +7,7 @@ alwaysApply: true
 - Cross-language conventions for command-line tool *behavior* (how values are passed, parsed, structured)
 - For flag *naming* (hyphens, kebab-case, mirroring config fields), see `general.md`
 
-## List-valued flags — no comma separation
+## List-valued flags: no comma separation
 
 - Use space separation or repeated flags for multi-value flags; never comma separation
 - Right: `cmd --fix mistype duplicate raw-title` (space-separated)
@@ -40,7 +37,7 @@ fix: Vec<String>,
 - Click (Python): `nargs=-1` (variadic positional) or `multiple=True` (repeated option); never split on `,` manually
 - argparse (Python): `nargs='*'` or `action='append'`; never `type=lambda s: s.split(',')`
 
-## Enum-valued flags — case-insensitive
+## Enum-valued flags: case-insensitive
 
 - A flag accepting named values (`--fix mistype`, `--log-level debug`) must accept any case: `duplicate`, `Duplicate`, `DUPLICATE` all match
 - Why: tools display names in upper/mixed case (`[DUPLICATE]`, `INFO`/`WARN`) and users type back what they saw; forcing one case is friction with no benefit
@@ -70,6 +67,6 @@ fix: Option<Vec<FixKind>>,
 
 ## No `--dry-run` on opt-in destructive flags
 
-- If a destructive op is gated behind an explicit flag (`--fix`, `--prune`, `--clean`), the user already opted in — don't add a `--dry-run` preview
+- If a destructive op is gated behind an explicit flag (`--fix`, `--prune`, `--clean`), the user already opted in, don't add a `--dry-run` preview
 - Exception: ops whose *default* behavior is destructive (e.g. a `delete` subcommand) may warrant `--dry-run`, since there's no opt-in gate
-- For recovery, use archival tools (`rkvr rmrf`, or shell out to `rkvr`) rather than `--dry-run` + irreversible delete — recoverability beats prediction
+- For recovery, use archival tools (`rkvr rmrf`, or shell out to `rkvr`) rather than `--dry-run` + irreversible delete: recoverability beats prediction

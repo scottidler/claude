@@ -13,22 +13,9 @@ alwaysApply: true
 - ONLY create tags on `main` or `master`. NEVER tag dev, feature, or any other branch. No exceptions.
 - NEVER introduce a per-crate or multi-scheme tag strategy (e.g. `taskstore-v0.3.0` + `taskstore-traits-v0.1.0`). Always use a single flat `v*` tag for the whole repo/workspace. If a design doc says otherwise, ASK the user before creating any tags.
 
-## Branch names: NEVER a slash
+## Branch names: no slash, mechanically enforced
 
-- **NEVER create a branch with `/` in the name. No exceptions, ever.** Not
-  `chore/foo`, not `feat/bar`, not `scottidler/baz`. The branch name is a flat
-  slug: `retire-general-plugin`, `add-viewport-support`.
-- The conventional-commit type belongs in the **PR title**, never the branch:
-  branch `retire-general-plugin` -> title `chore(marketplace): retire general
-  plugin`.
-- Why it is absolute: the branch name is the source of truth for the PR title,
-  and `branch-pr-title-guard.sh` slugifies the title to compare them. Slugifying
-  collapses `/` to `-`, so a slashed branch can never be matched by any title
-  and the PR becomes unopenable. (Scott, furious, 2026-09-12, after a
-  `chore/retire-general-plugin` branch burned four blocked `gh pr create`
-  attempts.)
-- If you find yourself already on a slashed branch: `git branch -m <flat-name>`,
-  delete the remote slashed ref, push the new one. Do not touch the guard hook.
+- See `general.md`'s "Branch names" section for the slug rule and its relationship to the PR title. `branch-name-guard.sh` denies a slashed `git checkout -b` / `git branch` mechanically; there is nothing left here to compensate for.
 
 ## Branches (opposite of tags: delete merged ones freely, no asking)
 
@@ -66,7 +53,7 @@ gh api repos/OWNER/REPO/rules/branches/main        # rulesets (repo + org level)
 **The one invariant: never create or push a tag until the exact commit it points to is confirmed on `origin/main`.** `bump` (v0.2.0+) enforces this: it detects branch-protection gates itself, plain `bump` REFUSES to tag on a gated default branch, and `bump --tag-only` verifies `HEAD == origin/<default>` before creating the tag. `bump` never pushes: it prints the exact push commands; you run them in the safe order (branch first, then the tag by explicit name).
 
 - `bump --gates`: shows both gates (classic protection AND repo/org rulesets) and the recommended flow (run this first if unsure)
-- Ungated repo: `bump [-m|-M]` (tags local HEAD), then `git push origin main && git push origin vX.Y.Z`, branch first; the `&&` means a rejected branch push never lets the tag escape
+- Ungated repo: the version commit lands first, untagged, and the tag waits for green CI on that exact SHA, because a tag cut before CI can only be repaired by a second tag. Exact command sequence: `bump/SKILL.md` FLOW 1.
 - Gated repo: `bump --no-tag [-m|-M]` on the FEATURE branch (version bump rides the feature PR, no tag) → open PR → merge → on updated main `bump --tag-only` (tags the merged commit) → `git push origin vX.Y.Z`
 - Never run plain `bump` on a gated repo: it will refuse anyway, but `--no-tag` is the right call; `--tag-only` is the post-merge tag step
 - NEVER create a bump-only release branch (`release-X.Y.Z` carrying just a version commit). The bump belongs INSIDE the feature PR. If a PR already merged without its bump: STOP and ask Scott. The default is to fold the bump into the next feature PR, not to invent a branch.

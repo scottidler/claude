@@ -244,3 +244,22 @@ Append-only record of how the implementation interprets or departs from
 
 ### Open questions
 - `cd ~/repos/scottidler/rkvr && ls docs/ docs/*/ | head; git status --short` was rewritten (ALLOW, `all-stages-read-only`) to `ls docs/ docs/*/ | head; git -C /home/saidler/repos/scottidler/rkvr status --short`: the `cd` was dropped and `git` got `-C`, but the `ls` operands stayed relative, so `ls` ran in the SESSION cwd and listed the wrong repo's `docs/`. Log line `2026-09-14T08:17:50`. A glob operand the rewriter will not absolutize should make the whole command BAIL, not drop the `cd`. Not touched by this chunk (Phase 6 added only the `-C` strip); it belongs with chunk I's `rewrite-cd-read.py` work. Recorded here so it is not lost.
+
+## Phase 8: text fixes and the lint list
+
+### Design decisions
+- `git.md`'s ungated-flow bullet and `release-driver.md`'s "Ungated" bullet both now state the invariant in one line (version commit lands first untagged, tag waits for green CI on that SHA because a tag cut before CI can only be repaired by a second tag) and point to `bump/SKILL.md` FLOW 1 for the exact command sequence, instead of re-describing the sequence in two more places that can drift.
+- `git.md`'s "Branch names: NEVER a slash" section is replaced with a two-line pointer at `general.md`'s "Branch names" section (still prose, still owns the slug rule and title relationship) and `branch-name-guard.sh` (mechanical enforcement, built in Phase 5). The header itself was renamed off "NEVER a slash" wording too, since the AC7 `rg -c 'NEVER a slash'` check has to return zero and a header repeating the retired phrase would still match.
+- `pr.md` gains a new top section documenting Gate D's two accepted `Release:` forms, read verbatim from `git-release-guard.sh`'s own deny message (`git-release-guard.sh:545`) rather than reconstructed from memory, including that a `rides` claim is checked against the diff.
+- `.otto.yml`'s `lint` task gets a second check, an `awk 'FNR==1 && $0 != "---"'` scan over `HOME/repos/.claude/rules/*.md` that must return exactly `voice.md`, so a future PR that reintroduces a `<!-- WORKAROUND -->` comment above frontmatter (or drops frontmatter from a new rule file) fails CI instead of silently falling out of Claude Code's always-on rule loading.
+- The lint list gained `cli.md`, `general.md`, `taste.md`, `pr.md`, and `release-driver.md` (git.md and interaction.md were already listed by an earlier phase).
+
+### Deviations
+- `release-driver.md`'s two quoted `release` output strings ("done - ... tag on origin/<default>" and "paused - waiting on PR merge") use a plain hyphen where `bin/release:208,290,344` literally prints an em-dash. `bin/release` is not a Phase 8 file (it belongs to a different chunk) and this phase's hard rule is zero em-dashes in every file it writes, so the illustrative quote in the agent doc no longer reproduces the source character exactly. The prefix an agent actually matches on ("done", "paused") is unaffected.
+- `interaction.md` and `taste.md` needed only the `<!-- WORKAROUND -->` frontmatter strip; both were already at zero em-dashes, so no per-site rewrites were needed in either.
+
+### Tradeoffs
+- Kept `general.md`'s "Branch names" bullets untouched per the task: they are the substantive slug/title-relationship rule, while `git.md`'s retired section was pure compensation for a hook that didn't exist yet.
+
+### Open questions
+- `bin/release`'s own output strings still carry a literal em-dash (`bin/release:208,290,344`). Not in scope for this phase (it isn't on the Phase 8 file list and isn't in the `.otto.yml` lint list), but it means `release-driver.md`'s quoted example and the driver's actual stdout now differ by one character. Flagging for whichever chunk owns `bin/release`.

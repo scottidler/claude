@@ -1,6 +1,3 @@
-<!-- WORKAROUND: YAML array syntax for paths: is broken in Claude Code.
-     See https://github.com/anthropics/claude-code/issues/26868
-     Fix: use alwaysApply: true for catch-all rules -->
 ---
 alwaysApply: true
 ---
@@ -58,11 +55,11 @@ alwaysApply: true
 - Design docs at `docs/design/YYYY-MM-DD-feature-name.md`
 - All doc filenames lowercase, hyphenated
 - No ALL CAPS filenames (e.g. `changelog.md` not `CHANGELOG.md`) except `CLAUDE.md`
-- NEVER embed expected/future version numbers in doc filenames or content as release predictions — bumping drifts (a commit sneaks in, a different bump level, a skipped release), and readers grepping the version hit the wrong doc
-  - Fine: versions that are historical facts when written — `shakedown-v0.6.4.md` (the shaken-down version already existed)
+- NEVER embed expected/future version numbers in doc filenames or content as release predictions: bumping drifts (a commit sneaks in, a different bump level, a skipped release), and readers grepping the version hit the wrong doc
+  - Fine: versions that are historical facts when written, e.g. `shakedown-v0.6.4.md` (the shaken-down version already existed)
   - Fine: "the next patch release," "the release that lands these fixes," "the follow-up release"
   - Not fine: filenames or doc bodies that pre-name a release before it is cut
-  - To record which version shipped the work, add it after the fact — `Shipped in: v0.6.5` once the tag exists
+  - To record which version shipped the work, add it after the fact: `Shipped in: v0.6.5` once the tag exists
 
 ## Config Files
 
