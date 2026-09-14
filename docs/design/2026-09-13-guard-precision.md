@@ -181,6 +181,8 @@ Per-gate masker sets, stated once so no guard has to re-derive them:
 | `branch-pr-title-guard.sh` | heredoc, subshell, comment, plus `cmdword_is gh`; the title comes from `flag_value --title -t` | the title is data to slugify, so it is extracted rather than matched |
 | `git-no-dash-c.sh` | heredoc, subshell, comment, plus `cmdword_is git`, NO optarg | reading the `-C` target IS the job; optarg masking would erase it. **Phase 0 outcome (0e):** row retired; the strip lives in `rewrite-cd-read.py`, whose own tokenizer already handles quotes and heredocs, and the file is deleted |
 
+**Audit fold-in additions (2026-09-14, round 1; see Implementation Audit below).** Four primitives the table above did not have, all forced by measured bypasses: `stmts` also ends a statement at an unquoted, un-nested `(`, `)`, whitespace-delimited `{`/`}` and `;;`, and yields the argument of `eval` as a nested statement; `scan` treats `<(` and `>(` exactly like `$(`; `cmdword_is` walks tokens and steps over env assignments, the reserved words (`if then else elif do while until for time ! coproc`), a table of wrapper words with their options (`command builtin exec sudo env nohup time timeout nice stdbuf xargs`), a leading backslash and quote characters on the verb; `find_dashc` accepts any combined short-flag cluster containing `c` (`-lc`, `-xc`). Two new functions: `unquote` deletes quote CHARACTERS and keeps their contents, is NOT length preserving, and is for matching only (the release guard matches every gate on the unquoted copy, extracts from the original); `heredoc_expanded` emits the bodies of UNQUOTED-delimiter heredocs (byte class `h`, which bash expands) so `secret-echo-guard.sh` can scan them, while `mask_heredoc` keeps masking both classes for command-position gates.
+
 `cmdword_is git` applies to EVERY gate in `git-release-guard.sh` that matches a git operation, not only the `--tags` gate named in the table. The gates are written today as `\bgit[[:space:]]+tag`-style regexes that match anywhere in the statement, so without the anchor `echo "git tag -f v1"` trips the new tag-force gate. The anchor is what makes "the statement's command word is git" a precondition rather than a coincidence.
 
 Two deliberate exceptions to everything above:
@@ -508,6 +510,31 @@ Scope boundaries held: `voice.md` frontmatter is chunk H, the `Release:` auto-in
 ## Open Questions
 
 - [x] none. OQ1 (whether the `git commit` deny on `tatari-tv/*` main belongs in this chunk or in chunk D) is closed by the audit's own placement; see Resolved Decisions.
+
+## Implementation Audit
+
+Round 1, 2026-09-14, Mode 2, run before anything was pushed. Synthesis and the differential probe table are committed at `docs/design/2026-09-13-guard-precision-audit/`. The Gemini architect seat timed out inside its own read-only policy (14 tool calls in 600 s, the last several denied); the panel re-ran that persona on opus and labeled it a substitute. The Codex staff-engineer seat completed. Both reached the top finding independently.
+
+**Verdict as delivered: not ready to close.** The spec was implemented, and the Phase 3 command-word anchor had turned 22 measured DENY verdicts into ALLOW against `8ee8f60`, including every irreversible-operation gate. Four must-fix, six cheap wins, one deferred, all folded in one commit (`1776042`), then re-verified here probe by probe through the live `~/.claude/hooks/` paths.
+
+| finding | severity | what it was | disposition |
+|---|---|---|---|
+| MF1 | critical | `cmdword_is` was a prefix regex and `stmts` split only on `; & \| && \|\| newline`, so `{ git reset --hard; }`, `(git push origin --tags)`, `if`/`for`/`while`/`case`, `eval`, `timeout`, `nohup`, `xargs`, `coproc`, `\git`, and `f(){ ...; }; f` all sat in front of the verb and no gate ran. 22 baseline-deny rows flipped to allow; zero matrix cases used compound syntax | fixed structurally: token-walk with reserved-word and wrapper tables, compound boundaries in `stmts`, `eval` yielded as a nested statement |
+| MF2 | critical | `scan` had no case for `<(` or `>(`; a process-substitution body executes and was neither yielded nor neutralized | fixed: same class as `$(` |
+| MF3 | high | `find_dashc` required the exact token `-c`, so `bash -lc '...'` escaped the secret guard | fixed: any `-*c*` cluster |
+| MF4 | high, pre-existing | `mask_heredoc` erased UNQUOTED-delimiter bodies, which bash expands, so `cat <<EOF` / `$GH_TOKEN` / `EOF` leaked past the secret guard on both sides of the baseline. Violated this doc's own rule that a masker erases only what the shell never executes | fixed: byte class `h` plus `heredoc_expanded`; the quoted form stays inert |
+| CW1 | med, pre-existing | `"git" push origin --tags`, `--ta""gs`, `-"-tags"` allowed on both sides | fixed via `unquote` |
+| CW2 to CW6 | low | `env X=1 git` order; `git checkout -bfix/x`; the preflight's fix string named the bare glob; three touched docs missing from the lint list; two test files not executable | all fixed |
+| D1 | low | doc Status vs tracker row | disclosed, closes when the branch lands |
+
+**Regression floor after the fold-in.** Every REGRESSION and bypass row of `probes.md` is a named fixture, and `shapes.sh` carries one list of 18 spellings (`( X )`, `{ X; }`, `if`, `for`, `while`, `case`, `eval "X"`, `eval 'X'`, `timeout 5 X`, `time X`, `! X`, `nohup X`, `\verb`, `"verb"`, `bash -c "X"`, `bash -lc 'X'`, `echo <(X)`, `f(){ X; }; f`) that every irreversible or leak fixture in four matrices is re-run through: 234 wrapped assertions. Matrix totals moved from 402 to 726, with every pre-existing verdict unchanged. `otto ci` green.
+
+**Known limits, stated rather than papered over, and where each goes:**
+- `g=git; $g push origin --tags` allows. The verb arrives through a variable and no static matcher can know it; pinned as an allow fixture so it is a decision. Same class as the `$(echo "--tags")` limit already stated in the Data Model.
+- A backslash-newline continuation (`git push \` then `origin --tags` on the next line) splits into two statements and allows. Pre-existing, `probes.md` marks it SAME. The fix is an escaped-newline class in `scan` so `split_one` does not read it as a separator. Chunk I, with the rest of the parser porting.
+- `secret-echo-guard.sh` has no command-word anchor, so `'echo' $GH_TOKEN` (single-quoted verb) allows while `"echo" $GH_TOKEN` denies. Closing it means anchoring that guard, a design change. Chunk D owns the secret-guard vectors (audit item 6) and takes this row.
+
+**What the audit changed about process, recorded so it is not relearned:** the 113-case matrix proved the Phase 3 refactor moved no existing verdict, and said nothing about inputs no case covered, which is exactly where the anchor's blast radius lived. The wrapper-mutation sweep is the structural remedy; a differential replay against the previous commit is what found the class, and the panel ran it by hand. Both reviewers also named the Status/tracker mismatch, which was disclosed; the disclosure was sufficient.
 
 ## References
 
