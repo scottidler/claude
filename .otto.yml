@@ -5,14 +5,14 @@ otto:
 tasks:
   # Em-dash check over the touched-file lint list (rules/safety.md:17-28's pattern),
   # plus whitespace. The list grows chunk by chunk as later phases touch more files;
-  # it deliberately excludes review-panel.md (chunk C rewrites it wholesale) and
-  # HOME/.claude/CLAUDE.md (Phase 1's sandbox lines are still owed, blocked by the
-  # auto mode classifier).
+  # it deliberately excludes review-panel.md, which chunk C rewrites wholesale.
   lint:
     help: "Em-dash check over the lint list, plus whitespace"
     bash: |
       set -e
       FILES=(
+        HOME/.claude/CLAUDE.md
+        HOME/.claude/skills/handoff/SKILL.md
         HOME/repos/.claude/rules/safety.md
         HOME/repos/.claude/rules/voice.md
         HOME/repos/.claude/rules/interaction.md

@@ -11,21 +11,21 @@
 
 ## voice
 - Scott's writing-voice profile: `~/Claude/writing/VOICE.md` (real file, copy-deployed by a private repo's manifest; ~/Claude is the Cowork/Syncthing space, so no symlinks there)
-- Read when: drafting prose as Scott — email, Slack, Confluence, design docs, announcements
+- Read when: drafting prose as Scott (email, Slack, Confluence, design docs, announcements)
 - Always-on trigger rule: `rules/voice.md`
 
 ## identity
-- Scott's identity profile: `~/Claude/IDENTITY.md` (canonical in private keep, copy-deployed; companion to VOICE.md — voice is how he writes, identity is who he is and why he works this way)
+- Scott's identity profile: `~/Claude/IDENTITY.md` (canonical in private keep, copy-deployed; companion to VOICE.md: voice is how he writes, identity is who he is and why he works this way)
 - Read when: making judgment calls about what Scott wants or how he'd decide, drafting anything as or about Scott beyond code (bios, intros, career/planning discussions), personalizing advice, or briefing another agent/human on who he is
 - The personal-history sections in it are context only, never for outward-facing output
 
 ## Non-Negotiable: Root Cause Always
 
-When something breaks or behaves unexpectedly, **never speculate, guess, or say "I don't know"**. Go find the answer. Check logs, inspect state, read files, run commands — whatever it takes. "I don't know", "probably", "likely", "fluke", "magic", or any hand-wavy non-answer is never acceptable. If the cause isn't known yet, the correct response is to go investigate until it is.
+When something breaks or behaves unexpectedly, **never speculate, guess, or say "I don't know"**. Go find the answer. Check logs, inspect state, read files, run commands, whatever it takes. "I don't know", "probably", "likely", "fluke", "magic", or any hand-wavy non-answer is never acceptable. If the cause isn't known yet, the correct response is to go investigate until it is.
 
 ## Never estimate
 
-- No time, effort, or cost estimates — no hours, days, story points, or t-shirt sizes
+- No time, effort, or cost estimates: no hours, days, story points, or t-shirt sizes
 - No "small fix vs. large refactor" sizing framing
 - You lack the calibration; a confidently wrong estimate is worse than none
 - If asked "how long," answer with scope: files affected, steps required, unknowns that block progress
@@ -41,34 +41,42 @@ verify with a sandbox-OFF `git status`. Trackers:
 [#25603](https://github.com/anthropics/claude-code/issues/25603),
 [#29316](https://github.com/anthropics/claude-code/issues/29316).
 
+- A command that fails with `Operation not permitted` or `Read-only file system` is retried unsandboxed once, silently; the failure is never narrated or diagnosed as a system problem.
+- Never set `dangerouslyDisableSandbox` on a command whose head is in `sandbox.excludedCommands`.
+
 ## Rules
 
 Auto-loaded from `~/repos/.claude/rules/`, grouped by purpose.
 
-Conventions — how I write code & config:
-- `general` — naming, files, config, deps, CI, version control (always-on)
-- `taste` — design/review judgment: pipeline discipline, quality bar, architecture & security instincts, phasing, evidence standards (always-on; mined from all sessions 2026-05..07)
-- `voice` — outward-facing prose (Slack/email/Jira/Confluence/docs/PRs/marquee) goes out in Scott's voice via `~/Claude/writing/VOICE.md` (always-on)
-- `cli` — CLI flag behavior: space-separated, no commas (always-on)
-- `logging` — function-level debug logging (always-on)
-- `python` / `rust` / `js-ts` / `yaml` — language-specific (path-scoped)
-- `comments` — name it, don't narrate it: self-explanatory names over
+Conventions (how I write code & config):
+- `general`: naming, files, config, deps, CI, version control (always-on)
+- `taste`: design/review judgment: pipeline discipline, quality bar, architecture & security instincts, phasing, evidence standards (always-on; mined from all sessions 2026-05..07)
+- `voice`: outward-facing prose (Slack/email/Jira/Confluence/docs/PRs/marquee) goes out in Scott's voice via `~/Claude/writing/VOICE.md` (always-on)
+- `cli`: CLI flag behavior: space-separated, no commas (always-on)
+- `logging`: function-level debug logging (always-on)
+- `python` / `rust` / `js-ts` / `yaml`: language-specific (path-scoped)
+- `comments`: name it, don't narrate it: self-explanatory names over
   restating-comments; comment only tricky/subtle/scar-tissue cases
   (path-scoped: code files + yaml, not json)
 
-Tool rules — hard constraints on specific tools:
-- `git` — tag/push/working-dir safety (always-on)
-- `otto` — task-runner usage (always-on)
+Tool rules (hard constraints on specific tools):
+- `git`: tag/push/working-dir safety (always-on)
+- `otto`: task-runner usage (always-on)
 
 Safety:
-- `safety` — file deletion; applies to all files (path-scoped `**/*`)
-- `secrets` — age-encrypted secrets via `manifest age`; gh token picked by repo org (home vs work persona) (always-on)
+- `safety`: file deletion; applies to all files (path-scoped `**/*`)
+- `secrets`: age-encrypted secrets via `manifest age`; gh token picked by repo org (home vs work persona) (always-on)
 
 @~/.claude/tools.md
 
+## In-flight program: setup audit (2026-09-13)
+
+- Working the 2026-09-12 audit's 22 changes one design doc per chunk. Baton: `~/repos/scottidler/claude/docs/design/2026-09-13-setup-audit-program.md`
+- Read it before touching hooks, rules, skills, agents, or settings in this repo; pick up the chunk marked `next`, never fold a later chunk in early.
+
 ## References
 
-On-demand docs in `~/repos/.claude/refs/` — read when the scenario calls for it.
+On-demand docs in `~/repos/.claude/refs/`, read when the scenario calls for it.
 
 ### environment.md
 - Hostnames, Obsidian vault, dotfiles, `manifest` CLI + `manifest.yml` conventions
@@ -100,5 +108,5 @@ On-demand docs in `~/repos/.claude/refs/` — read when the scenario calls for i
 
 ### graphify
 
-- Skill at `~/.claude/skills/graphify/SKILL.md` — turns any input into a knowledge graph
+- Skill at `~/.claude/skills/graphify/SKILL.md`: turns any input into a knowledge graph
 - When the user types `/graphify`, invoke the Skill tool with `skill: "graphify"` before doing anything else
