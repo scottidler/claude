@@ -561,3 +561,32 @@ describe('excludedDeny: wait is transparent (audit 2026-09-13, finding M2)', () 
         expect(excludedDeny('script.sh a & wait; python3 -c x', ex)).not.toBeNull()
     })
 })
+
+describe('excludedDeny: audit round 1 gaps (2026-09-13)', () => {
+    test('C1: a -f operand is a path, not the pattern slot', () => {
+        expect(excludedDeny('cargo test | sed -f prog.sed', EXCLUDED)).not.toBeNull()
+        expect(excludedDeny('cargo test | rg -f patterns.txt', EXCLUDED)).not.toBeNull()
+        expect(excludedDeny('cargo test | rg --file=patterns.txt', EXCLUDED)).not.toBeNull()
+    })
+    test('C1: a genuine stdin-only consumer still passes', () => {
+        expect(excludedDeny('cargo test | rg fail', EXCLUDED)).toBeNull()
+        expect(excludedDeny('otto ci 2>&1 | tail -50', EXCLUDED)).toBeNull()
+    })
+    test('D3: nesting deeper than three wrappers is still scanned', () => {
+        expect(excludedDeny(`nohup env sudo bash -c "ssh -V; printf x"`, EXCLUDED)).not.toBeNull()
+    })
+    test('D4: kubectl and docker carry an inner command', () => {
+        expect(excludedDeny('kubectl exec pod -- $TMPDIR/marker.sh; ssh -V', EXCLUDED)).not.toBeNull()
+        expect(excludedDeny('docker run img $TMPDIR/marker.sh; ssh -V', EXCLUDED)).not.toBeNull()
+    })
+})
+
+describe('rmRewrite: the regenerable anchor is resolved against the tool cwd (D2)', () => {
+    // Pinned deliberately: a cd-prefixed or variable path hides the Cargo.toml
+    // anchor, so the stage archives instead of passing. Conservative direction,
+    // no data loss, recorded rather than fixed (audit 2026-09-13, D2).
+    test('a cd-prefixed target does not see the anchor beside it', async () => {
+        const out = await rmRewrite('cd /some/crate && rm -rf target', env())
+        expect(out.command).toContain('rkvr rmrf')
+    })
+})

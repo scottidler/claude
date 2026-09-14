@@ -6,6 +6,9 @@ tasks:
   # Em-dash check over the touched-file lint list (rules/safety.md:17-28's pattern),
   # plus whitespace. The list grows chunk by chunk as later phases touch more files;
   # it deliberately excludes review-panel.md, which chunk C rewrites wholesale.
+  # Grown 2026-09-13 by the implementation audit (finding M3): Phase 4 claimed
+  # every file the PR edits leaves with zero em-dashes, and five did not, because
+  # the gate never covered them. The rule is only as wide as this list.
   lint:
     help: "Em-dash check over the lint list, plus whitespace"
     bash: |
@@ -13,6 +16,13 @@ tasks:
       FILES=(
         HOME/.claude/CLAUDE.md
         HOME/.claude/skills/handoff/SKILL.md
+        HOME/.claude/skills/anthropic-usage-report/SKILL.md
+        HOME/.claude/skills/create-design-doc/SKILL.md
+        HOME/.claude/skills/rails/hooks/index.ts
+        HOME/.claude/skills/rails/hooks/index.test.ts
+        HOME/repos/.claude/rules/git.md
+        HOME/repos/.claude/refs/slack.md
+        .otto.yml
         HOME/repos/.claude/rules/safety.md
         HOME/repos/.claude/rules/voice.md
         HOME/repos/.claude/rules/interaction.md

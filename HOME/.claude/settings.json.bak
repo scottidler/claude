@@ -5,9 +5,7 @@
     "CLAUDE_COLORSCHEME": "dracula",
     "ENABLE_TOOL_SEARCH": "true",
     "MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES": "3",
-    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1",
-    "TMPDIR": "/tmp/claude-1000",
-    "RUSTC_WRAPPER": ""
+    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
   },
   "attribution": {
     "commit": "",
@@ -898,10 +896,6 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/branch-pr-title-guard.sh"
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/emdash.sh"
           }
         ]
       },
@@ -1019,32 +1013,18 @@
         "/home/saidler/go",
         "/media/saidler/intel-480gb-ssd",
         "/home/saidler/.codex",
-        "/home/saidler/.gemini",
-        "/var/tmp/rmrf",
-        "/var/tmp/bkup"
+        "/home/saidler/.gemini"
       ],
       "allowRead": [
         "/tmp/review-panel",
         "/home/saidler/.codex",
-        "/home/saidler/.gemini",
-        "/home/saidler/.ssh/identities/home/signing",
-        "/home/saidler/.ssh/identities/home/signing.pub",
-        "/home/saidler/.ssh/identities/work/signing",
-        "/home/saidler/.ssh/identities/work/signing.pub",
-        "/home/saidler/.ssh/allowed_signers"
+        "/home/saidler/.gemini"
       ]
     },
     "excludedCommands": [
       "cargo *",
       "otto *",
-      "release *",
-      "bump *",
-      "systemctl *",
-      "journalctl *",
-      "crontab *",
-      "ssh *",
-      "~/.claude/skills/architect/script.sh *",
-      "~/.claude/skills/staff-engineer/script.sh *"
+      "release *"
     ]
   },
   "effortLevel": "high",

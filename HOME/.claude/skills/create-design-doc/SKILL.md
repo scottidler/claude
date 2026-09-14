@@ -23,32 +23,32 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
 
 ## Process
 
-0. **Load the owner's judgment** — read `~/repos/.claude/rules/taste.md` and
+0. **Load the owner's judgment**: read `~/repos/.claude/rules/taste.md` and
    `~/repos/.claude/refs/design-exemplars.md` before drafting. Designs are
    judged against those standards (copy in-house precedent, decompose along
    change frequency, config drives behavior, fail loudly/closed, phase-0
    spikes for unproven assumptions), not generic best practice. Keep the prose
    direct: bullets before paragraphs, pipes/arrows where useful, flat verdicts.
 
-1. **Gather context** — understand the problem and explore the codebase.
+1. **Gather context**: understand the problem and explore the codebase.
    **Default: delegate the dig to the `design-research` agent** (pass it the
-   artifact path — shakedown/bullets/issue — plus the repo root). It runs the
+   artifact path, shakedown/bullets/issue, plus the repo root). It runs the
    heavy investigation in its own context and returns a brief: verified root
    cause, the affected `path:line` surface, prior art/constraints, and a draft
    phased plan with model tags. Draft from that brief.
    *Fallback:* if no agent is available or the artifact is trivial, research
-   inline as before — the rest of this skill is unchanged either way.
-2. **Draft** — use template below, focus on breadth
-3. **Refine** — run passes 2-5, announcing each pass and documenting changes.
-   The pass counter in the header reports ONLY passes that actually ran —
+   inline as before, the rest of this skill is unchanged either way.
+2. **Draft**: use template below, focus on breadth
+3. **Refine**: run passes 2-5, announcing each pass and documenting changes.
+   The pass counter in the header reports ONLY passes that actually ran ,
    never fabricate "X/5" (write "0/5" honestly if the ritual was skipped).
-4. **Converge** — when no significant changes, document is ready
-5. **Review panel** — send the doc (plus your open questions) to the
+4. **Converge**: when no significant changes, document is ready
+5. **Review panel**: send the doc (plus your open questions) to the
    `review-panel` agent. Then run the consensus loop: fold in everything you
    agree with, send pushbacks WITH rationale back to the reviewers seeking
    consensus, escalate to Scott only what the agents cannot close. NEVER
    silently drop or defer a finding. **The doc is ready to build only when
-   every finding is dispositioned and Open Questions is empty** — Scott never
+   every finding is dispositioned and Open Questions is empty**, Scott never
    builds with open questions or disputes.
 
    **Never block on the panel's message. Poll its run dir.** The panel can
@@ -145,8 +145,8 @@ Save to `docs/design/YYYY-MM-DD-feature-name.md` or user-specified location.
 - Start with the problem, not the solution
 - Be explicit about non-goals (distinguish "excluded" from "parked with a revisit condition")
 - Always include alternatives considered; rejected drafts and deferred options go in an Addendum so they aren't re-litigated
-- Every requirement is traceable to who asked for it — unrequested scope is illegitimate regardless of quality
-- Acceptance criteria are falsifiable assert statements (3-5 overall, 1-3 per phase) — they are what the implementation audit verifies
+- Every requirement is traceable to who asked for it, unrequested scope is illegitimate regardless of quality
+- Acceptance criteria are falsifiable assert statements (3-5 overall, 1-3 per phase): they are what the implementation audit verifies
 - Every acceptance criterion naming a flag/column/path/exit code/count is EXECUTED against current `main` and its output recorded in the doc before ready-to-build (see the gate above). A criterion written from the design instead of the running system is wrong more often than the implementation is, and it fails only after every phase has shipped green
 - State the cross-repo blast radius and the ship order it forces
 - The doc is the single source of truth: agreed changes land IN the doc, not in follow-on lists or agent memory
@@ -211,7 +211,7 @@ Example:
 
 #### Phase 0: Prove the gateway passes Bearer tokens
 **Model:** sonnet
-- curl the deployed endpoint with an existing token — zero code
+- curl the deployed endpoint with an existing token, zero code
 - **Success criteria:** authenticated request returns 200; unauthenticated returns 302 to Okta
 
 #### Phase 1: Scaffold CLI structure
@@ -231,7 +231,7 @@ Example:
 
 ## Acceptance Criteria
 
-[3-5 assert statements that evaluate TRUE when the work is finished —
+[3-5 assert statements that evaluate TRUE when the work is finished ,
 falsifiable and mechanically checkable, not mission statements. The
 implementation audit verifies these.]
 

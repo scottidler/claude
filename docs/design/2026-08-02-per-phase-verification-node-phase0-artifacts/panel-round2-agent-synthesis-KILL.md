@@ -20,7 +20,7 @@ The Phase 0 eval successfully falsified the core premise of this design. A per-p
 Here are the explicit answers to your questions:
 
 **1. THE RECOMMENDATION**
-KILL. The author's recommendation to "Reshape" is a refusal to accept his own null result. Reshaping this design into a set of git hooks for process violations is not a reshape of a "Verification Node"; it is a different mechanism entirely. The design as specified—an Opus agent running 277 times a month to catch 1/3 of semantic bugs—is an architectural failure. Cut it.
+KILL. The author's recommendation to "Reshape" is a refusal to accept his own null result. Reshaping this design into a set of git hooks for process violations is not a reshape of a "Verification Node"; it is a different mechanism entirely. The design as specified, an Opus agent running 277 times a month to catch 1/3 of semantic bugs, is an architectural failure. Cut it.
 
 **2. THE CRITERION DEFECT**
 The author is absolutely right that this is a criterion defect. Measuring a system's recall exclusively against a dataset constructed from things the baseline system missed guarantees a 0% baseline, making any random hit a "pass."

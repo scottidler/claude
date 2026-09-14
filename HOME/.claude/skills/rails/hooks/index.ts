@@ -510,7 +510,7 @@ const RM_INTEREST = /(?:^|[\s;&|(])(?:rm|sudo|xargs|find|sh|bash|ssh|docker|kube
  */
 
 /** Heads that carry an inner command; the inner head is what actually runs. */
-const EX_WRAPPERS = new Set(['sh', 'bash', 'zsh', 'sudo', 'xargs', 'env', 'nohup'])
+const EX_WRAPPERS = new Set(['sh', 'bash', 'zsh', 'sudo', 'xargs', 'env', 'nohup', 'docker', 'kubectl'])
 /** Of those, the ones whose inner command arrives as a `-c` payload. */
 const EX_SHELLS = new Set(['sh', 'bash', 'zsh'])
 /** `-c`, `-lc`, `-ec`: any short-flag cluster ending in c. */
@@ -525,8 +525,24 @@ const CONSUMERS = new Set([
 const PATTERN_CONSUMERS = new Set(['rg', 'grep', 'jq', 'awk', 'sed'])
 /** A bare number is a flag's value (`tail -n 50`), never a path. */
 const FLAG_VALUE = /^[0-9]+$/
-/** A `sh -c` payload may itself be a compound; three levels is past any real use. */
-const EX_MAX_DEPTH = 3
+/**
+ * Flags whose value is a FILE, which makes the consumer read something other
+ * than its stdin. `sed -f prog.sed` and `rg -f patterns.txt` were passing as
+ * transparent because the flag was filtered out and its path then landed in the
+ * single pattern slot PATTERN_CONSUMERS allows (audit 2026-09-13, C1).
+ */
+const FILE_FLAGS = new Set([
+    '-f', '--file', '--from-file', '--slurpfile', '--rawfile', '--argfile', '-T', '--files-from',
+])
+/**
+ * A `sh -c` payload may itself be a compound. Three levels turned out NOT to be
+ * past real use: `nohup env sudo bash -c '...'` is four, and at the cap the
+ * wrapper went to REST while the excluded stage inside was never seen, so
+ * `excluded` came back empty and the deny could not fire (audit 2026-09-13, D3).
+ * Recursion terminates on its own because each inner payload is strictly
+ * shorter, so the cap only bounds pathological input.
+ */
+const EX_MAX_DEPTH = 8
 /** Every entry is written `<head> *`; the glob is not part of the head. */
 const EX_GLOB_SUFFIX = ' *'
 
@@ -584,8 +600,11 @@ function innerCommand(words: readonly Word[]): string | null {
  */
 function readsOnlyStdin(head: string, seg: string): boolean {
     if (!CONSUMERS.has(head)) { return false }
-    const operands = splitWords(seg)
-        .slice(1)
+    const words = splitWords(seg).slice(1)
+    if (words.some((w) => FILE_FLAGS.has(w.value) || [...FILE_FLAGS].some((f) => f.startsWith('--') && w.value.startsWith(f + '=')))) {
+        return false
+    }
+    const operands = words
         .filter((w) => !(w.value.startsWith('-') && w.value.length > 1) && !FLAG_VALUE.test(w.value))
     return operands.length <= (PATTERN_CONSUMERS.has(head) ? 1 : 0)
 }

@@ -3,22 +3,22 @@
 ## Identity
 
 - Slack username: `@escote` (Tatari workspace)
-- Work persona — same context as `escote-tatari` on GitHub
+- Work persona: same context as `escote-tatari` on GitHub
 
 ## Posting Pattern: Significant Channel Messages
 
 - For substantive channel posts, use a two-message structure (keeps channels scannable, full detail in-thread):
-  1. **Top-level post** — title only, prefixed with `:thread:` and signed `:giga-claude:` inline:
+  1. **Top-level post**: title only, prefixed with `:thread:` and signed `:giga-claude:` inline:
      ```
      :thread: [concise title summarizing the topic] :giga-claude:
      ```
-  2. **Thread reply** — full body, ending with `:giga-claude:` on its own last line:
+  2. **Thread reply**: full body, ending with `:giga-claude:` on its own last line:
      ```
      [detailed content here]
 
      :giga-claude:
      ```
-- Skip this pattern when already posting inside a thread — just post the content directly, signed as usual
+- Skip this pattern when already posting inside a thread, just post the content directly, signed as usual
 
 ## Signing
 
@@ -50,7 +50,7 @@
 ## ID Reference
 
 - **READ `~/repos/.claude/slack-ids.json` immediately when any Slack work begins**
-- Do NOT call `channels_list`, `users_list`, or any list tool to find IDs — use the file
+- Do NOT call `channels_list`, `users_list`, or any list tool to find IDs, use the file
 - The file is JSON with three keys:
   - `channels` - all workspace channels, `{ID: name}`
   - `users` - DM channel IDs for manager, peers, direct reports, SRE + Data Platform

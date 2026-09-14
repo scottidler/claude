@@ -20,6 +20,12 @@
       "title": "rm to rkvr rmrf",
       "description": "Rewrite an rm of anything outside the regenerable build-output set to rkvr rmrf, and deny the wrapper forms that delete through another command (rules/safety.md). Underscore because the plugin schema rejects hyphens in these keys."
     },
+    "excluded_compound": {
+      "type": "boolean",
+      "default": true,
+      "title": "excluded-compound deny",
+      "description": "Deny a command that mixes a sandbox.excludedCommands stage with a stage that is not excluded, which would otherwise carry the whole compound out of the sandbox with no prompt. Underscore because the plugin schema rejects hyphens in these keys."
+    },
     "debug": {
       "type": "boolean",
       "default": false,
