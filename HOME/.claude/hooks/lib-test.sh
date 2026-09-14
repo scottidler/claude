@@ -67,6 +67,10 @@ case_cdat() { # case_cdat <label> <input> <n> <expected>
   eq "$1" "$4" "$(printf '%s' "$2" | cd_at "$3")"
 }
 
+case_args() { # case_args <label> <input> <expected, arguments joined by |>
+  eq "$1" "$3" "$(printf '%s' "$2" | args | tr '\n' '|' | sed -e 's/|$//' | vis)"
+}
+
 SQ=\'
 TAGS="--ta""gs"
 SECRET="SOME_""TOKEN"
@@ -224,6 +228,21 @@ case_cdat 'the cd in effect at the statement between the second and third' "$CDC
 case_cdat 'the cd in effect at the second statement' "$CDCHAIN" 2 '/a'
 case_cdat 'nothing is in effect at the first statement' "$CDCHAIN" 1 ''
 case_cdat 'the last cd is in effect at the final statement' "$CDCHAIN" 6 '/c'
+
+echo "=== args ==="
+case_args 'a quoted path holding a space stays one argument, quotes dropped' \
+  'git checkout -- "src/a b.rs" other.rs' \
+  'git|checkout|--|src/a b.rs|other.rs'
+case_args 'a whole -m message is one argument, so a word in it is never an operand' \
+  'git tag -a v1 -m "switch -c bad/name"' \
+  'git|tag|-a|v1|-m|switch -c bad/name'
+case_args 'an unexpanded dollar survives, which is what lets a gate refuse it' \
+  'git checkout -- $HOME/x' \
+  'git|checkout|--|$HOME/x'
+case_args 'a mask byte survives as its own argument' \
+  "git checkout -b ${SQ}$(printf '\001\001')${SQ}" \
+  'git|checkout|-b|@@'
+case_args 'an empty command yields nothing' '' ''
 
 echo
 echo "pass=$pass fail=$fail"

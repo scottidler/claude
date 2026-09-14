@@ -41,6 +41,10 @@ tasks:
         HOME/.claude/hooks/secret-echo-guard-test.sh
         HOME/.claude/hooks/git-release-guard.sh
         HOME/.claude/hooks/git-release-guard-test.sh
+        HOME/.claude/hooks/branch-name-guard.sh
+        HOME/.claude/hooks/branch-name-guard-test.sh
+        HOME/.claude/hooks/branch-pr-title-guard.sh
+        HOME/.claude/hooks/branch-pr-title-guard-test.sh
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."

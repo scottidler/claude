@@ -867,6 +867,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/emdash.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/branch-name-guard.sh"
           }
         ]
       },

@@ -203,43 +203,16 @@ resolve_stmt_tree() {
   stmt_branch=$(git -C "$stmt_dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
 }
 
-# Statement arguments, one per line, quote characters dropped: split on
-# UNQUOTED whitespace so a quoted path holding a space stays one argument.
-# Two gates need argument ROLE rather than a substring: the revert gate has to
-# know that every operand is an explicit literal path, and the tag gate has to
-# know whether a tag NAME is present at all (`git tag` alone lists). A `$` or a
-# backtick has to survive into the token for the revert gate to refuse it, so
-# that gate reads the statement itself; the tag gate reads the MASKED copy, so a
-# word inside a `-m` value is never mistaken for a tag name. Same tokenizer,
-# different input, which is the Data Model's "match on the mask, extract from
-# the original" contract with the caller choosing.
-IFS= read -r -d '' _ARGS_AWK <<'ARGSAWK'
-BEGIN { RS = "\034"; ORS = "" }
-{ if (NR > 1) buf = buf RS; buf = buf $0 }
-END {
-  n = length(buf)
-  q = 0
-  tok = ""
-  has = 0
-  for (i = 1; i <= n; i++) {
-    c = substr(buf, i, 1)
-    if (q == 1) { if (c == "'") q = 0; else tok = tok c; has = 1; continue }
-    if (q == 2) { if (c == "\"") q = 0; else tok = tok c; has = 1; continue }
-    if (c == "'") { q = 1; has = 1; continue }
-    if (c == "\"") { q = 2; has = 1; continue }
-    if (c == " " || c == "\t" || c == "\n") {
-      if (has) printf "%s\n", tok
-      tok = ""
-      has = 0
-      continue
-    }
-    tok = tok c
-    has = 1
-  }
-  if (has) printf "%s\n", tok
-}
-ARGSAWK
-stmt_args() { LC_ALL=C awk -- "$_ARGS_AWK"; }
+# Argument ROLE, not a substring, is what two gates in here need: the revert
+# gate has to know that every operand is an explicit literal path, and the tag
+# gate has to know whether a tag NAME is present at all (`git tag` alone lists).
+# That walk is `lib.sh`'s `args` (promoted out of this file in Phase 5, when
+# `branch-name-guard.sh` needed the same one), and the CALLER picks its input: a
+# `$` or a backtick has to survive into the token for the revert gate to refuse
+# it, so that gate feeds `args` the statement itself; the tag gate feeds it the
+# MASKED copy, so a word inside a `-m` value is never read as a tag name. Same
+# tokenizer, different input, which is the Data Model's "match on the mask,
+# extract from the original" contract with the caller choosing.
 
 # The \x01 a masker leaves behind. An argument carrying one was a command
 # substitution or a masked flag value, so it is not a literal path either.
@@ -364,7 +337,7 @@ check_stmt() {
       esac
       tagname="$targ"
       break
-    done <<< "$(printf '%s' "$m" | stmt_args)"
+    done <<< "$(printf '%s' "$m" | args)"
     if [ -n "$tagname" ]; then
       resolve_stmt_tree
       if [ -n "$stmt_branch" ] && [ "$stmt_branch" != "main" ] && [ "$stmt_branch" != "master" ]; then
@@ -395,7 +368,7 @@ check_stmt() {
   # name in it at all.
   local newbr=""
   if printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+(checkout|switch|branch)\b'; then
-    newbr=$(printf '%s' "$m" | stmt_args | awk '
+    newbr=$(printf '%s' "$m" | args | awk '
       { t[NR] = $0 }
       END {
         for (i = 1; i <= NR; i++) {
@@ -633,7 +606,7 @@ check_stmt() {
         esac
         operands=$((operands + 1))
         [ -n "$badarg" ] && break
-      done <<< "$(printf '%s' "$s" | stmt_args)"
+      done <<< "$(printf '%s' "$s" | args)"
       if [ "$operands" -eq 0 ]; then
         deny "Refusing a tree-wide working-tree revert while '$stmt_dir' is dirty, because it discards uncommitted work irreversibly. This command names no path, so it reverts everything. A PATH-SCOPED revert is allowed on a dirty tree: name the files, 'git checkout -- path/to/file' or 'git restore path/to/file'. 'rkvr rmrf' anything you want to drop."
       fi

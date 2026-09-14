@@ -128,3 +128,31 @@ Append-only record of how the implementation interprets or departs from
 
 ### Open questions
 - None.
+
+## Phase 5: branch guards
+
+### Design decisions
+- The tokenizer WAS promoted. Phase 4's tradeoff said "if Phase 5's branch guard needs the same walk, that is the moment", and it does: every branch-name extraction is a positional walk over arguments. `stmt_args` plus its inline `_ARGS_AWK` left `git-release-guard.sh` and became `lib.sh`'s `args` (mode `args`, `args_out()`), implemented on the library's existing `scan`/`tokenize`/`tokword` rather than as a second copy of the local awk, so there is one quote model in the tree instead of two. Both files call it, `lib-test.sh` gained five cases for it, and `git-release-guard-test.sh` stayed 113/113 green across the swap, which is the evidence the promotion changed no verdict.
+- `branch-name-guard.sh` reads the new name by argument ROLE off `args`, never by regex over the statement. That is what makes `git branch -d x` and `git branch --list 'x*'` pass (the flag between `branch` and the name breaks the match, the same anchor Gate C uses) and what makes the guard immune to the class `mask_optarg` exists for: a quoted `-m` message is ONE argument, so `git tag -a v1 -m "switch -c Bad/Name"` has no token equal to `switch`. Matrix case, allow.
+- `git branch -m` is judged on the LAST operand, so a rename is judged on where it LANDS: `git branch -m fix/x flat-slug` (the sanctioned fix for a bad name) allows, `git branch -m old-flat fix/x` denies.
+- `gh pr create --head <name>` fires only when the name has no local ref. An existing branch is not a NEW name, and demanding a rename of a branch that already carries commits is the defect the title guard had. Matrix cases: the fixture's existing `legacy/old-thing` allows, `fix/markdown-dark-mode` denies.
+- Uppercase is tested with `[[:upper:]]`, not `[A-Z]`. A bracket RANGE in a bash glob follows the locale's collation order and matches lowercase letters in a UTF-8 locale, so `[A-Z]` would have denied every branch name on this machine.
+- `branch-pr-title-guard.sh` reads `--repo` as a GATE rather than as a directory oracle: when `--repo <owner>/<name>` does not appear in the effective worktree's `origin` URL, the PR targets a repository whose head branch this hook cannot read, so it passes through. When the named repo IS this worktree, the branch is read and judged normally. Both directions are matrix cases (`--repo tatari-tv/philo` allow, `--repo scottidler/fixture` judged).
+- Both guards number statements off the records `stmts` emits, nested ones included, before any skip, because that is the index space `cd_at` walks (Phase 1's open question, Phase 4's precedent).
+- Every deny case in `branch-name-guard-test.sh` asserts the OFFERED slug is in the reason, not just the decision. The measured failure was a model not knowing what to type next, so a deny naming no legal name is not a pass.
+
+### Deviations
+- The deny text carries a leading `Blocked: branch '<name>'.` before the doc's sentence. The doc quotes the text without the offending name, but a command can name more than one branch and Gate C's neighboring text names its branch for the same reason. The doc's sentence itself, slug included, is verbatim.
+- The title guard resolves the worktree with `cd_at <n>` (the `cd` in effect AT the statement), not `cd_target` (the last `cd` in the chain). The doc says `cd_at` in its Phase 5 bullet and `cd_target` in its API Design line; `cd_at` is the statement-scoped answer and matches what Phase 4 chose for every statement-scoped gate. Identical for the measured `cd <worktree> && gh pr create` shape. Same effect, correct seam.
+- `git -C <dir>` is honored only when the `cd` step resolved to nothing, and only when the `-C` value is an existing directory. The existence test is what disambiguates git's overload of the flag: `git switch -C <branch>` and `git commit -C <commit>` do not name directories, and decision 3 deliberately leaves those values unmasked.
+- The plain-mismatch text is "today's text, unchanged" except for its em-dash, which became a colon. The file is now in the `.otto.yml` lint list (3 em-dashes stripped, one of them in that reason), and the em-dash rule has no exemption for a text the doc calls unchanged.
+- The `mcp__multi-account-github__create_pr` branch of the title guard is left in place and gains the three new texts. The new guard is registered on `Bash` ONLY, per the doc; removing the dead MCP matcher is chunk J's, and leaving the handler working costs nothing while the matcher still exists in `settings.json`.
+- An unexpandable `--title` is detected as a literal `$`, a backtick, or a mask byte. The doc names only the `$(gen-title)` shape (which arrives as a mask byte, because `stmts` neutralizes the span); `--title "$TITLE"` is the same unknowable value one spelling later. Both are matrix allows.
+
+### Tradeoffs
+- `args` reuses the library's `scan`/`tokenize` instead of copying Phase 4's local awk verbatim. The library tokenizer additionally breaks tokens on unquoted shell metacharacters (`;&|()<>`), which the local one did not, so a redirection glued to a path (`f>g`) now reads as two arguments. Accepted because the release guard's 113 cases are unchanged and both consumers ask only whether an argument is a literal path, a tag name, or the token after `-b`; the alternative was two tokenizers with two quote models, which is what the promotion exists to remove.
+- The name guard does not judge a `--head` name when `--repo` names another repository, and does not read `--repo` at all: a branch that already exists somewhere else is still checked against the LOCAL refs, so a slashed branch living only on a remote would be denied. Left as the doc specifies (existence is a local-ref question) rather than widened to a network call in a PreToolUse hook.
+- One deny per command. `judge` exits on the first violation, so `git checkout -b a/b && git switch -c B_c` reports only the first name. A second round trip surfaces the second, and a hook that concatenated reasons would bury the fix it is offering.
+
+### Open questions
+- None.

@@ -241,6 +241,20 @@ function tokenize(s,   n, i, c, brk) {
 
 function toktext(s, k) { return substr(s, tb[k], te[k] - tb[k] + 1) }
 
+# The statement's arguments, one per line, quote characters dropped, so a gate
+# can ask about an argument's ROLE instead of matching a substring: which
+# operand is the tag NAME, whether every operand is a literal path, which token
+# follows `checkout -b`. Splitting on UNQUOTED whitespace is what keeps a quoted
+# path holding a space (or a whole `-m` message) as ONE argument.
+#
+# The CALLER chooses the input, which is the match-on-the-mask/extract-from-the-
+# original contract with the decision left where it belongs: feed the ORIGINAL
+# when a `$` or a backtick has to survive to be refused, feed a MASKED copy when
+# a word inside a message-flag value must not be read as a name.
+function args_out(s,   k) {
+  for (k = 1; k <= tn; k++) printf "%s\n", tokword(s, k)
+}
+
 # The shell WORD a token expands to as far as quoting goes: the quote characters
 # themselves drop out, so `--title="a b"` yields --title=a b and a value read
 # back from `'x'"y"` is xy.
@@ -414,6 +428,12 @@ END {
   if (mode == "comment") { scan(buf); printf "%s", masked(buf, "#"); exit 0 }
   if (mode == "optarg")  { scan(buf); tokenize(buf); printf "%s", mask_optarg_text(buf); exit 0 }
   if (mode == "cmdword") { exit (cmdword_ok(buf, a1) ? 0 : 1) }
+  if (mode == "args") {
+    scan(buf)
+    tokenize(buf)
+    args_out(buf)
+    exit 0
+  }
   if (mode == "flagvalue") {
     scan(buf)
     tokenize(buf)
@@ -458,6 +478,7 @@ mask_comment() { _lib_run comment; }
 mask_optarg()  { _lib_run optarg; }
 
 stmts()        { _lib_run stmts; }
+args()         { _lib_run args; }
 flag_value()   { _lib_run flagvalue "${1-}" "${2-}"; }
 cd_target()    { _lib_run cdtarget; }
 cd_at()        { _lib_run cdat "${1-}"; }
