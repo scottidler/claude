@@ -14,8 +14,17 @@
 # The 54 cases above the "parser fixes" section are the regression net for the
 # lib.sh parser swap and their expectations have never moved. The two cases in
 # that section are the only verdicts the swap changed, both of them parser bugs
-# rather than gate policy. `runcwd` feeds a payload whose `cwd` differs from the
-# hook process's, which is where the guard now reads branch and tree state.
+# rather than gate policy. Everything from "tag force" down is the gate work
+# that followed the swap: tag force and off-main tag creation, Gate C matched
+# against the EXTRACTED branch name, path-scoped reverts, the statement's own
+# worktree, the $TMPDIR / $HOME body-file spellings, and commit on a PR-gated
+# main. Those 55 cases are the only expectations added after the swap ran green.
+#
+# Three runners, because three things vary. `run` checks out a branch in $REPO.
+# `runcwd` feeds a payload whose `cwd` differs from the hook process's, which is
+# where the guard reads branch and tree state. `runwith` sets one environment
+# variable for the hook, which is what makes the body-file expansion observable
+# rather than a coincidence of the machine this runs on.
 #
 # Run directly, or via: git-release-guard.sh --self-test
 set -u
@@ -144,6 +153,34 @@ cd "$N"
 echo 'x' > tracked.txt
 git add -A && git commit -qm init
 
+# ---------- fixture 5: two mains that differ only by their origin URL ----------
+# The commit-on-gated-main gate is scoped by the remote, not by the branch: a
+# tatari-tv main is PR-gated so a commit there can never be pushed, while a
+# personal main takes direct pushes. `git remote add` is enough; nothing here
+# talks to a network.
+git init -q -b main "$ROOT/repo-tatari"
+W="$ROOT/repo-tatari"
+cd "$W"
+echo 'x' > f.txt
+git add -A && git commit -qm init
+git remote add origin git@github.com:tatari-tv/philo.git
+
+git init -q -b main "$ROOT/repo-home"
+V="$ROOT/repo-home"
+cd "$V"
+echo 'x' > f.txt
+git add -A && git commit -qm init
+git remote add origin git@github.com:scottidler/claude.git
+
+# ---------- fixture 6: body files reached through $TMPDIR and $HOME ----------
+# Gate D reads the RAW command text, so these two variables arrive unexpanded
+# and the hook expands them itself, by literal string replacement against its
+# own environment. The cases below hand the hook a TMPDIR and a HOME of their
+# own, so the expansion is observable rather than a coincidence of the machine.
+mkdir -p "$ROOT/tmpd" "$ROOT/fakehome"
+printf 'Release: rides this PR (v0.1.1)\n\nreal work\n' > "$ROOT/tmpd/body.md"
+printf 'Release: rides this PR (v0.1.1)\n\nreal work\n' > "$ROOT/fakehome/body.md"
+
 cd "$R"
 
 # ---------- runner ----------
@@ -169,6 +206,18 @@ runcwd() { # runcwd <expect deny|allow> <payload cwd> <hook process cwd> <comman
     pass=$((pass+1)); printf 'PASS  [%s cwd=%s] %s\n' "$expect" "${pcwd##*/}" "$cmd"
   else
     fail=$((fail+1)); printf 'FAIL  [want %s got %s cwd=%s] %s\n      -> %s\n' "$expect" "$decision" "${pcwd##*/}" "$cmd" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' | head -c 160)"
+  fi
+}
+
+runwith() { # runwith <expect> <branch> <VAR=value> <command...>  (in $REPO)
+  local expect="$1" br="$2" kv="$3" cmd="$4" out decision
+  git -C "$REPO" checkout -q "$br"
+  out=$(cd "$REPO" && jq -n --arg c "$cmd" '{tool_input:{command:$c}}' | env "$kv" bash "$HOOK")
+  decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"')
+  if [ "$decision" = "$expect" ]; then
+    pass=$((pass+1)); printf 'PASS  [%s @%s %s] %s\n' "$expect" "$br" "${kv%%=*}" "$cmd"
+  else
+    fail=$((fail+1)); printf 'FAIL  [want %s got %s @%s %s] %s\n      -> %s\n' "$expect" "$decision" "$br" "${kv%%=*}" "$cmd" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' | head -c 160)"
   fi
 }
 
@@ -297,6 +346,98 @@ echo "=== branch and tree state come from the payload's cwd ==="
 # have come from its own directory.
 runcwd deny  "$D" "$ROOT" 'git reset --hard'
 runcwd allow "$N" "$ROOT" 'git reset --hard'
+
+echo "=== tag force: never move a tag, whatever the spelling ==="
+run deny  main 'git tag -f -a v1 -m moved'
+run deny  main 'git tag -fa v1 -m moved'          # the combined form a model types
+run deny  main 'git tag -af v1 -m moved'
+run deny  main 'git tag --force -a v1 -m moved'
+run deny  main 'git tag -d v0.1.0'                # deletion, still walled
+run allow main "git tag -l 'v*'"                  # listing is not creation
+run allow main 'git tag'                          # bare listing
+# mask_optarg: a flag named inside a -m value is prose, not an option. -F is a
+# message FILE flag and carries no lowercase f for the cluster match to find.
+run allow main 'git tag -a v1 -m "added --force"'
+# cmdword_is git: the statement's command word is echo, so no gate applies.
+run allow main 'echo "git tag -f v1"'
+# ...but a subshell IS a statement, and the deny comes from the nested one.
+run deny  main 'echo "$(git push origin --tags)"'
+
+echo "=== tag creation is cut on main only ==="
+run allow main      'git tag -a v9.9.9 -m probe'
+run deny  feat-real 'git tag -a v9.9.9 -m probe'
+run deny  feat-real 'git tag -s v9.9.9 -m probe'
+run deny  feat-real 'git tag v9.9.9'
+# The -d lives in a MESSAGE, so this is a creation off main and not a deletion.
+run deny  feat-real 'git tag -a v1 -m "fix the -d flag"'
+# Read-only forms carrying an operand are not creations.
+run allow feat-real 'git tag --contains HEAD'
+run allow feat-real "git tag -l 'v*'"
+
+echo "=== path-scoped reverts are allowed; tree-wide ones are not ==="
+runcwd allow "$D" "$D" 'git checkout -- tracked.txt'
+runcwd allow "$D" "$D" 'git checkout -- tracked.txt untracked.txt'
+runcwd deny  "$D" "$D" 'git checkout -- .'
+runcwd deny  "$D" "$D" 'git checkout -- ./'
+runcwd deny  "$D" "$D" 'git checkout -- :/'
+runcwd deny  "$D" "$D" 'git checkout -- "src/*.rs"'
+runcwd deny  "$D" "$D" 'git checkout -- $SOMEDIR'
+runcwd deny  "$D" "$D" 'git checkout -- "$(pwd)"'
+runcwd deny  "$D" "$D" 'git checkout --'
+runcwd allow "$D" "$D" 'git restore src/'
+runcwd deny  "$D" "$D" 'git restore --staged src/'
+runcwd deny  "$D" "$D" 'git restore --source=HEAD~1 src/'
+runcwd deny  "$D" "$D" 'git reset --hard'
+runcwd allow "$N" "$N" 'git checkout -- .'        # clean tree: nothing to lose
+
+echo "=== the tree judged is the STATEMENT's, not the last cd in the chain ==="
+# cd_at, not cd_target. With cd_target this resolves to the clean directory and
+# ALLOWS a revert that discards the work in the dirty one.
+runcwd deny  "$D" "$D" "git checkout -- . && cd $N"
+runcwd deny  "$D" "$D" "git reset --hard && cd $N"
+# ...and the mirror: the cd comes FIRST, so the statement runs in the dirty tree.
+runcwd deny  "$N" "$N" "cd $D && git reset --hard"
+
+echo "=== git clean -f is judged against the statement's own worktree ==="
+runcwd deny  "$D" "$ROOT" 'git clean -fd'         # untracked files present
+runcwd allow "$N" "$ROOT" 'git clean -fd'         # none present
+runcwd deny  "$N" "$N"    "cd $D && git clean -fd"
+runcwd allow "$D" "$D"    "cd $N && git clean -fd"
+
+echo "=== Gate C matches the EXTRACTED branch name ==="
+run deny  main 'git checkout -b chore/bump-0.9.0'
+run deny  main 'git switch -c feature/release-1.2.3'
+run allow main 'git checkout -b bumpkin-feature'
+run allow main 'git checkout -b fix-auth-bug'
+# The name is extracted, so a statement that merely MENTIONS one is not a create.
+run allow main "git commit -m 'mention bump-1.0.0'"
+run allow main "git commit -m 'git checkout -b bump-1.0.0'"
+
+echo "=== mask_optarg: prose in a message value is not an operation ==="
+# Measured in Phase 3: this DENIED before the parser swap and allows after,
+# because `restore --staged` sits in a -m value. Pinned here, in the phase whose
+# matrix names the mask_optarg cases.
+runcwd allow "$D" "$D" 'git commit -m "explain git restore --staged in the docs"'
+
+echo "=== --body-file expands \$TMPDIR / \$HOME, by string replacement ==="
+runwith allow feat-real "TMPDIR=$ROOT/tmpd" 'gh pr create --title "feat: real" --body-file "$TMPDIR/body.md"'
+runwith allow feat-real "TMPDIR=$ROOT/tmpd" 'gh pr create --title "feat: real" --body-file "${TMPDIR}/body.md"'
+runwith allow feat-real "TMPDIR=$ROOT/tmpd" 'gh pr create --title "feat: real" --body-file=$TMPDIR/body.md'
+runwith allow feat-real "HOME=$ROOT/fakehome" 'gh pr create --title "feat: real" --body-file "$HOME/body.md"'
+runwith allow feat-real "HOME=$ROOT/fakehome" 'gh pr create --title "feat: real" --body-file "${HOME}/body.md"'
+# An expandable spelling pointing at a file that is not there is still a deny:
+# the expansion widens what can be VERIFIED, it never waves a body through.
+runwith deny  feat-real "TMPDIR=$ROOT/tmpd" 'gh pr create --title "feat: real" --body-file "$TMPDIR/missing.md"'
+# A variable this hook does not know stays unexpanded and still refuses loudly.
+runwith deny  feat-real "TMPDIR=$ROOT/tmpd" 'gh pr create --title "feat: real" --body-file "$XDG_CACHE_HOME/body.md"'
+
+echo "=== commit on a PR-gated main is scoped by the remote ==="
+REPO="$W"
+run deny  main 'git commit -m "fix: something"'
+run deny  main 'git add -A && git commit -m "fix: something"'
+REPO="$V"
+run allow main 'git commit -m "fix: something"'
+REPO="$R"
 
 echo
 echo "pass=$pass fail=$fail"
