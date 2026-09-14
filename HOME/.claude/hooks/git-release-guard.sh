@@ -57,15 +57,29 @@
 # the PR body. Using it without a real order is a hall-of-shame offense.
 # First sanctioned use: mcp-io-rs #8 (v0.1.3), 2026-07-10.
 #
-# MECHANICS: heredoc bodies are stripped first (a `git commit -F - <<'MSG'`
-# message line is prose, not a command -- an unstripped one beginning with
-# "bump" denied an innocent commit, otto-rs/otto b428680 2026-09-01), then the
-# command is split into statements on && || ; | and newlines and each statement
-# is checked independently, so a match cannot bleed across an unrelated sibling
-# (a `git push` in one statement plus `--tags` in a later `git ls-remote --tags`
-# is not a false positive). Gate D searches the FULL, unstripped command for the
-# Release: line because PR bodies are multi-line and usually arrive by heredoc.
-# A trailing `cd <dir>` in the chain is honored when evaluating branch/tree state.
+# MECHANICS: parsing is `lib.sh`'s shared, quote-aware parser, sourced below.
+# `stmts` splits the command into statements on && || ; | and newlines, but it
+# does it on a quote-aware pass, so a `;` or `|` inside a quoted argument no
+# longer severs a statement. Every statement it emits arrives with its heredoc
+# bodies and its command-substitution spans already neutralized, and every
+# NESTED statement (a `$( )` body, a backtick body, a `bash -c` argument) arrives
+# as a record of its own, because the shell runs those. So a match cannot bleed
+# across an unrelated sibling (a `git push` in one statement plus `--tags` in a
+# later `git ls-remote --tags` is not a false positive), a heredoc message line
+# is never read as a command (a `git commit -F - <<'MSG'` line beginning with
+# "bump" denied an innocent commit, otto-rs/otto b428680 2026-09-01), and a
+# `git push origin "$(git describe --tags)"` is judged as the two commands it is.
+# Each statement is then comment- and optarg-masked before any gate matches it:
+# a flag sitting in the VALUE of `-m` is prose, not an option, so
+# `git tag -a v1 -m "added --force"` names a flag without using one. Values
+# (`--head`, `--body-file`) are read from the statement itself via `flag_value`,
+# never off the mask. Every gate matching a git operation is anchored with
+# `cmdword_is git`, so `echo "git push --tags"` and this hook's own `--help` are
+# not pushes. Gate D searches the FULL, unstripped command for the Release: line
+# because PR bodies are multi-line and usually arrive by heredoc.
+# Branch and tree state are read in the payload's `cwd` (the SESSION's
+# directory; this hook process's cwd is not guaranteed to be it), and a
+# `cd <dir>` in the chain is honored when evaluating a bump's target worktree.
 #
 # PROVENANCE: THE RULING 2026-07-03 (~/HALL-OF-SHAME.md) after slack-cli
 # v0.1.1; gates A/B/C + recovery messages 2026-07-10 after slack-cli #16;
@@ -85,6 +99,12 @@ case "${1:-}" in
     ;;
 esac
 
+# The shared parser. Sourced AFTER the CLI dispatch so --help and --self-test
+# work with or without it. A missing library passes the Bash call through rather
+# than denying every command in the session; hooks-preflight.sh reports the gap
+# at the next session start.
+. "$(dirname "$0")/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }
+
 input=$(cat)
 cmd=$(echo "$input" | jq -r '.tool_input.command // ""')
 [ -z "$cmd" ] && { echo '{}'; exit 0; }
@@ -94,28 +114,40 @@ deny() {
   exit 0
 }
 
-branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-porcelain=$(git status --porcelain 2>/dev/null)
+# The PreToolUse payload carries the SESSION's working directory. This hook
+# process's cwd is not guaranteed to be it, and every git read below used to
+# assume it was. Read the payload's `cwd`, falling back to $PWD when the field
+# is absent, which is the same fail-open shape rewrite-cd-read.py:911-914 has
+# used since 2026-09-03.
+cwd=$(printf '%s' "$input" | jq -r '.cwd // ""')
+[ -n "$cwd" ] && [ -d "$cwd" ] || cwd="$PWD"
+
+branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null)
+porcelain=$(git -C "$cwd" status --porcelain 2>/dev/null)
 untracked=$(printf '%s\n' "$porcelain" | grep -c '^??')
 
 # Effective worktree a `bump` in this command will actually run in. Scott's release
-# flow is `cd <main-worktree> && bump`, but this hook runs once at the SESSION CWD
+# flow is `cd <main-worktree> && bump`, but this hook runs once for the SESSION
 # (often a feature-branch worktree), so a branch read there falsely denies a bump
-# that targets main. Honor a `cd <dir>` in the same command chain (the LAST one wins)
-# and evaluate the branch + tree state in THAT directory. No cd -> the session CWD,
-# so a bare `bump` on a real feature branch is still correctly blocked.
-bump_dir="."
-cd_target=$(printf '%s\n' "$cmd" \
-  | grep -oE '\bcd[[:space:]]+("[^"]+"|'"'"'[^'"'"']+'"'"'|[^[:space:]&|;]+)' \
-  | tail -n1 | sed -E 's/^cd[[:space:]]+//; s/^["'"'"']//; s/["'"'"']$//')
-if [ -n "$cd_target" ] && [ "$cd_target" != "-" ] && [ -d "$cd_target" ]; then
-  bump_dir="$cd_target"
-fi
+# that targets main. Honor a `cd <dir>` in the same command chain (lib.sh's
+# `cd_target`: the LAST one, in command position) and evaluate the branch + tree
+# state in THAT directory, resolving a relative target against the session cwd.
+# No cd means the session cwd, so a bare `bump` on a feature branch is still
+# correctly blocked. The destructive-op gates deliberately do NOT use this: for
+# them the question is which worktree the statement itself runs in, not where a
+# later `cd` lands.
+bump_dir="$cwd"
+cd_dir=$(printf '%s' "$cmd" | cd_target)
+case "$cd_dir" in
+  ""|-) ;;
+  /*) [ -d "$cd_dir" ] && bump_dir="$cd_dir" ;;
+  *) [ -d "$cwd/$cd_dir" ] && bump_dir="$cwd/$cd_dir" ;;
+esac
 bump_branch=$(git -C "$bump_dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
 bump_porcelain=$(git -C "$bump_dir" status --porcelain 2>/dev/null)
 
 # Remote default-branch ref (origin/main | origin/master), or empty when there is
-# no remote — the bump-only gates self-skip on local-only repos.
+# no remote, in which case the bump-only gates self-skip on local-only repos.
 default_base() {
   local d="$1" ref b
   ref=$(git -C "$d" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)
@@ -141,20 +173,37 @@ is_bump_only_ref() {
   while IFS= read -r f; do
     case "$f" in
       Cargo.toml|Cargo.lock|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|pyproject.toml|uv.lock|VERSION) ;;
-      *) return 0 ;;   # real work is in the diff — not bump-only
+      *) return 0 ;;   # real work is in the diff, so not bump-only
     esac
   done <<< "$files"
   diff_lines=$(git -C "$d" diff "$base...$ref" -- Cargo.toml package.json pyproject.toml VERSION 2>/dev/null \
     | grep -E '^[-+]' | grep -Ev '^(\+\+\+|---)')
-  [ -z "$diff_lines" ] && return 0   # lockfile-only change — allowed
+  [ -z "$diff_lines" ] && return 0   # lockfile-only change, allowed
   if printf '%s\n' "$diff_lines" | grep -Evq '^[-+][[:space:]]*"?version"?[[:space:]]*[:=]'; then
-    return 0                          # a non-version manifest line changed — allowed
+    return 0                          # a non-version manifest line changed, allowed
   fi
   return 1
 }
 
 check_stmt() {
   local s="$1"
+
+  # Match on a MASKED copy, extract values from the statement itself. `stmts`
+  # handed this statement over with its heredoc bodies and its command-
+  # substitution spans already neutralized (the nested ones arrive as their own
+  # statements), so what is left to mask here is the pair the Data Model's row
+  # for these gates names: comments, and the VALUE of a message-carrying flag.
+  local m
+  m=$(printf '%s' "$s" | mask_comment | mask_optarg)
+
+  # The command word, computed once. Every gate below that matches a git or gh
+  # operation is anchored on it: the gate regexes match anywhere in a statement,
+  # so without the anchor `echo "git tag -f v1"` and `git-release-guard.sh
+  # --help` trip gates they have nothing to do with.
+  local is_git=0 is_gh=0 is_bump=0
+  printf '%s' "$m" | cmdword_is git && is_git=1
+  printf '%s' "$m" | cmdword_is gh && is_gh=1
+  printf '%s' "$m" | cmdword_is bump && is_bump=1
 
   # Scott-override for the bump-only gates (Scott approved adding this door
   # 2026-07-10): a transcript-visible marker that Scott EXPLICITLY ordered a
@@ -163,69 +212,70 @@ check_stmt() {
   # RULING's ask-Scott clause, answered. The marker must ride IN the command
   # (env-prefix form) so the transcript shows every use, and Scott's ordering
   # words must be quoted in the PR body. Setting it WITHOUT a real order from
-  # Scott is a hall-of-shame offense.
+  # Scott is a hall-of-shame offense. Read off the mask, so the marker cannot
+  # open the door from inside a commit message.
   local scott_override=0
-  if printf '%s' "$s" | grep -q 'BUMP_ORDERED_BY_SCOTT=1'; then
+  if printf '%s' "$m" | grep -q 'BUMP_ORDERED_BY_SCOTT=1'; then
     scott_override=1
   fi
 
   # ---- Tags: never delete, never bulk-push (git.md "Tags") ----
-  if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+tag[[:space:]]+(-d|--delete)\b'; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+tag[[:space:]]+(-d|--delete)\b'; then
     deny "git.md: NEVER delete a tag (refusing 'git tag -d/--delete'). If a tag must move or be recreated, ask Scott to do it himself."
   fi
-  if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+push\b.*(--tags|--follow-tags)\b'; then
-    deny "git.md: never 'git push --tags'/'--follow-tags' (the tag lands even if the branch push is rejected — this orphaned okta-auth-rs v0.2.0). Push the branch first, then the tag by explicit name: git push origin vX.Y.Z"
+  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+push\b.*(--tags|--follow-tags)\b'; then
+    deny "git.md: never 'git push --tags'/'--follow-tags' (the tag lands even if the branch push is rejected, and this orphaned okta-auth-rs v0.2.0). Push the branch first, then the tag by explicit name: git push origin vX.Y.Z"
   fi
-  if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+push\b.*(--delete|[[:space:]]-d\b).*(refs/tags/|(^|[[:space:]])v[0-9])' \
-     || printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+push\b.*:[[:space:]]*(refs/tags/|v[0-9])'; then
+  if [ "$is_git" -eq 1 ] \
+     && { printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+push\b.*(--delete|[[:space:]]-d\b).*(refs/tags/|(^|[[:space:]])v[0-9])' \
+          || printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+push\b.*:[[:space:]]*(refs/tags/|v[0-9])'; }; then
     deny "git.md: refusing what looks like a remote TAG deletion. NEVER delete tags. (If you truly meant a branch, delete it via 'gh' or name 'refs/heads/<branch>' explicitly.)"
   fi
 
   # ---- Bump-only release branches: forbidden forever (THE RULING 2026-07-03) ----
   # Gate C: never even CREATE a branch named like a release/bump branch.
-  # (Deletion `git branch -d bump-*` and `git branch --list 'bump*'` stay allowed —
-  # the flag between `branch` and the name breaks the match.)
-  if [ "$scott_override" -eq 0 ] \
-     && printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+(checkout[[:space:]]+-b[[:space:]]+|switch[[:space:]]+(-c|--create)[[:space:]]+|branch[[:space:]]+)(bump|release)([-/]|[[:space:]]|$)'; then
-    deny "DENIED: creating a bump-*/release-* branch. A bump-only release branch is forbidden forever, for ANY reason (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work — it RIDES the feature PR ('bump --no-tag' on the feature branch, before that PR merges; the tag is cut on main after the merge with 'bump --tag-only'). WHAT TO DO NOW: if you were about to bump for work that already merged without its bump, the ONLY sanctioned move is STOP and ask Scott — his default is folding the bump into the NEXT feature PR. DO NOT retry with a different branch name, do not hand-edit the version, do not route around this hook (sibling gates catch content-based bump-only pushes/PRs too). Read the /bump skill before touching anything release-related."
+  # (Deletion `git branch -d bump-*` and `git branch --list 'bump*'` stay
+  # allowed: the flag between `branch` and the name breaks the match.)
+  if [ "$is_git" -eq 1 ] && [ "$scott_override" -eq 0 ] \
+     && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+(checkout[[:space:]]+-b[[:space:]]+|switch[[:space:]]+(-c|--create)[[:space:]]+|branch[[:space:]]+)(bump|release)([-/]|[[:space:]]|$)'; then
+    deny "DENIED: creating a bump-*/release-* branch. A bump-only release branch is forbidden forever, for ANY reason (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work, it RIDES the feature PR ('bump --no-tag' on the feature branch, before that PR merges; the tag is cut on main after the merge with 'bump --tag-only'). WHAT TO DO NOW: if you were about to bump for work that already merged without its bump, the ONLY sanctioned move is STOP and ask Scott: his default is folding the bump into the NEXT feature PR. DO NOT retry with a different branch name, do not hand-edit the version, do not route around this hook (sibling gates catch content-based bump-only pushes/PRs too). Read the /bump skill before touching anything release-related."
   fi
 
   # ---- Force-push to main/master (git.md "Pushing to main") ----
-  if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+push\b.*(--force|--force-with-lease|[[:space:]]-f\b)'; then
-    if printf '%s' "$s" | grep -Eqw '(main|master)' || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+push\b.*(--force|--force-with-lease|[[:space:]]-f\b)'; then
+    if printf '%s' "$m" | grep -Eqw '(main|master)' || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
       deny "git.md: never force-push main/master without explicit approval from Scott. Stop and report; let him run it."
     fi
   fi
 
   # ---- bump: release flow (rules/git.md release section + Scott's workflow) ----
-  # Match `bump` ONLY in command position — the first token of the statement
-  # (after optional leading env-assignments and an optional path prefix). This is
-  # the fix for the substring false-positive that blocked unrelated commands
-  # merely *mentioning* bump: `git commit -m "...bump..."`, a `bump-*` branch
-  # name, `echo bump`, etc. A statement is already split on && || ; |, so the
-  # command word is unambiguous here.
-  if printf '%s' "$s" | grep -Eq '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*([^[:space:]]*/)?bump([[:space:]]|$)' \
-     && ! printf '%s' "$s" | grep -Eq 'bump.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
+  # `bump` counts ONLY in command position, which is what `cmdword_is bump`
+  # decides (leading env-assignments and a path prefix allowed). This is the fix
+  # for the substring false-positive that blocked unrelated commands merely
+  # *mentioning* bump: `git commit -m "...bump..."`, a `bump-*` branch name,
+  # `echo bump`, etc.
+  if [ "$is_bump" -eq 1 ] \
+     && ! printf '%s' "$m" | grep -Eq 'bump.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
     if [ -n "$bump_branch" ] && [ "$bump_branch" != "main" ] && [ "$bump_branch" != "master" ]; then
       # On a feature branch exactly ONE bump form is legal: `bump --no-tag`.
-      # That is the gated flow — the version commit rides the feature PR.
+      # That is the gated flow, where the version commit rides the feature PR.
       # Any tag-creating form (plain bump, -m/-M without --no-tag, --tag-only)
       # is blocked: a tag cut on a branch is burnt forever (squash rewrites the SHA).
-      if ! printf '%s' "$s" | grep -Eq '\bbump\b.*--no-tag'; then
-        deny "Release flow: on a feature branch the ONLY legal bump is 'bump --no-tag' — the version commit rides the feature PR (never a tag on a branch, never a bump-only release branch). Tags are cut on main AFTER the PR merges: git checkout main && git pull --ff-only origin main && bump --tag-only && git push origin vX.Y.Z. (Target worktree '$bump_dir' is on '$bump_branch'.)"
+      if ! printf '%s' "$m" | grep -Eq '\bbump\b.*--no-tag'; then
+        deny "Release flow: on a feature branch the ONLY legal bump is 'bump --no-tag', because the version commit rides the feature PR (never a tag on a branch, never a bump-only release branch). Tags are cut on main AFTER the PR merges: git checkout main && git pull --ff-only origin main && bump --tag-only && git push origin vX.Y.Z. (Target worktree '$bump_dir' is on '$bump_branch'.)"
       fi
       # Gate A: 'bump --no-tag' is legal ONLY on a branch that carries real work.
       # Zero commits ahead of origin/<default> means the bump commit would be the
-      # branch's ONLY content — i.e. a bump-only release branch in the making.
+      # branch's ONLY content, i.e. a bump-only release branch in the making.
       base=$(default_base "$bump_dir")
       if [ "$scott_override" -eq 0 ] \
          && [ -n "$base" ] && [ "$(git -C "$bump_dir" rev-list --count "$base..HEAD" 2>/dev/null || echo 1)" = "0" ]; then
-        deny "DENIED: 'bump --no-tag' on branch '$bump_branch', which has ZERO commits ahead of $base — the bump commit would be this branch's ONLY content, i.e. a bump-only release branch, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work — it rides a feature branch WITH its work: commit the real change first, THEN 'bump --no-tag' on that branch, push, PR; after merge: git checkout main && git pull --ff-only && bump --tag-only && git push origin vX.Y.Z. WHAT TO DO NOW: if the work already merged without its bump, the ONLY sanctioned move is STOP and ask Scott — his default is folding the bump into the NEXT feature PR, never a retrofitted branch. DO NOT retry on a renamed branch or hand-edit the version; sibling gates catch those too. Read the /bump skill."
+        deny "DENIED: 'bump --no-tag' on branch '$bump_branch', which has ZERO commits ahead of $base, so the bump commit would be this branch's ONLY content, i.e. a bump-only release branch, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work, it rides a feature branch WITH its work: commit the real change first, THEN 'bump --no-tag' on that branch, push, PR; after merge: git checkout main && git pull --ff-only && bump --tag-only && git push origin vX.Y.Z. WHAT TO DO NOW: if the work already merged without its bump, the ONLY sanctioned move is STOP and ask Scott: his default is folding the bump into the NEXT feature PR, never a retrofitted branch. DO NOT retry on a renamed branch or hand-edit the version; sibling gates catch those too. Read the /bump skill."
       fi
     fi
-    if ! printf '%s' "$s" | grep -Eq '\bbump\b.*--tag-only'; then
+    if ! printf '%s' "$m" | grep -Eq '\bbump\b.*--tag-only'; then
       if [ -n "$bump_porcelain" ]; then
-        deny "bump stages everything (git add -A) and the target worktree '$bump_dir' is dirty — it would sweep untracked/modified files into the version commit (this is exactly how scratch jpgs got committed). Commit your real changes, then 'rkvr rmrf' or stash the strays, THEN bump on a clean tree."
+        deny "bump stages everything (git add -A) and the target worktree '$bump_dir' is dirty, so it would sweep untracked/modified files into the version commit (this is exactly how scratch jpgs got committed). Commit your real changes, then 'rkvr rmrf' or stash the strays, THEN bump on a clean tree."
       fi
     fi
   fi
@@ -235,14 +285,14 @@ check_stmt() {
   # hand-edited: if everything the push/PR would land vs origin/<default> is
   # version lines + lockfiles, it IS a bump-only release branch. Deletions
   # (--delete / ':ref' refspecs) push no content and are skipped.
-  if [ "$scott_override" -eq 0 ] \
-     && printf '%s' "$s" | grep -Eq '\b(git[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+create)\b' \
-     && ! printf '%s' "$s" | grep -Eq '(--delete|[[:space:]]-d[[:space:]]|[[:space:]]:[^[:space:]])'; then
+  if [ "$scott_override" -eq 0 ] && { [ "$is_git" -eq 1 ] || [ "$is_gh" -eq 1 ]; } \
+     && printf '%s' "$m" | grep -Eq '\b(git[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+create)\b' \
+     && ! printf '%s' "$m" | grep -Eq '(--delete|[[:space:]]-d[[:space:]]|[[:space:]]:[^[:space:]])'; then
     gateb_ref=""
-    if printf '%s' "$s" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
-      gateb_ref=$(printf '%s' "$s" | grep -oE '\-\-head(=|[[:space:]]+)[^[:space:]]+' | head -1 | sed -E 's/--head(=|[[:space:]]+)//')
+    if [ "$is_gh" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
+      gateb_ref=$(printf '%s' "$s" | flag_value --head)
     else
-      # git push [flags] <remote> <refspec> — take the last non-flag token, strip a src: prefix
+      # git push [flags] <remote> <refspec>: take the last non-flag token, strip a src: prefix
       gateb_ref=$(printf '%s' "$s" | awk '{r=""; n=0; for(i=1;i<=NF;i++){ if($i !~ /^-/ && $i !~ /[=<>&]/){n++; if(n>=4) r=$i} } print r}')
       gateb_ref="${gateb_ref%%:*}"; gateb_ref="${gateb_ref#+}"
     fi
@@ -254,7 +304,7 @@ check_stmt() {
       main|master|HEAD|v[0-9]*|"") : ;;   # main pushes / tag pushes are covered by other checks
       *)
         if ! is_bump_only_ref "$bump_dir" "$gateb_ref"; then
-          deny "DENIED: pushing/PR-ing branch '$gateb_ref' — its ENTIRE diff vs origin/<default> is a version bump (version lines + lockfiles, nothing else), which makes it a bump-only release branch/PR regardless of its name, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work — it rides a feature PR WITH real changes; the tag is cut on main after that PR merges ('bump --tag-only'). WHAT TO DO NOW: the ONLY sanctioned move is STOP and ask Scott — his default is deleting this branch and folding the bump into the NEXT feature PR. DO NOT rename the branch, pad the diff, hand-edit the version, or retry variants — report the denial to Scott verbatim and wait. Read the /bump skill."
+          deny "DENIED: pushing/PR-ing branch '$gateb_ref', whose ENTIRE diff vs origin/<default> is a version bump (version lines + lockfiles, nothing else), which makes it a bump-only release branch/PR regardless of its name, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work, it rides a feature PR WITH real changes; the tag is cut on main after that PR merges ('bump --tag-only'). WHAT TO DO NOW: the ONLY sanctioned move is STOP and ask Scott: his default is deleting this branch and folding the bump into the NEXT feature PR. DO NOT rename the branch, pad the diff, hand-edit the version, or retry variants; report the denial to Scott verbatim and wait. Read the /bump skill."
         fi
       ;;
     esac
@@ -265,15 +315,15 @@ check_stmt() {
   # merged-without-its-bump deadlock (slack-cli #14/#15, mcp-io-rs #6/#7) exists
   # because the release decision was never made at PR time. Force it: on a repo
   # whose root manifest carries a version line, a PR body must carry
-  # 'Release: rides this PR (vX.Y.Z)' or 'Release: none -- <why>'. A 'rides'
+  # 'Release: rides this PR (vX.Y.Z)' or 'Release: none - <why>'. A 'rides'
   # claim is verified against the diff. Release-managed used to also require an
-  # existing v* tag, which exempted every versioned-but-not-yet-tagged repo --
+  # existing v* tag, which exempted every versioned-but-not-yet-tagged repo,
   # the exact window where bumpless merges pile up (okta-auth-py #5/#6,
   # 2026-07-13, ~/HALL-OF-SHAME.md). Now the version line alone qualifies; a
   # manifest that is pure tool config (no version) still passes ungated.
   # The Release: line is searched in the FULL command (bodies are multi-line and
   # statement-splitting would sever them from the gh invocation).
-  if printf '%s' "$s" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
+  if [ "$is_gh" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
     release_managed=""
     for mf in "$bump_dir/Cargo.toml" "$bump_dir/pyproject.toml"; do
       if [ -f "$mf" ] && grep -Eq '^[[:space:]]*"?version"?[[:space:]]*[:=]' "$mf"; then
@@ -283,18 +333,17 @@ check_stmt() {
     done
     if [ -n "$release_managed" ]; then
       gated_body="$cmd"
-      # The path is read out of the RAW command text, which the hook never
-      # expands. A quoted path kept its quotes and a $VAR path stayed literal,
-      # so [ -f "$bf" ] failed SILENTLY, gated_body stayed as the command alone,
-      # and a PR whose body file opened with a perfectly good Release: line was
-      # denied for "no release-intent line" (otto-rs/otto #6 and #7 both hit it
-      # on 2026-09-06, costing two retries and a wrong root cause the first
-      # time). Match the quoted forms, strip the quotes, and refuse LOUDLY and
-      # accurately when a body file was named but cannot be read, instead of
-      # judging an empty body and reporting the wrong reason.
-      q="'"
-      bf=$(printf '%s' "$s" | grep -oE "\-\-body-file(=|[[:space:]]+)(\"[^\"]*\"|$q[^$q]*$q|[^[:space:]]+)" | head -1 | sed -E "s/--body-file(=|[[:space:]]+)//")
-      bf=$(printf '%s' "$bf" | sed -E "s/^\"(.*)\"$/\1/; s/^$q(.*)$q$/\1/")
+      # The path is read out of the statement's own text, which the hook never
+      # expands, via lib.sh's `flag_value`: it returns the value with its quotes
+      # dropped and a `$VAR` left raw, which is exactly what this gate needs.
+      # Before that (otto-rs/otto #6 and #7, both on 2026-09-06), a quoted path
+      # kept its quotes and a $VAR path stayed literal, so [ -f "$bf" ] failed
+      # SILENTLY, gated_body stayed as the command alone, and a PR whose body
+      # file opened with a perfectly good Release: line was denied for "no
+      # release-intent line": two retries and a wrong root cause the first time.
+      # Refuse LOUDLY and accurately when a body file was named but cannot be
+      # read, instead of judging an empty body and reporting the wrong reason.
+      bf=$(printf '%s' "$s" | flag_value --body-file)
       if [ -n "$bf" ]; then
         case "$bf" in
           *'$'*|*'`'*)
@@ -310,7 +359,7 @@ check_stmt() {
         gated_body="$gated_body $(cat "$bf")"
       fi
       if ! printf '%s' "$gated_body" | grep -Eqi 'release:[[:space:]]*(rides|none)'; then
-        deny "DENIED: PR on a release-managed repo without a release-intent line. Decide NOW, in the body: 'Release: rides this PR (vX.Y.Z)' (run 'bump --no-tag' on this branch first so the version commit rides) or 'Release: none -- <why>'. This gate exists because PRs that merge without their bump create the no-legal-path deadlock (slack-cli #14/#15, mcp-io-rs #6/#7): after merge, a bump can only ride the NEXT feature PR or a Scott-ordered standalone bump."
+        deny "DENIED: PR on a release-managed repo without a release-intent line. Decide NOW, in the body: 'Release: rides this PR (vX.Y.Z)' (run 'bump --no-tag' on this branch first so the version commit rides) or 'Release: none - <why>'. This gate exists because PRs that merge without their bump create the no-legal-path deadlock (slack-cli #14/#15, mcp-io-rs #6/#7): after merge, a bump can only ride the NEXT feature PR or a Scott-ordered standalone bump."
       fi
       if printf '%s' "$gated_body" | grep -Eqi 'release:[[:space:]]*rides'; then
         base=$(default_base "$bump_dir")
@@ -323,66 +372,27 @@ check_stmt() {
   fi
 
   # ---- Destructive working-tree ops that can lose uncommitted/untracked work ----
-  if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+clean\b.*-[a-z]*f' && [ "$untracked" -gt 0 ]; then
+  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+clean\b.*-[a-z]*f' && [ "$untracked" -gt 0 ]; then
     deny "git clean -f would permanently delete untracked files (there are some now). Use 'rkvr rmrf <paths>' for recoverable deletion instead."
   fi
-  if printf '%s' "$s" | grep -Eq '\bgit[[:space:]]+(reset[[:space:]]+--hard|checkout[[:space:]]+--|restore\b)' && [ -n "$porcelain" ]; then
-    deny "Refusing a destructive working-tree op (reset --hard / checkout -- / restore) while the tree is dirty — it discards uncommitted/untracked work irreversibly. Commit or stash first; 'rkvr rmrf' anything you want to drop. (If the tree were clean this would be allowed.)"
+  if [ "$is_git" -eq 1 ] && printf '%s' "$m" | grep -Eq '\bgit[[:space:]]+(reset[[:space:]]+--hard|checkout[[:space:]]+--|restore\b)' && [ -n "$porcelain" ]; then
+    deny "Refusing a destructive working-tree op (reset --hard / checkout -- / restore) while the tree is dirty, because it discards uncommitted/untracked work irreversibly. Commit or stash first; 'rkvr rmrf' anything you want to drop. (If the tree were clean this would be allowed.)"
   fi
 }
 
-# Heredoc bodies are NOT statements. The splitter below also splits on the
-# newlines already present in $cmd, so every physical line of a
-# `git commit -F - <<'MSG' ... MSG` message was handed to check_stmt as if it
-# were a command — a wrapped message line beginning with "bump" tripped the
-# command-position anchor and denied an innocent commit (otto-rs/otto b428680,
-# 2026-09-01). Strip heredoc bodies (and their terminator line) first; the
-# opener line IS a real command and is kept. $cmd itself is left untouched —
-# Gate D reads multi-line PR bodies out of it, and those arrive by heredoc.
-strip_heredocs() {
-  awk '
-  BEGIN {
-    n = 0
-    PH = sprintf("%c", 1)                 # placeholder: neutralize <<< herestrings
-    SQ = sprintf("%c", 39)
-    RE = "<<-?[ \t]*(\"[^\"]*\"|" SQ "[^" SQ "]*" SQ "|[A-Za-z_][A-Za-z0-9_-]*)"
-  }
-  {
-    line = $0
-    if (n > 0) {                          # inside a heredoc body: look for its terminator
-      t = line
-      if (dash[1]) sub(/^[ \t]+/, "", t)  # <<- allows an indented terminator
-      sub(/[ \t]+$/, "", t)
-      if (t == delim[1]) {
-        for (i = 1; i < n; i++) { delim[i] = delim[i+1]; dash[i] = dash[i+1] }
-        n--
-      }
-      next                                # body and terminator are never statements
-    }
-    rest = line
-    gsub(/<<</, PH, rest)
-    while (match(rest, RE)) {             # queue every opener on this line, in order
-      tok = substr(rest, RSTART, RLENGTH)
-      rest = substr(rest, RSTART + RLENGTH)
-      n++
-      dash[n] = (substr(tok, 3, 1) == "-") ? 1 : 0
-      w = tok
-      sub(/^<<-?[ \t]*/, "", w)
-      gsub(/"/, "", w)
-      gsub(SQ, "", w)
-      delim[n] = w
-    }
-    print line
-  }'
-}
-
-# Split the command into statements on && || ; | and newlines, then check each one.
-# (A greedy regex within a statement can't reach across into an unrelated sibling.)
-split=$(printf '%s\n' "$cmd" | strip_heredocs | sed -E 's/&&/\n/g; s/\|\|/\n/g; s/;/\n/g; s/\|/\n/g')
-while IFS= read -r stmt; do
+# One statement per record, NUL-delimited, because a statement can legitimately
+# contain a newline. `stmts` yields nested statements too (a `$( )` body, a
+# `bash -c` argument), so the gates judge what the shell will actually run:
+# `echo "$(git push origin --tags)"` denies on the nested statement while the
+# outer one is a harmless echo, and `git push origin "$(git describe --tags)"`
+# allows because the outer statement's subshell span is neutralized and the
+# nested statement's verb is `describe`, not `push`. $cmd itself is never
+# rewritten: Gate D reads multi-line PR bodies out of it, and those arrive by
+# heredoc.
+while IFS= read -r -d '' stmt; do
   [ -z "$stmt" ] && continue
   check_stmt "$stmt"
-done <<< "$split"
+done < <(printf '%s' "$cmd" | stmts)
 
 echo '{}'
 exit 0

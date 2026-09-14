@@ -11,6 +11,12 @@
 # --tags push, force-push, dirty-tree bump, false-positive guards). Exits
 # non-zero on any failure.
 #
+# The 54 cases above the "parser fixes" section are the regression net for the
+# lib.sh parser swap and their expectations have never moved. The two cases in
+# that section are the only verdicts the swap changed, both of them parser bugs
+# rather than gate policy. `runcwd` feeds a payload whose `cwd` differs from the
+# hook process's, which is where the guard now reads branch and tree state.
+#
 # Run directly, or via: git-release-guard.sh --self-test
 set -u
 HOOK="$(cd "$(dirname "$0")" && pwd)/git-release-guard.sh"
@@ -119,6 +125,25 @@ echo 'y = 2' >> lib.py
 git commit -qam 'feat: real work'
 git checkout -q main
 
+# ---------- fixture 4: a dirty worktree and a clean one, judged via the payload ----------
+# The destructive-op gates read the tree, and the matrix above never carried a
+# dirty-tree case. These two also carry the payload-cwd cases: the hook process
+# runs somewhere that is not a repo at all, so any verdict it reaches has to
+# have come from the directory the payload named.
+git init -q "$ROOT/repo-dirty"
+D="$ROOT/repo-dirty"
+cd "$D"
+echo 'x' > tracked.txt
+git add -A && git commit -qm init
+echo 'y' >> tracked.txt      # modified but uncommitted: the tree is dirty
+echo 'z' > untracked.txt
+
+git init -q "$ROOT/repo-clean"
+N="$ROOT/repo-clean"
+cd "$N"
+echo 'x' > tracked.txt
+git add -A && git commit -qm init
+
 cd "$R"
 
 # ---------- runner ----------
@@ -133,6 +158,17 @@ run() { # run <expect deny|allow> <branch-to-checkout> <command...>  (in $REPO)
     pass=$((pass+1)); printf 'PASS  [%s @%s] %s\n' "$expect" "$br" "$cmd"
   else
     fail=$((fail+1)); printf 'FAIL  [want %s got %s @%s] %s\n      -> %s\n' "$expect" "$decision" "$br" "$cmd" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' | head -c 160)"
+  fi
+}
+
+runcwd() { # runcwd <expect deny|allow> <payload cwd> <hook process cwd> <command...>
+  local expect="$1" pcwd="$2" hcwd="$3" cmd="$4" out decision
+  out=$(cd "$hcwd" && jq -n --arg c "$cmd" --arg w "$pcwd" '{cwd:$w,tool_input:{command:$c}}' | bash "$HOOK")
+  decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"')
+  if [ "$decision" = "$expect" ]; then
+    pass=$((pass+1)); printf 'PASS  [%s cwd=%s] %s\n' "$expect" "${pcwd##*/}" "$cmd"
+  else
+    fail=$((fail+1)); printf 'FAIL  [want %s got %s cwd=%s] %s\n      -> %s\n' "$expect" "$decision" "${pcwd##*/}" "$cmd" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' | head -c 160)"
   fi
 }
 
@@ -239,6 +275,28 @@ run deny  main 'git push origin --force main'
 run allow main 'git push origin v0.2.1'
 run allow main 'git status'
 run allow main 'git commit -m "bump the widget count"'   # substring false-positive guard
+
+echo "=== parser fixes: the only two verdicts the lib.sh swap moves ==="
+# PARSER FIX 1 (problem 2a). `<<EOF` inside double quotes is DATA, not a heredoc
+# opener. The old strip_heredocs was not quote-aware, so it opened a heredoc on
+# that token and swallowed every following line as a body: the `git reset --hard`
+# on line 2 was never handed to a gate at all, and a bypass this shape ALLOWED on
+# a dirty tree. lib.sh classes the token as double-quoted content, so line 2 is a
+# statement of its own and the dirty-tree gate sees it.
+runcwd deny "$D" "$D" 'echo "<<EOF"
+git reset --hard'
+# PARSER FIX 2. A subshell is a NESTED statement, not text belonging to the outer
+# one. The outer statement's $( ) span is neutralized, so `git push` no longer
+# reads the inner `--tags` as its own flag, and the nested statement's verb is
+# `describe`, not `push`. This denied on main before the swap: the measured false
+# positive on the one command that reads the latest tag name.
+run allow main 'git push origin "$(git describe --tags --abbrev=0)"'
+
+echo "=== branch and tree state come from the payload's cwd ==="
+# The hook process runs in $ROOT, which is not a repo, so neither verdict can
+# have come from its own directory.
+runcwd deny  "$D" "$ROOT" 'git reset --hard'
+runcwd allow "$N" "$ROOT" 'git reset --hard'
 
 echo
 echo "pass=$pass fail=$fail"

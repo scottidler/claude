@@ -70,3 +70,30 @@ Append-only record of how the implementation interprets or departs from
 
 ### Open questions
 - None.
+
+## Phase 3: `git-release-guard.sh` parser swap
+
+### Design decisions
+- `lib.sh` is sourced AFTER the `--help` / `--self-test` dispatch, so both CLI entry points work whether or not the library is on disk, while the hook path keeps the fail-open pass-through the Data Model requires. Confirmed live: `git-release-guard.sh --self-test` still runs its own matrix after the source, because `lib.sh`'s self-test is gated on `BASH_SOURCE[0] = $0` and a sourced library never sees that hold.
+- `stmts` already neutralizes heredoc bodies and command-substitution spans inside the statement it emits, and yields the nested ones as records of their own. So the per-statement pipeline in `check_stmt` is `mask_comment | mask_optarg` and nothing more: the "heredoc, subshell" half of every row in the Data Model's per-gate table is delivered by the splitter, not by a masker. Same effect, correct seam (this is Phase 2's finding applied to the second file).
+- The command word is computed once per statement into `is_git`, `is_gh` and `is_bump`, and every gate tests the flag. One mask pass plus three `cmdword_is` calls per statement, rather than one anchor call per gate.
+- `:207`'s hand-rolled command-position regex for `bump` becomes `cmdword_is bump`, which is where that regex came from in the first place (the Data Model names it as one of the two sources `cmdword_is` generalizes).
+- Gate B and Gate D are anchored with `cmdword_is gh` as well as `cmdword_is git`, because Gate B matches `git push` OR `gh pr create`. The Data Model states the rule for git; a gate whose match is half gh needs both command words or it keeps the unanchored half.
+- `BUMP_ORDERED_BY_SCOTT=1` is read off the mask, so the door cannot be opened by a marker sitting inside a `-m` message.
+- Values are read from the statement with `flag_value`: `--body-file` (replacing the quoted-form `grep -oE` plus the quote-stripping `sed`) and Gate B's `--head`. `flag_value` returns the value with quotes dropped and an unexpanded `$` left raw, which is exactly the two things Gate D needs: the path with a space in it now reads, and the `$TMPDIR` spelling still hits the loud "cannot expand" refusal rather than a silently empty body. Gate D still searches the FULL, unstripped `$cmd` for the `Release:` line.
+
+### Deviations
+- `bump_dir` defaults to the payload `cwd`, not `.`. The doc's bullet names only `:97-98`, but `bump_dir="."` at `:107` was the identical hook-process-cwd assumption, and a relative `cd` target is now resolved against the payload cwd rather than against wherever the hook process happens to sit. With no `cwd` field in the payload both resolve to `$PWD`, which is what keeps every pre-existing case fixed. Same effect, correct seam.
+- The doc says two verdicts move in this phase. Two move in the MATRIX, and both are added. A third class moves outside it, and it is measured rather than assumed: prose naming a git operation inside a message-flag value, or outside command position, no longer trips a gate. Probed against a dirty fixture tree, `git commit -m "explain git restore --staged in the docs"` DENIED before the swap and ALLOWS after. That is the masker-and-anchor class Phase 4's matrix pins by name (`echo "git tag -f v1"` allow, `git tag -a v1 -m "added --force"` allow), and it is a consequence of the maskers the doc's own table assigns to these gates. No pre-existing expectation was edited to accommodate it.
+- 24 em-dashes stripped across 18 lines, six of them inside deny reason texts, which now read with colons and commas. Required because this phase adds the file to the `.otto.yml` lint list and Phase 8's count assumes it. No verdict depends on reason text, and the matrix asserts decisions.
+- The header's MECHANICS paragraph is rewritten to describe the shared parser. The stale release-flow comment at `:19-24` is untouched: it is Phase 4's, and AC7 still measures it.
+
+### Tradeoffs
+- Process count against precision, the same trade Phase 2 took: one `stmts` call per command plus two maskers and three `cmdword_is` calls per statement. Rejected computing the mask lazily per gate, which would spawn more awk processes on the deny paths and make the masker set per gate implicit instead of stated in one place.
+- Gate B's `git push` refspec heuristic stays an awk one-liner over the statement. There is no flag to hand `flag_value`: the ref is positional, and the heuristic is pre-existing behavior this phase is not allowed to move.
+- Two new fixture repos (one dirty, one clean) rather than dirtying the shared clone. The matrix had no dirty-tree case at all, and dirtying `$R` would have changed the tree every pre-existing case is judged against, which is the one thing a regression net for a refactor must not do.
+- `runcwd` is a second runner beside `run` rather than a fourth parameter on it. `run` checks out a branch in `$REPO` and passes no `cwd`; the payload-cwd cases pass a `cwd` and deliberately run the hook process somewhere that is not a repo. Folding both into one helper would have meant editing the call shape of all 54 pre-existing cases.
+
+### Open questions
+- Phase 4's destructive-op gate needs a statement index for `cd_at`. This phase's loop does not number statements, because nothing consumes an index yet. Phase 4 must count straight off the `stmts` records, nested statements included, per Phase 1's note: a filtered or reordered count means something different to `cd_at` than it means to the library.
+- The destructive-op and `git clean` gates still read one `porcelain` and one `untracked`, computed once in the payload cwd. That is the zero-verdict-change position, not the end state: Phase 4 moves them to the statement's own worktree, and the `git clean` gate additionally reads untracked files from the payload cwd rather than from the path being cleaned.
