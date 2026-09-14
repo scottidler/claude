@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-13
-**Status:** Partially Implemented (Phases 1 to 5 landed, Phase 6 run; outstanding: the GitHub signing-key registration, the two CLAUDE.md sandbox lines, and the tracker flip on merge)
+**Status:** Implemented (all six phases landed on main as `0d252b8..5faca7d`; every acceptance criterion passes except AC1b's `ssh -T` half, which is not checkable from a session because it reads a private key the credential gate denies)
 **Review Passes Completed:** 5/5
 **Program:** chunk A of `docs/design/2026-09-13-setup-audit-program.md` (audit items 1, 2, 3)
 
