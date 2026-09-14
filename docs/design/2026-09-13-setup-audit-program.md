@@ -30,7 +30,7 @@
 | Chunk | Audit items | Scope in one line | Status | Design doc | PR |
 |---|---|---|---|---|---|
 | A | 1, 2, 3 | Sandbox config fixes, first prose hooks (Stop + em-dash deny), rm guard via rails | done | `docs/design/2026-09-13-enforcement-core.md` | no PR, landed on main: [`0d252b8..5faca7d`](https://github.com/scottidler/claude/compare/0d252b8...5faca7d) |
-| B | 5 | Hook preflight, heredoc-aware guard parser, git -C rewrite, branch-name guard, release-guard gaps, stale tag-first text, broken frontmatter | next | | |
+| B | 5 | Hook preflight, heredoc-aware guard parser, git -C rewrite, branch-name guard, release-guard gaps, stale tag-first text, broken frontmatter | building | `docs/design/2026-09-13-guard-precision.md` | |
 | C | 4 | review-panel round cap made mechanical, poll snippet removed, agent file shrunk | queued | | |
 | D | 6 | Intent guards: commit, Slack post, vault ingest, gh api writes, outward deletes, ln, public-repo; secret-guard vectors | queued | | |
 | E | 7, 8 | Inline /skill token hook, review-panel shim, one release chain, execute-a-plan synchronous + self-audit, pr-open helper | queued | | |
@@ -44,6 +44,7 @@ Status values: `queued` | `next` | `drafting` | `in review` | `approved` | `buil
 
 ## Log
 
+- 2026-09-14: chunk B building. Its design doc (5/5 passes, panel 3 of 3 rounds, zero open questions, 10 phases) was drafted 2026-09-13 but sat untracked through chunk A; committed now on branch `guard-precision`. Phase 0 is a zero-code harness spike whose results can change Phases 6 and 7.
 - 2026-09-13: chunk A done. Phases 0 to 5 landed and Phase 6 ran live; every acceptance criterion passes except AC1b's `ssh -T` half, which cannot be checked from a session because it reads a private key the credential gate denies. Pushed straight to main as `0d252b8..5faca7d`; this repo takes no PRs, so the tracker's "PR merged" wording reads as "landed on main" here. No linker step was needed: `~/.claude/skills` and `~/.claude/hooks` symlink into this repo, so shell hooks go live on commit. The rails plugin does NOT: function-hook plugins load once at session start, so a rails change is only testable in a session started after it lands. That is the phasing rule for B through J.
 - 2026-09-13: three findings carried out of A. (1) The excluded-command redirect hole is worse than recorded: an excluded command resolves `$TMPDIR` outside the sandbox namespace, so `cargo --version > $TMPDIR/x` writes to the host path. (2) The regenerable-anchor check is cwd-bound, so a `cd`-prefixed build clean archives instead of passing. (3) The bare-`manifest` guard fires on `manifest.yml` as a path argument, which belongs to chunk B.
 - 2026-09-13: hazard for every later chunk. `git checkout <branch>` FAILS in this repo from a session whose own config is this repo: fenced paths under `HOME/.claude/` are read-only and `CLAUDE.md`/`settings.json` are busy, and a partial checkout leaves the working tree half-reverted. Land work with `git push origin <branch>:main`, which never touches the working tree.
