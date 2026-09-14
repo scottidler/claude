@@ -10,7 +10,9 @@
 set -u
 export LC_ALL=C
 
-HOOKS="$(cd "$(dirname "$0")" && pwd)"
+# readlink -f: the test is also reachable through its ~/.claude/hooks symlink, and
+# "$HOOKS/../../.." from THERE is /home, not the repo.
+HOOKS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 HOOK="$HOOKS/rewrite-cd-read.py"
 REPO="$(cd "$HOOKS/../../.." && pwd)"
 # The strip does no filesystem access, so any absolute path would do; the repo

@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-13
-**Status:** Building (Phase 0 ran 2026-09-14; its evidence is in `2026-09-13-guard-precision-phase0/evidence.md` and its plan changes are marked `Phase 0 outcome` inline below)
+**Status:** Implemented (Phases 0 to 8 landed on branch `guard-precision` 2026-09-14, one commit each, `otto ci` green per phase; Phase 0's evidence is in `2026-09-13-guard-precision-phase0/evidence.md` and its plan changes are marked `Phase 0 outcome` inline below; Phase 9's post-push Observed lines are under Acceptance Criteria)
 **Review Passes Completed:** 5/5 author passes; review panel 3 of 3 rounds
 **Program:** chunk B of `docs/design/2026-09-13-setup-audit-program.md` (audit item 5)
 

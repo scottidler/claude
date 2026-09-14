@@ -263,3 +263,18 @@ Append-only record of how the implementation interprets or departs from
 
 ### Open questions
 - `bin/release`'s own output strings still carry a literal em-dash (`bin/release:208,290,344`). Not in scope for this phase (it isn't on the Phase 8 file list and isn't in the `.otto.yml` lint list), but it means `release-driver.md`'s quoted example and the driver's actual stdout now differ by one character. Flagging for whichever chunk owns `bin/release`.
+
+## Phase 9 (pre-push): shakedown against the live, linked hooks
+
+### Design decisions
+- The acceptance-criteria walk ran BEFORE the push, because the link step already ran after Phase 7 and this repo takes no PRs, so the live setup on desk.lan is already the branch. Every probe fed the hooks JSON through their `~/.claude/hooks/` symlink paths, so `$0` was the production path; no live `git tag` was run.
+- AC6's interactive half ran as a tmux-driven session with `HOOKS_PREFLIGHT_SETTINGS` pointed at a fixture naming `~/.claude/hooks/does-not-exist.sh`; the model quoted `SessionStart hook additional context: hooks-preflight: unresolved hook(s): ~/.claude/hooks/does-not-exist.sh; fix: ...` verbatim.
+
+### Deviations
+- Two test matrices derived the repo root from `$0` (`$HOOKS/../../..`), which through the `~/.claude/hooks/` symlink resolves to `/home`. `rewrite-cd-read-test.sh` lost one case (its `cd`-only regression fixture became a same-directory `cd`) and `hooks-preflight-test.sh` lost three (`/home/bin/hooks-resolve` does not exist). Both now go through `readlink -f "$0"`. CI never saw it because `otto ci` runs the tests by repo path; the production hooks were never affected, only the tests' self-location. Every other matrix passed unchanged through the symlink path.
+
+### Tradeoffs
+- None.
+
+### Open questions
+- None. The post-push re-run and the tracker flip are the remaining Phase 9 work.

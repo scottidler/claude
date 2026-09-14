@@ -7,7 +7,9 @@
 # silently pass: `bash '<path>' session`, whose first token is "bash".
 set -u
 
-HOOKS_DIR="$(cd "$(dirname "$0")" && pwd)"
+# readlink -f: the test is also reachable through its ~/.claude/hooks symlink, and
+# "$HOOKS_DIR/../../.." from THERE is /home, not the repo.
+HOOKS_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 ROOT="$(cd "$HOOKS_DIR/../../.." && pwd)"
 PREFLIGHT="$HOOKS_DIR/hooks-preflight.sh"
 RESOLVE="$ROOT/bin/hooks-resolve"
