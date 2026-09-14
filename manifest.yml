@@ -12,13 +12,6 @@ github:
       skills/productivity/grill-me: ~/.claude/skills/grill-me
       skills/productivity/handoff: ~/.claude/skills/handoff
       skills/productivity/teach: ~/.claude/skills/teach
-  kepano/obsidian-skills:
-    link:
-      skills/obsidian-bases: ~/.claude/skills/obsidian-bases
-      skills/json-canvas: ~/.claude/skills/json-canvas
-      skills/obsidian-cli: ~/.claude/skills/obsidian-cli
-      skills/obsidian-markdown: ~/.claude/skills/obsidian-markdown
-      skills/defuddle: ~/.claude/skills/defuddle
   crafter-station/skills:
     link:
       context-engineering/intent-layer: ~/.claude/skills/intent-layer
