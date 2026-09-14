@@ -476,7 +476,7 @@ edited.
 ## Phase 5b amendment: option C, stdin-only pipe targets (2026-09-13)
 
 ### Design decisions
-- Scott's verdict on the pipe blast radius is option C, not the B I recommended:
+- The team lead's verdict on the pipe blast radius is option C, not the B I recommended (Scott ruled OQ3 as option D, keep all ten entries and deny mixed compounds; how REST is defined inside that rule is the author's call):
   a consumer is transparent only when it is a PIPE target AND carries no file
   operand. B keyed on the command NAME alone, and every consumer in that set also
   takes file operands, so B would have let `cargo --version; tail
