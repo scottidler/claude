@@ -230,3 +230,17 @@ Append-only record of how the implementation interprets or departs from
 
 ### Open questions
 - The dangling `~/.claude/hooks/git-no-dash-c.sh` link is still there: `rkvr rmrf` follows it and fails with `No such file or directory`. Needs a plain `rm` from Scott or an rkvr fix.
+
+## Orchestrator note after Phase 7: a pre-existing rewrite-cd-read.py miss
+
+### Design decisions
+- None.
+
+### Deviations
+- None.
+
+### Tradeoffs
+- None.
+
+### Open questions
+- `cd ~/repos/scottidler/rkvr && ls docs/ docs/*/ | head; git status --short` was rewritten (ALLOW, `all-stages-read-only`) to `ls docs/ docs/*/ | head; git -C /home/saidler/repos/scottidler/rkvr status --short`: the `cd` was dropped and `git` got `-C`, but the `ls` operands stayed relative, so `ls` ran in the SESSION cwd and listed the wrong repo's `docs/`. Log line `2026-09-14T08:17:50`. A glob operand the rewriter will not absolutize should make the whole command BAIL, not drop the `cd`. Not touched by this chunk (Phase 6 added only the `-C` strip); it belongs with chunk I's `rewrite-cd-read.py` work. Recorded here so it is not lost.
