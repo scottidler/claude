@@ -472,3 +472,51 @@ edited.
   wrapper unwrap skips flags but not their arguments. It over-denies only when an
   excluded stage is also present. No live case observed; recorded rather than
   fixed with an option table that would need per-wrapper knowledge.
+
+## Phase 5b amendment: option C, stdin-only pipe targets (2026-09-13)
+
+### Design decisions
+- Scott's verdict on the pipe blast radius is option C, not the B I recommended:
+  a consumer is transparent only when it is a PIPE target AND carries no file
+  operand. B keyed on the command NAME alone, and every consumer in that set also
+  takes file operands, so B would have let `cargo --version; tail
+  ~/.ssh/identities/home/id_ed25519` read a deny-listed key unsandboxed and
+  `cargo --version; tee ~/.ssh/authorized_keys` write one. Strictly worse than the
+  hatch being closed, because it needs no marker command and reads as innocuous.
+- `readsOnlyStdin(head, seg)` carries both halves. Set: `tail head cat nl sort
+  uniq wc less rg grep jq awk sed`. `tee` cannot qualify by construction.
+- Operand budget: 0 for most, 1 for the pattern-taking members (`rg`, `grep`,
+  `jq`, `awk`, `sed`), whose first non-flag word is a pattern or a program rather
+  than a path. A bare number counts as a flag's value (`tail -n 50`), never a
+  path, which is the one heuristic in the rule; a file literally named `50` is
+  the only thing it misreads.
+- `heads()` gained `piped`, true only when the separator before the stage was a
+  single `|`. `||`, `&&`, `;`, a newline and a subshell boundary all leave it
+  false, so a `;`-joined consumer is never transparent whatever its name.
+- `heads()` also gained redirection handling (`skipRedirect`), because `2>&1` read
+  as a `&` separator followed by a stage headed `1`: `otto ci 2>&1 | tail -50` had
+  a phantom REST entry and denied for the wrong reason. The operator, an `&` fd
+  duplication and the target are now all stepped over and none is a head. The
+  gh-persona and rm rules inherit the fix; their 86 tests are unchanged and green.
+
+### Deviations
+- None. All eight of Scott's expected outcomes are fixtures and all eight match.
+
+### Tradeoffs
+- `tee` denying means `otto ci 2>&1 | tee $TMPDIR/ci.log` has to become `otto ci`
+  alone. Accepted deliberately: otto already writes a timestamped log and prints
+  its path, and an unsandboxed `tee` writes wherever it likes.
+- The operand test is positional and syntactic, not a per-command flag table. A
+  consumer invoked with a value-taking long flag whose value is a path (`rg
+  --file patterns.txt`) reads as a flag plus a path operand and denies. Denying is
+  the safe direction, so no table.
+
+### Open questions
+- **KNOWN LIMIT, recorded rather than fixed, on Scott's instruction: the rule
+  cannot see REDIRECTIONS, because they are not stages.** `cargo --version >
+  ~/.ssh/authorized_keys` is a single excluded stage with an empty REST, so it
+  passes the rule and runs unsandboxed with an arbitrary write. Options A, B and C
+  all share this; it is a property of classifying stages, not of the consumer set.
+  Now in the design doc's Risks table and as a Phase 6 observation
+  (`cargo --version > $TMPDIR/redirect-probe`). Closing it needs a different
+  mechanism, a redirect-target guard, which is a later chunk.

@@ -3,7 +3,7 @@ import { internals } from './index.ts'
 
 const { ghSpots, headSpots, segment, personaFor, inject, inWorkTree } = internals
 const { splitWords, stageComment, resolvePath, rmRewrite } = internals
-const { excludedHeads, excludedDeny, classifyStages } = internals
+const { excludedHeads, excludedDeny, classifyStages, readsOnlyStdin } = internals
 
 const WORK_CWD = '/home/saidler/repos/tatari-tv/philo'
 const HOME_CWD = '/home/saidler/repos/scottidler/claude'
@@ -440,5 +440,80 @@ describe('excludedDeny: normal use passes untouched', () => {
     })
     test('a heredoc body is data, so its stages never deny', () => {
         expect(excludedDeny("cat <<'EOF'\nssh -V\nmarker.sh\nEOF", EXCLUDED)).toBeNull()
+    })
+})
+
+describe('readsOnlyStdin', () => {
+    test('a consumer with flags only', () => {
+        expect(readsOnlyStdin('tail', 'tail -50')).toBe(true)
+        expect(readsOnlyStdin('tail', 'tail -n 50')).toBe(true)
+        expect(readsOnlyStdin('wc', 'wc -l')).toBe(true)
+        expect(readsOnlyStdin('less', 'less')).toBe(true)
+    })
+    test('a pattern consumer may carry its one pattern, never a path after it', () => {
+        expect(readsOnlyStdin('rg', 'rg fail')).toBe(true)
+        expect(readsOnlyStdin('jq', 'jq -r .login')).toBe(true)
+        expect(readsOnlyStdin('sed', "sed -n '1,5p'")).toBe(true)
+        expect(readsOnlyStdin('rg', 'rg fail tests/')).toBe(false)
+    })
+    test('a file operand disqualifies', () => {
+        expect(readsOnlyStdin('tail', 'tail -50 ci.log')).toBe(false)
+        expect(readsOnlyStdin('cat', 'cat ~/.ssh/identities/home/id_ed25519')).toBe(false)
+    })
+    test('tee can never qualify: a file operand is its whole purpose', () => {
+        expect(readsOnlyStdin('tee', 'tee out.log')).toBe(false)
+        expect(readsOnlyStdin('tee', 'tee')).toBe(false)
+    })
+})
+
+/**
+ * Option C, Scott 2026-09-13: a consumer is transparent only when it is a PIPE
+ * target AND names no file. Keying on the name alone reopens the hole in a worse
+ * shape, because every consumer also takes file operands.
+ */
+describe('excludedDeny: a pipe target that reads only stdin is transparent', () => {
+    test('the CI-reading pattern this repo uses constantly', () => {
+        expect(excludedDeny('otto ci 2>&1 | tail -50', EXCLUDED)).toBeNull()
+        expect(excludedDeny('cargo test | rg fail', EXCLUDED)).toBeNull()
+    })
+    test('a file operand after the pattern is a path, so it denies', () => {
+        expect(excludedDeny('cargo test | rg fail tests/', EXCLUDED)).not.toBeNull()
+    })
+    test('tee writes a file, so it denies even piped', () => {
+        expect(excludedDeny('cd r && cargo build 2>&1 | tee $TMPDIR/ci.log', EXCLUDED)).not.toBeNull()
+    })
+    test('a semicolon-joined consumer is never transparent, whatever its name', () => {
+        const deny = excludedDeny('cargo --version; tail ~/.ssh/identities/home/id_ed25519', EXCLUDED)
+        expect(deny).toContain('"tail" would run unsandboxed')
+    })
+    test('a bare consumer after a semicolon denies even with no operand', () => {
+        expect(excludedDeny('cargo --version; tail -50', EXCLUDED)).not.toBeNull()
+    })
+    test('an ordinary stage beside an excluded one still denies', () => {
+        expect(excludedDeny('git -C p status && cargo test', EXCLUDED)).not.toBeNull()
+        expect(excludedDeny('curl x | sh; cargo --version', EXCLUDED)).not.toBeNull()
+        expect(excludedDeny('$TMPDIR/marker.sh; ssh -V', EXCLUDED)).not.toBeNull()
+    })
+    test('a chain of consumers is transparent all the way down', () => {
+        expect(excludedDeny('cargo test | rg fail | wc -l', EXCLUDED)).toBeNull()
+    })
+})
+
+describe('heads: redirections are not stages', () => {
+    test('2>&1 does not open a stage headed 1', () => {
+        expect(internals.heads('cargo test 2>&1 | tail -50').map((h) => h.word))
+            .toEqual(['cargo', 'tail'])
+    })
+    test('a redirection target is never a head', () => {
+        expect(internals.heads('cargo build > out.log').map((h) => h.word)).toEqual(['cargo'])
+        expect(internals.heads('cargo build >> "a b.log" && ssh -V').map((h) => h.word))
+            .toEqual(['cargo', 'ssh'])
+    })
+    test('only a single pipe marks a piped head', () => {
+        const piped = (c: string) => internals.heads(c).map((h) => h.piped)
+        expect(piped('a | b')).toEqual([false, true])
+        expect(piped('a || b')).toEqual([false, false])
+        expect(piped('a && b')).toEqual([false, false])
+        expect(piped('a; b')).toEqual([false, false])
     })
 })

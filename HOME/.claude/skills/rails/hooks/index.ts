@@ -37,7 +37,31 @@ const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/
 const TRANSPARENT = new Set(['then', 'do', 'else', 'elif', '!'])
 
 /** Where one simple command starts, and the word that heads it. */
-type Head = { at: number; word: string; loop: boolean }
+type Head = { at: number; word: string; loop: boolean; piped: boolean }
+
+/**
+ * Past one redirection: the operator, an `&` fd duplication, and the target.
+ *
+ * The target is never a command, and `2>&1` must not read as a `&` separator
+ * followed by a stage headed `1`.
+ */
+function skipRedirect(command: string, at: number): number {
+    let i = at + 1
+    const next = command.charAt(i)
+    if (next === '>' || next === '<') { i += 1 }
+    if (command.charAt(i) === '&') { i += 1 }
+    while (command.charAt(i) === ' ' || command.charAt(i) === '\t') { i += 1 }
+    const quote = command.charAt(i)
+    if (quote === '"' || quote === "'") {
+        i += 1
+        while (i < command.length && command.charAt(i) !== quote) {
+            i += command.charAt(i) === '\\' && quote === '"' ? 2 : 1
+        }
+        return i + 1
+    }
+    const target = WORD.exec(command.slice(i))
+    return target === null ? i : i + target[0].length
+}
 
 /**
  * Every simple-command head in `command`, quote-aware.
@@ -45,7 +69,9 @@ type Head = { at: number; word: string; loop: boolean }
  * Scanning stops at an unquoted `<<`: a heredoc body is data, so neither a `gh`
  * in a PR body nor an `rm` in a script fixture is a command. `loop` marks a head
  * that follows a `do` keyword; that is a loop body, which the rm rule refuses to
- * rewrite because the paths are a variable, not text.
+ * rewrite because the paths are a variable, not text. `piped` marks a head whose
+ * only separator from the stage before it was a single `|`, which is what makes
+ * a stdin-only consumer transparent to the excluded-compound rule.
  */
 function heads(command: string): Head[] {
     const found: Head[] = []
@@ -53,6 +79,7 @@ function heads(command: string): Head[] {
     let start = true
     let loop = false
     let quote = ''
+    let sep = ''
     while (i < command.length) {
         const c = command.charAt(i)
         if (quote !== '') {
@@ -64,7 +91,8 @@ function heads(command: string): Head[] {
         if (c === '\\') { i += 2; continue }
         if (c === '"' || c === "'") { quote = c; start = false; i += 1; continue }
         if (c === '<' && command.charAt(i + 1) === '<') { break }
-        if (SEP.has(c)) { start = true; loop = false; i += 1; continue }
+        if (c === '>' || c === '<') { i = skipRedirect(command, i); continue }
+        if (SEP.has(c)) { start = true; loop = false; sep += c; i += 1; continue }
         if (c === ' ' || c === '\t' || c === '\r') { i += 1; continue }
         const word = WORD.exec(command.slice(i))
         if (word === null) { i += 1; continue }
@@ -75,8 +103,9 @@ function heads(command: string): Head[] {
                 i += text.length
                 continue
             }
-            found.push({ at: i, word: text, loop })
+            found.push({ at: i, word: text, loop, piped: sep === '|' })
             start = false
+            sep = ''
             i += text.length
             continue
         }
@@ -434,6 +463,14 @@ const EX_SHELLS = new Set(['sh', 'bash', 'zsh'])
 const SHELL_C = /^-[A-Za-z]*c$/
 /** Stages that carry no behavior of their own, so they never make a compound. */
 const EX_TRANSPARENT = new Set(['cd', 'export', 'true', 'echo'])
+/** Pipe targets that can read only their stdin, when they name no file. */
+const CONSUMERS = new Set([
+    'tail', 'head', 'cat', 'nl', 'sort', 'uniq', 'wc', 'less', 'rg', 'grep', 'jq', 'awk', 'sed',
+])
+/** Of those, the ones whose first non-flag word is a pattern or a program, not a path. */
+const PATTERN_CONSUMERS = new Set(['rg', 'grep', 'jq', 'awk', 'sed'])
+/** A bare number is a flag's value (`tail -n 50`), never a path. */
+const FLAG_VALUE = /^[0-9]+$/
 /** A `sh -c` payload may itself be a compound; three levels is past any real use. */
 const EX_MAX_DEPTH = 3
 /** Every entry is written `<head> *`; the glob is not part of the head. */
@@ -482,6 +519,23 @@ function innerCommand(words: readonly Word[]): string | null {
     return null
 }
 
+/**
+ * Does this stage read its stdin and nothing else?
+ *
+ * Both halves are load-bearing. The NAME is not enough: every consumer here also
+ * takes file operands, so a name-only test would let
+ * `cargo --version; tail ~/.ssh/identities/home/id_ed25519` read a deny-listed
+ * key unsandboxed, which is worse than the hatch this rule closes. `tee` is
+ * absent for the same reason: a file operand is its whole purpose.
+ */
+function readsOnlyStdin(head: string, seg: string): boolean {
+    if (!CONSUMERS.has(head)) { return false }
+    const operands = splitWords(seg)
+        .slice(1)
+        .filter((w) => !(w.value.startsWith('-') && w.value.length > 1) && !FLAG_VALUE.test(w.value))
+    return operands.length <= (PATTERN_CONSUMERS.has(head) ? 1 : 0)
+}
+
 /** Split a command into its excluded stages and every other stage that acts. */
 function classifyStages(command: string, entries: readonly string[], depth: number): Stages {
     const out: Stages = { excluded: [], rest: [] }
@@ -489,6 +543,7 @@ function classifyStages(command: string, entries: readonly string[], depth: numb
         const seg = segment(command, head.at)
         if (excludedAs(seg, head.word, entries) !== null) { out.excluded.push(head.word); continue }
         if (EX_TRANSPARENT.has(head.word)) { continue }
+        if (head.piped && readsOnlyStdin(head.word, seg)) { continue }
         if (depth < EX_MAX_DEPTH && EX_WRAPPERS.has(head.word)) {
             const inner = innerCommand(splitWords(seg))
             if (inner !== null) {
@@ -636,4 +691,6 @@ export const internals = {
     excludedHeads,
     excludedDeny,
     classifyStages,
+    readsOnlyStdin,
+    skipRedirect,
 }
