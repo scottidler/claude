@@ -64,6 +64,44 @@ function skipRedirect(command: string, at: number): number {
 }
 
 /**
+ * One shell word starting at `i`, joining adjacent quoted and unquoted runs the
+ * way the shell does, returned with its quotes removed.
+ *
+ * A head may be written `"python3"`, `'python3'` or `"pyth"on3`; bash runs the
+ * same command for all three. The scanner used to set `start = false` on an
+ * opening quote and emit no Head, so a quoted head was invisible to
+ * `classifyStages`: REST came back empty and the excluded-compound deny could
+ * never fire. Two quote characters defeated the whole rule, live-proven by the
+ * implementation audit (2026-09-13):
+ *   `cargo --version >/dev/null 2>&1; "python3" -c '<AF_UNIX probe>'` ran
+ *   UNSANDBOXED, while the same line unquoted denied.
+ */
+function quotedWord(command: string, i: number): { text: string; end: number } {
+    let text = ''
+    let j = i
+    while (j < command.length) {
+        const c = command.charAt(j)
+        if (c === '"' || c === "'") {
+            const q = c
+            j += 1
+            while (j < command.length) {
+                const d = command.charAt(j)
+                if (d === '\\' && q === '"' && j + 1 < command.length) { text += command.charAt(j + 1); j += 2; continue }
+                if (d === q) { j += 1; break }
+                text += d
+                j += 1
+            }
+            continue
+        }
+        if (c === '\\' && j + 1 < command.length) { text += command.charAt(j + 1); j += 2; continue }
+        if (/[\s;|&()<>]/.test(c)) { break }
+        text += c
+        j += 1
+    }
+    return { text, end: j }
+}
+
+/**
  * Every simple-command head in `command`, quote-aware.
  *
  * Scanning stops at an unquoted `<<`: a heredoc body is data, so neither a `gh`
@@ -89,7 +127,23 @@ function heads(command: string): Head[] {
             continue
         }
         if (c === '\\') { i += 2; continue }
-        if (c === '"' || c === "'") { quote = c; start = false; i += 1; continue }
+        if (c === '"' || c === "'") {
+            if (start) {
+                const w = quotedWord(command, i)
+                if (w.text === '') { quote = c; start = false; i += 1; continue }
+                if (ASSIGN.test(w.text) || TRANSPARENT.has(w.text)) {
+                    if (w.text === 'do') { loop = true }
+                    i = w.end
+                    continue
+                }
+                found.push({ at: i, word: w.text, loop, piped: sep === '|' })
+                start = false
+                sep = ''
+                i = w.end
+                continue
+            }
+            quote = c; start = false; i += 1; continue
+        }
         if (c === '<' && command.charAt(i + 1) === '<') { break }
         if (c === '>' || c === '<') { i = skipRedirect(command, i); continue }
         if (SEP.has(c)) { start = true; loop = false; sep += c; i += 1; continue }
@@ -462,7 +516,7 @@ const EX_SHELLS = new Set(['sh', 'bash', 'zsh'])
 /** `-c`, `-lc`, `-ec`: any short-flag cluster ending in c. */
 const SHELL_C = /^-[A-Za-z]*c$/
 /** Stages that carry no behavior of their own, so they never make a compound. */
-const EX_TRANSPARENT = new Set(['cd', 'export', 'true', 'echo'])
+const EX_TRANSPARENT = new Set(['cd', 'export', 'true', 'echo', 'wait'])
 /** Pipe targets that can read only their stdin, when they name no file. */
 const CONSUMERS = new Set([
     'tail', 'head', 'cat', 'nl', 'sort', 'uniq', 'wc', 'less', 'rg', 'grep', 'jq', 'awk', 'sed',

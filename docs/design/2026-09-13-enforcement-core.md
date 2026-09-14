@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-13
-**Status:** Implemented (all six phases landed on main as `0d252b8..5faca7d`; every acceptance criterion passes except AC1b's `ssh -T` half, which is not checkable from a session because it reads a private key the credential gate denies)
+**Status:** Implemented with a follow-up owed (all six phases landed on main; the 2026-09-13 implementation audit then found a live sandbox escape in the Phase 5 compound deny, fixed in the commit that carries this line, plus an em-dash lint gap that is still open. See Implementation Audit below.)
 **Review Passes Completed:** 5/5
 **Program:** chunk A of `docs/design/2026-09-13-setup-audit-program.md` (audit items 1, 2, 3)
 
@@ -329,6 +329,29 @@ Phases 1 to 5 commits: `7fde500` (Phase 1, PARTIAL), `3ff78d1` (Phase 2), `1523d
 
 Phase 6 itself is RUN: see the Observed table above. It needed no linker step, because `~/.claude/skills` and `~/.claude/hooks` symlink into this repo; it needed a session started after Phase 5 landed, because function-hook plugins load once at startup.
 
+## Implementation Audit (2026-09-13, round 1, Mode 2)
+
+Panel run: `/tmp/review-panel/7Uyt4Yok/synthesis.md`, probes at `probes.md`. Architect (Gemini) and Staff Engineer (Codex) both rc=0. Findings reconciled, then the load-bearing one re-verified by hand before any action.
+
+| ID | Finding | State |
+|---|---|---|
+| M1 | Quoted stage head defeats the excluded-compound deny; live sandbox escape | FIXED, `quotedWord()` plus 7 tests, 6 fail on revert |
+| M2 | This PR broke `review-panel.md:120-135`'s own `& ... wait` dispatch block, because `wait` was not in `EX_TRANSPARENT` | FIXED, `wait` added plus 2 tests |
+| M3 | Phase 4's "every file this PR edits leaves with zero em-dashes" is not met: 5 files, not the 1 documented exception | OPEN |
+| C1 | `readsOnlyStdin` counts a `-f` operand as the pattern slot, so `cargo test \| sed -f <path>` passes | OPEN |
+| C2 | `excluded_compound` read at `index.ts:609` but undeclared in `plugin.json` userConfig | OPEN |
+| C3 | `emdash.sh` not registered on `mcp__multi-account-github__create_pr` | OPEN |
+| D1 | Redirect hole: a redirection is not a stage | DEFERRED, code only; the doc claim was the real defect and is fixed above |
+| D2 | Regenerable anchor is cwd-bound, fails toward rkvr | DEFERRED, wants one pinning test |
+| D3 | Wrapper nesting past `EX_MAX_DEPTH = 3` passes | OPEN |
+| D4 | `kubectl` is a wrapper for the rm rule but not the compound rule | OPEN |
+
+Corrections the audit forced, recorded so nobody re-hunts them:
+
+- **The bare-`manifest` guard finding in the Phase 6 table was wrong.** `manifest.yml` as a path argument does NOT deny; `rg -n 'x' /path/manifest.yml` passes. What denies is any bare word `manifest`, including inside a quoted string: the original denial came from `echo "=== manifest entry ==="` sharing the command line. Chunk B should hunt that, not the `.yml` path.
+- The Architect seat claimed backticked and escaped heads also bypass. Both deny. Only the quoted form passed.
+- One rails test is location-dependent: `excludedHeads > the settings.json this repo ships reads as the live list` reads a relative path and fails outside the repo.
+
 ## Resolved Decisions
 
 - 2026-09-13, Scott (closes OQ3): **option D.** All ten `excludedCommands` entries stay, and a third rails rule denies any command that mixes an excluded stage with a non-excluded one. Reasoning that decided it: hatch count is not the variable. `excludedCommands` matches any stage anywhere and exempts the whole compound, so `; cargo --version` has been a silent, classifier-free escape since `cargo *` landed. One hatch is total access; ten is the same total. Reverting the five new bare words would surrender the tool fixes audit item 1 counted (712 burned in-sandbox attempts, 1,091 needless `dangerouslyDisableSandbox` calls) while `cargo *` left the hole wide open. Only the model can compose a mixed compound, so the rails deny closes it at the one point it is reachable. Rejected: (A) revert the five bare words, spends five real fixes for zero delta; (B) keep them and accept an open hatch the model can use silently; (C) revert only `ssh *`, which confuses the hatch word with the capability, since `X; cargo --version` still runs `X` unsandboxed and `X` may be `ssh`. Note on provenance: the audit did not merely omit this, it asserted the opposite. Findings F7.3 states "the `cargo *` exclusion only matches a leading `cargo`". Its prescription for item 1 survives on function and dies on rationale. Advisory brief by a Fable subagent, 2026-09-13.
@@ -379,7 +402,9 @@ Phase 6 itself is RUN: see the Observed table above. It needed no linker step, b
 - `prose.sh` reads one JSON payload and, when `last_assistant_message` is absent, tails the transcript for the last two records; bounded by `tail -c`. `emdash.sh` is a `jq` string scan. Neither shells out to the network.
 
 ### Security
-- **Every `sandbox.excludedCommands` entry exempts any compound command that contains it, at any position** (measured 2026-09-13, evidence.md 0g). That has been true since `cargo *` landed, so the list growing from 3 entries to 10 adds no capability: one hatch already granted total escape. The only party who can compose such a command is the model; a subprocess cannot append a stage. The rails excluded-compound deny removes that composition, which is why the entries are safe to keep. Subprocess exposure is unchanged either way: `cargo *`, `otto *` and `release *` already run build scripts, proc-macros and test binaries fully unsandboxed.
+- **Every `sandbox.excludedCommands` entry exempts any compound command that contains it, at any position** (measured 2026-09-13, evidence.md 0g). That has been true since `cargo *` landed, so the list growing from 3 entries to 10 adds no capability: one hatch already granted total escape. The only party who can compose such a command is the model; a subprocess cannot append a stage. The rails excluded-compound deny narrows that composition. Subprocess exposure is unchanged either way: `cargo *`, `otto *` and `release *` already run build scripts, proc-macros and test binaries fully unsandboxed.
+- **The deny is a narrowing, NOT a closure, and this doc asserted otherwise until the implementation audit.** The original wording said the composition was removed and the entries were therefore "safe to keep". The audit disproved it live: quoting a stage head defeated the rule entirely, because `heads()` emitted no Head for a quoted word, so REST came back empty and the deny could not fire. `cargo --version >/dev/null 2>&1; "python3" -c '<AF_UNIX probe>'` ran UNSANDBOXED while the same line unquoted denied. That is two quote characters against the premise OQ3 decision D rests on. Fixed by `quotedWord()`, with seven pinning tests; six of them fail if the fix is reverted. Three narrower gaps remain OPEN and are not closed by that fix: a redirection is not a stage (recorded below), `readsOnlyStdin` counts a `-f` operand as the pattern slot so `cargo test | sed -f <path>` passes, and wrapper nesting deeper than `EX_MAX_DEPTH = 3` passes. Also measured and NOT holes: newline, subshell, brace group, `&&`, `||`, background `&`, `$(...)`, backticked and backslash-escaped heads all deny.
+- **Rails is not the last line of defense, and must not be described as one.** When the audit extended the bypass to read a deny-listed private key, what stopped it was the Claude Code auto-mode permission classifier, not rails and not the sandbox. Any future reasoning that trades sandbox strictness against a rails rule has to price that correctly.
 - allowRead makes two **signing-only** private keys readable inside the sandbox (`home/signing`, `work/signing`), which is OQ2 decision D. The earlier "public halves only; private keys stay denied" line was false as a fix: Phase 0 proved the sandbox denies `socket(AF_UNIX)` creation, so ssh-agent is unreachable and `ssh-keygen -Y sign` must read the private key file. Priced exposure: neither key appears in any GitHub authentication-key list nor in any `authorized_keys` (blob-hash verified 2026-09-13), so the worst case is a forged Verified-badged commit, which still needs separate push access to land anywhere; the remedy is revoke and rotate, with zero authentication impact. Every authentication key stays denied, `home/id_ed25519` above all: it is scottidler's only GitHub auth key and the ssh identity for desk, nas and every LAN host. For scale, `cargo *`, `otto *` and `release *` already run fully unsandboxed, so build scripts, proc-macros and test binaries see all of `~/.ssh` today; D adds nothing to that surface.
 - `/var/tmp/rmrf` and `/var/tmp/bkup` become writable inside the sandbox: `/var/tmp` is world-writable by design and both dirs already receive archives from unsandboxed runs, so no new exposure.
 - Both hooks fail open on parse errors (print `{}` plus one stderr line) so a malformed payload cannot lock a session; the harness's 8-block cap bounds the Stop hook regardless.

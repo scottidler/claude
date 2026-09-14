@@ -517,3 +517,47 @@ describe('heads: redirections are not stages', () => {
         expect(piped('a; b')).toEqual([false, false])
     })
 })
+
+describe('excludedDeny: a quoted head is still a head (audit 2026-09-13)', () => {
+    // Live-proven bypass: `cargo --version >/dev/null 2>&1; "python3" -c '<probe>'`
+    // ran UNSANDBOXED because the scanner emitted no Head for a quoted word, so
+    // REST was empty and the deny could not fire. Two quote characters defeated
+    // the mitigation the whole OQ3 option D decision rests on.
+    test('a double-quoted head does not hide the stage', () => {
+        expect(excludedDeny(`cargo --version; "python3" -c x`, EXCLUDED)).not.toBeNull()
+    })
+    test('a single-quoted head does not hide the stage', () => {
+        expect(excludedDeny(`cargo --version; 'python3' -c x`, EXCLUDED)).not.toBeNull()
+    })
+    test('a partially quoted head is joined the way the shell joins it', () => {
+        expect(excludedDeny(`cargo --version; "pyth"on3 -c x`, EXCLUDED)).not.toBeNull()
+        expect(excludedDeny(`cargo --version; py"thon3" -c x`, EXCLUDED)).not.toBeNull()
+    })
+    test('the redirection that carried the live bypass does not hide it either', () => {
+        expect(excludedDeny(`cargo --version >/dev/null 2>&1; "python3" -c x`, EXCLUDED)).not.toBeNull()
+    })
+    test('a quoted EXCLUDED head alone still has no REST, so it passes', () => {
+        expect(excludedDeny(`"cargo" --version`, EXCLUDED)).toBeNull()
+    })
+    test('quoting does not defeat EX_TRANSPARENT either', () => {
+        expect(excludedDeny(`"cd" r && cargo test`, EXCLUDED)).toBeNull()
+    })
+    test('heads reports the unquoted text so downstream matching still works', () => {
+        expect(headSpots(`"rm" -rf x`, 'rm')).toEqual([0])
+        expect(headSpots(`'sudo' rm -rf x`, 'sudo')).toEqual([0])
+    })
+})
+
+describe('excludedDeny: wait is transparent (audit 2026-09-13, finding M2)', () => {
+    // review-panel.md:120-135 mandates `script.sh & ... wait $APID` and explains
+    // that splitting it gets the children reaped. Adding script.sh to
+    // excludedCommands made the compound deny fire on that documented block.
+    test('a wait joining an excluded background stage passes', () => {
+        const ex = new Set([...EXCLUDED, 'script.sh'])
+        expect(excludedDeny('script.sh a & script.sh b & wait', ex)).toBeNull()
+    })
+    test('wait does not launder a non-excluded stage through', () => {
+        const ex = new Set([...EXCLUDED, 'script.sh'])
+        expect(excludedDeny('script.sh a & wait; python3 -c x', ex)).not.toBeNull()
+    })
+})
