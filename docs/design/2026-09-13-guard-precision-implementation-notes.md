@@ -181,3 +181,37 @@ Append-only record of how the implementation interprets or departs from
 
 ### Open questions
 - None.
+
+## Phase 7: `hooks-preflight.sh` and the CI resolve check
+
+### Design decisions
+- The command-string parsing is a small new sourced file, `HOME/.claude/hooks/hooks-resolve-lib.sh`, not an addition to `lib.sh`. `lib.sh` is one `awk` program built around a byte-index contract for masking and slicing shell statements; parsing a settings.json command string is plain word splitting with no masking, no statement tree, and no shared index space, so folding it in would bolt an unrelated shape onto that contract instead of reusing it.
+- Tokenizing goes through `xargs -n1`, not `eval`. The three live shapes (`~/.claude/hooks/foo.sh`, `bash '/abs/path' session`, `clyde permit log`) only need single-quote stripping, and `xargs` does that without ever passing the string to a shell, so a crafted command in settings.json cannot execute anything during a resolve check.
+- Two functions, per the doc: `hook_resolve_target` (parses a command string into `HOOK_KIND`/`HOOK_TARGET`, no filesystem access) and `hook_target_exists` (checks the target, filesystem access only here). `hook_resolve_target` walks past a leading `bash`/`sh` token looking for the first argument containing `/`, which is what catches the `bash '<path>' session` shape a first-token check would silently pass.
+- `hook_target_exists` takes an optional `repo_root` third argument so ONE function serves both consumers: omitted, it tilde-expands against `$HOME` (`hooks-preflight.sh`'s live-session check); given, it remaps a `~/.claude/hooks/<x>` or literal `$HOME/.claude/hooks/<x>` target onto `<repo_root>/HOME/.claude/hooks/<x>` (`bin/hooks-resolve`'s CI check, where nothing is symlinked into the runner's home).
+- `hooks-preflight.sh` hardcodes `$HOME/.claude/hooks/lib.sh` for the lib readability check (overridable via `HOOKS_PREFLIGHT_LIB` for tests), independent of its own `$0`, because the doc's check is of the LIVE symlink target, not of wherever this script happens to be invoked from.
+- `bin/hooks-resolve` reports a missing bare PATH name as a `WARN` and does not fail the run on it, per the doc: a binary absent on a CI runner is not evidence of a missing hook file.
+
+### Deviations
+- None. The parsing lives in one file as specified, both scripts source it, and both fixture shapes the doc calls out by name (`does-not-exist.sh`, `bash '<path>' session`) are covered.
+
+### Tradeoffs
+- `xargs -n1` over a full shell-aware tokenizer. It only has to understand single-quote stripping for these three known shapes; a command string with double quotes, escapes, or nested quoting would tokenize wrong, but no such shape exists in `settings.json` today and the doc's remit is the shapes that are live.
+- `hooks-preflight.sh` never exits non-zero and only ever emits `additionalContext`, never a `permissionDecision`. A SessionStart hook has no deny semantics to begin with, and failing loudly here would mean a broken preflight breaking every session start, the opposite of what a preflight is for.
+- The live proof step (below) surfaces `~/.claude/hooks/lib.sh` as unresolved alongside `branch-name-guard.sh` and `hooks-preflight.sh` itself, one more entry than the task's stated expectation. That is not a bug: `lib.sh` genuinely is not linked live yet in this pre-merge state (Phase 1 through 6 landed the file in the repo but the operator link step has not run), and the preflight is specified to check it by name. Reporting it is the correct behavior, not scope creep.
+
+### Open questions
+- None.
+
+### Live proof (2026-09-14, pre-merge, desk.lan)
+- `bin/hooks-resolve` (no arguments): `hooks-resolve: all hook files resolved (0 PATH warning(s))`, exit 0. Passes because it resolves against the repo tree, where `hooks-preflight.sh` and `branch-name-guard.sh` already exist.
+- `bash HOME/.claude/hooks/hooks-preflight.sh` against the live `~/.claude/settings.json` (after appending its own entry to `SessionStart`):
+  ```json
+  {
+    "hookSpecificOutput": {
+      "hookEventName": "SessionStart",
+      "additionalContext": "hooks-preflight: unresolved hook(s): ~/.claude/hooks/branch-name-guard.sh; ~/.claude/hooks/hooks-preflight.sh; ~/.claude/hooks/lib.sh (not readable); fix: cd ~/repos/scottidler/claude && manifest -l HOME/.claude/hooks/* | bash"
+    }
+  }
+  ```
+  This is the dead-hook window the preflight exists to surface: three files this PR's phases add are not yet symlinked into `~/.claude/hooks/`, because that link step is the post-merge operator step, not part of any phase commit.

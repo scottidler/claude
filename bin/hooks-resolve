@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# hooks-resolve: CI check that settings.json names no dead hook.
+#
+# Maps every registered command hook to the file it would execute and asserts
+# the file exists and is executable IN THE REPO TREE, because in CI nothing
+# is symlinked into the runner's home the way the live setup step does it.
+# A bare PATH name (clyde permit log) is checked with `command -v` and
+# reported as a WARNING, not a failure: a binary missing on this runner is
+# not a missing hook file.
+#
+# Usage:
+#   bin/hooks-resolve [--settings <path>] [--root <dir>]
+#
+# --settings defaults to <root>/HOME/.claude/settings.json
+# --root     defaults to the repo root, found from this script's own location
+#
+# Exit 0: every hook FILE resolved (bare-name misses are warnings only).
+# Exit 1: at least one hook FILE is missing or not executable.
+set -u
+
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+DEFAULT_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+
+root="$DEFAULT_ROOT"
+settings=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --settings) settings="$2"; shift 2 ;;
+    --root)     root="$2"; shift 2 ;;
+    *) echo "hooks-resolve: unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+[ -n "$settings" ] || settings="$root/HOME/.claude/settings.json"
+
+# shellcheck source=../HOME/.claude/hooks/hooks-resolve-lib.sh
+. "$root/HOME/.claude/hooks/hooks-resolve-lib.sh"
+
+if [ ! -r "$settings" ]; then
+  echo "hooks-resolve: cannot read settings file: $settings" >&2
+  exit 1
+fi
+
+fail=0
+warn=0
+
+while IFS= read -r cmd; do
+  [ -n "$cmd" ] || continue
+  hook_resolve_target "$cmd"
+  if hook_target_exists "$HOOK_TARGET" "$HOOK_KIND" "$root"; then
+    continue
+  fi
+  if [ "$HOOK_KIND" = "bare" ]; then
+    echo "WARN  $cmd -> $HOOK_RESOLVED not on PATH"
+    warn=$((warn + 1))
+  else
+    echo "FAIL  $cmd -> $HOOK_RESOLVED missing or not executable"
+    fail=$((fail + 1))
+  fi
+done < <(jq -r '.hooks[][].hooks[]? | select(.type=="command") | .command' "$settings")
+
+if [ "$fail" -gt 0 ]; then
+  echo "hooks-resolve: $fail missing hook file(s), $warn PATH warning(s)"
+  exit 1
+fi
+
+echo "hooks-resolve: all hook files resolved ($warn PATH warning(s))"
+exit 0

@@ -958,6 +958,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/ssh-agent-check.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/hooks-preflight.sh"
           }
         ]
       }

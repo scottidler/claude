@@ -47,6 +47,10 @@ tasks:
         HOME/.claude/hooks/branch-pr-title-guard-test.sh
         HOME/.claude/hooks/rewrite-cd-read.py
         HOME/.claude/hooks/rewrite-cd-read-test.sh
+        HOME/.claude/hooks/hooks-preflight.sh
+        HOME/.claude/hooks/hooks-preflight-test.sh
+        HOME/.claude/hooks/hooks-resolve-lib.sh
+        bin/hooks-resolve
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
@@ -64,6 +68,8 @@ tasks:
         echo "=== $t ==="
         bash "$t"
       done
+      echo "=== bin/hooks-resolve ==="
+      bin/hooks-resolve
       (cd HOME/.claude/skills/rails/hooks && bun test)
 
   ci:
