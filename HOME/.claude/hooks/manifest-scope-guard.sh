@@ -1,13 +1,21 @@
-#!/bin/sh
-# manifest-scope-guard.sh — PreToolUse: deny an unscoped `manifest` invocation.
+#!/bin/bash
+# manifest-scope-guard.sh: PreToolUse: deny an unscoped `manifest` invocation.
 #
-# `manifest` has no `apply` subcommand -- the root command IS the apply, and
+# `manifest` has no `apply` subcommand: the root command IS the apply, and
 # scoping is done entirely via glob flags (-l/-p/-a/-d/-n/-P/-x/--uv-tool/-f/
 # -c/-g/-G/-s). Running bare `manifest` (or `manifest .`) with none of those
-# applies the ENTIRE manifest.yml unscoped -- exactly the "applied the
-# dotfiles manifest unscoped, causing unintended system changes" failure Scott
-# hit. Deny it; require an explicit scope flag, `age`/`secrets` subcommands,
-# or --help/--version.
+# applies the ENTIRE manifest.yml unscoped, exactly the "applied the dotfiles
+# manifest unscoped, causing unintended system changes" failure Scott hit. Deny
+# it; require an explicit scope flag, `age`/`secrets` subcommands, or
+# --help/--version.
+#
+# Parsing is the shared bare-word set from lib.sh: `stmts` splits (yielding
+# subshell and `bash -c` bodies as statements of their own), then heredoc,
+# single-quote, double-quote and comment masking, then `cmdword_is manifest`.
+# This guard DOES mask double quotes, because a bare word inside "..." is data
+# and never a command word; `secret-echo-guard.sh` is the one guard that must
+# not mask them, since that is where the shell expands.
+. "$(dirname "$0")/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }
 
 input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""')
@@ -18,16 +26,13 @@ deny() {
   exit 0
 }
 
-split=$(printf '%s' "$cmd" | sed -E 's/&&/\n/g; s/\|\|/\n/g; s/;/\n/g; s/\|/\n/g')
-while IFS= read -r stmt; do
-  [ -z "$stmt" ] && continue
-  printf '%s' "$stmt" | grep -Eq '(^|[[:space:]])manifest([[:space:]]|$)' || continue
-  printf '%s' "$stmt" | grep -Eq -- '(^|[[:space:]])(age|secrets|help|--help|-h|--version|-V)([[:space:]]|$)' && continue
-  printf '%s' "$stmt" | grep -Eq -- '(-l|--link|-p|--ppa|-a|--apt|-d|--dnf|-n|--npm|-P|--pip3|-x|--pipx|--uv-tool|-f|--flatpak|-c|--cargo|-g|--github|-G|--git-crypt|-s|--script)([[:space:]=]|$)' && continue
+while IFS= read -r -d '' stmt; do
+  masked=$(printf '%s' "$stmt" | mask_heredoc | mask_squote | mask_dquote | mask_comment)
+  printf '%s' "$masked" | cmdword_is manifest || continue
+  printf '%s' "$masked" | grep -Eq -- '(^|[[:space:]])(age|secrets|help|--help|-h|--version|-V)([[:space:]]|$)' && continue
+  printf '%s' "$masked" | grep -Eq -- '(-l|--link|-p|--ppa|-a|--apt|-d|--dnf|-n|--npm|-P|--pip3|-x|--pipx|--uv-tool|-f|--flatpak|-c|--cargo|-g|--github|-G|--git-crypt|-s|--script)([[:space:]=]|$)' && continue
   deny "Blocked: bare \`manifest\` with no scope flag applies the WHOLE manifest.yml unscoped. Target the specific entry, e.g. \`manifest -l some-dotfile\`."
-done <<EOF
-$split
-EOF
+done < <(printf '%s' "$cmd" | stmts)
 
 echo '{}'
 exit 0

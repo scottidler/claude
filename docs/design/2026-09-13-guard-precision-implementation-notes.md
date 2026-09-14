@@ -46,3 +46,27 @@ Append-only record of how the implementation interprets or departs from
 
 ### Open questions
 - `cd_at <n>` indexes the SAME sequence `stmts` emits, nested statements included. Phase 4's destructive-op gate must therefore number statements straight off `stmts` output; if it filters or reorders them first, the index it passes to `cd_at` no longer means what it means here. Flagging it for the phase that wires the gate, not as a change to the library.
+
+## Phase 2: port `manifest-scope-guard.sh` and `secret-echo-guard.sh`
+
+### Design decisions
+- Both guards mask PER STATEMENT rather than once over the whole command, because `stmts` yields nested statements (`$( )`, backticks, a `bash -c` argument) as records of their own and each needs its own mask pass. `manifest-scope-guard.sh` judges each statement in the loop; `secret-echo-guard.sh` reassembles the masked statements one per line and hands the whole block to its existing python matcher.
+- One masked statement per LINE in `secret-echo-guard.sh:39-45`, deliberately: the matcher's windows are `[^\n;|&]*`, so a newline join is what keeps an `echo` in one statement from reaching a `$SECRET` in the next, and it is what makes the `(?m)^` anchor on the new safe form mean "statement start".
+- `manifest-scope-guard.sh` runs its exemption grep and its scope-flag grep on the MASKED statement, not the original. A scope flag or the word `age` sitting inside a quoted argument can no longer exempt an unscoped apply.
+- Both guards keep their existing matchers unchanged in kind (two `grep -E` calls; `re.search` in python). This phase changes what TEXT reaches them, which is the point of the shared library: the verdict logic is untouched and bisectable.
+- Order of the mask pipeline is `mask_heredoc` first, because it is the only line-level pass and the bytes it neutralizes include quote characters that would otherwise unbalance the later scans.
+
+### Deviations
+- The doc's Phase 2 bullet adds `${#NAME}` to the safe forms as if it were a live false positive. It was not one: the `NAME` tail cannot begin at `#`, so `echo "${#GH_TOKEN}"` never matched the print check even before this phase. The strip is implemented as asked and the matrix pins it, but it is an invariant made explicit rather than a bug fixed. Recorded rather than silently skipped.
+- The `[ -n "$NAME" ]` / `[ -z "$NAME" ]` safe form is anchored to the START of a statement (with an optional `if`/`elif`/`while`/`until` prefix), which the doc does not say. Unanchored, the strip would also erase the `[ -n "$GH_TOKEN" ]` inside `echo [ -n "$GH_TOKEN" ]`, which DOES print the value: a false-positive fix that opens a leak is the exact defect the Data Model's masking rule exists to prevent. `secret-echo-guard-test.sh` carries that command as a deny case.
+- `[[ -n "$NAME" ]]` is accepted alongside the single-bracket form. Same idiom, and a guard that allows one spelling and denies the other teaches nothing.
+- The design doc names `manifest-scope-guard.sh`'s masker set as heredoc, subshell, squote, dquote, comment. There is no subshell masker by construction (Phase 1's rule: a masker may only erase a span the shell will never execute), and `stmts` neutralizes the span in the enclosing statement itself, so the implemented pipeline is heredoc, squote, dquote, comment. Same effect, correct seam.
+
+### Tradeoffs
+- Process count against precision. `secret-echo-guard.sh` runs first on EVERY Bash tool call and now spawns `stmts` plus three maskers per statement plus `python3`, where it used to spawn one `python3`. Rejected folding the maskers into a single composite awk call, because the two guards need different sets and a combined call would hand each of them a mask it must not use.
+- Kept the python matcher rather than porting it to awk or `grep -E`. The negative lookahead `_PAT(?![A-Za-z])` is the phase's whole point and POSIX ERE has no lookahead; the masking that feeds it is bash-side, so the parser is shared even though the matcher is not.
+- A double-quoted command word (`"manifest" -l x`) is invisible to `cmdword_is` after `mask_dquote`. Accepted: it is the standard bare-word set the Data Model specifies, and the alternative is to leave double quotes intact, which reinstates the `echo "=== manifest entry ==="` false positive that bit twice live.
+- `manifest-scope-guard.sh`'s scope-flag grep stays unanchored (pre-existing shape, unchanged this phase), so any of the fifteen flags anywhere in the statement exempts it. Narrowing it to flag position is a behavior change no measured failure asks for.
+
+### Open questions
+- None.

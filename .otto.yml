@@ -35,6 +35,10 @@ tasks:
         HOME/.claude/hooks/emdash-test.sh
         HOME/.claude/hooks/lib.sh
         HOME/.claude/hooks/lib-test.sh
+        HOME/.claude/hooks/manifest-scope-guard.sh
+        HOME/.claude/hooks/manifest-scope-guard-test.sh
+        HOME/.claude/hooks/secret-echo-guard.sh
+        HOME/.claude/hooks/secret-echo-guard-test.sh
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
