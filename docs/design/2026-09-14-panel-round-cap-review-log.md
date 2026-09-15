@@ -36,10 +36,6 @@ rewrote the design's core and the reasoning should not be lost.
   rounds, 7 over 5, worst 14 (`8wLUyVus`). A looser second derivation returned
   56 / 19 / 8. Both confirm the audit's max of 14.
 
-## Round 1
-
-Not yet dispatched.
-
 ## Round 1 (2026-09-14): 3 must-fix, 4 cheap wins, 2 rejected
 
 Seats: architect rc=0 (10,056B), staff-engineer rc=0 (6,785B) after a first

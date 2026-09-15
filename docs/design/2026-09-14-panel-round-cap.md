@@ -9,7 +9,9 @@
 >
 > Over the rewritten core: pass 2 (correctness) re-ran and verified every cited line; pass 4 (edge cases) re-ran and found the mode-collision defect now fixed by the (doc, mode) key. Passes 3 and 5 got a read-through, not a full re-run.
 >
-> A second research fold-in then upgraded the evidence from concession to measurement, replaced AC4's byte census with properties, added the payload-facts section, and named the docless-audit hole. All of it is in the review log's pre-panel entry. **The review panel has NOT seen this doc.**
+> A second research fold-in then upgraded the evidence from concession to measurement, replaced AC4's byte census with properties, added the payload-facts section, and named the docless-audit hole. All of it is in the review log's pre-panel entry.
+>
+> The panel then ran round 1 over the rewritten doc on 2026-09-14: 3 must-fix folded in, 4 cheap wins folded in, 2 findings rejected with rationale, nothing escalated. Minutes in `docs/design/2026-09-14-panel-round-cap-review-log.md`.
 
 ## Summary
 
