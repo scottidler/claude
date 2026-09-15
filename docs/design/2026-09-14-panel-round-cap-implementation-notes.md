@@ -460,3 +460,66 @@ was never touched).
 
 ### Open questions
 - None.
+
+## Phase 5: Shakedown against the live, linked hook
+
+### Design decisions
+- Ran every acceptance criterion through `~/.claude/hooks/panel-round-guard.sh`,
+  confirmed with `readlink -f` to resolve to the repo's own
+  `HOME/.claude/hooks/panel-round-guard.sh` before any case ran, per chunk B's
+  Phase 9 method (`docs/design/2026-09-13-guard-precision.md:378-382`): rerun
+  through the production path, record `Observed` lines dated after the work
+  that made the criterion true.
+- Each AC got its own scratch doc under `$TMPDIR/panel-shakedown.*` and its own
+  scratch `PANEL_ROUND_CACHE_DIR` under `$TMPDIR`, never the fixture matrix's
+  own `mktemp` worktree and never a tracked repo doc. `panel-round-guard-test.sh`
+  already proves the matrix in isolation (Phase 1); this phase's job is to
+  prove the same behavior through the linked path with the real hook binary,
+  not to re-derive the matrix.
+- AC6's "fresh-agent pattern" is exercised by invoking the hook as a fresh
+  process per round (four separate `bash`/`jq` pipelines for doc D, one for
+  doc E, one for D re-flipped), because that is exactly what an `Agent`
+  dispatch does: a new process reads `stdin`, decides, and exits, with no
+  state surviving except what the guard itself writes to
+  `PANEL_ROUND_CACHE_DIR`. There is no `$RUN_DIR` to fake here since the
+  guard never reads one; the counter file is the only persistence, which is
+  the whole point AC6 is checking.
+- Recorded the actual `review-panel.md` byte count from this shakedown
+  (19954, unchanged from Phase 3's `wc -c` since no phase between 3 and 5
+  touched the file's body) as the observation the design doc's Phase 3 bullet
+  asked for, even though AC4 does not gate on it.
+
+### Deviations
+- None. Every criterion passed as specified; no criterion required
+  reinterpretation or a contorted fixture to pass.
+
+### Tradeoffs
+- Did not attempt a live end-to-end `Agent` dispatch (the harness Phase 0
+  used, `claude -p --settings` with a scratch settings file) for this
+  shakedown. Phase 0 already proved the payload shape and that a real
+  `PreToolUse(Agent)` deny blocks a real dispatch; Phase 2's own Verification
+  section proved the registered `settings.json` entry and the symlink both
+  resolve to this hook. What Phase 5 owns is confirming the SIX criteria
+  against the linked production artifact, which piping fixture payloads
+  through `~/.claude/hooks/panel-round-guard.sh` does directly, without the
+  cost and nondeterminism of a nested live session per criterion.
+- Left the four scratch cache directories and the scratch doc tree under
+  `$TMPDIR` in place rather than deleting them: they are session-scoped
+  temporary files under `$TMPDIR`, not repo or user state, and `$TMPDIR` is
+  the harness's own designated scratch location. Nothing tracked or durable
+  was created.
+
+### Open questions
+- None.
+
+### Verification: real cache dir untouched
+`ls ~/.cache/review-panel/rounds/` before this phase's work: directory does
+not exist (empty, per Phase 1's `rkvr rmrf` archive of the one stray manual
+smoke-test entry). After all six criteria's runs, same command: still does
+not exist. Every run in this phase carried `PANEL_ROUND_CACHE_DIR` pointed at
+a scratch directory under `$TMPDIR`, on the hook invocation itself, never on
+`jq`, per Phase 1's postmortem about exactly that misplacement.
+
+### Observations, not gates
+- `wc -c HOME/.claude/agents/review-panel.md` at shakedown time: `19954`,
+  matching Phase 3's landed value.
