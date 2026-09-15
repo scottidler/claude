@@ -59,3 +59,34 @@ Recorded so round 2 does not re-derive them.
 - **STAGING's price.** Closed by measurement rather than by ruling, and it reversed the author's own Rec. Every sandbox phantom in the working tree is a character special file, so `git add -A --dry-run` aborts with `error: .bash_profile: can only add regular files, symbolic links or git-directories / fatal: adding files failed` and stages nothing. Git already fails closed on the class. Add the third strike: the one incident the rule was credited with is `git add -A docs/design`, path-scoped, which cheap win C2 requires the rule to allow. Zero of five incidents, no phantom class, no item-1 claim. Dropped to Alternative 5 with a revisit condition (a 0-byte regular-file phantom, which is addable).
 
 Net effect on scope: eight phases, 0 through 7. Seven rules ship. Open Questions is empty.
+
+## Round 2, 2026-09-15
+
+Same run dir. Architect rc=0, staff engineer rc=0, no timeout this round. 10 must-fix, 10 cheap wins, 5 reject/defer. Both seats independently returned "not ready to build" and neither attacked a settled ruling: item 1's gap, the staging drop, LN's cycle direction and every round-1 rejection all survived untouched.
+
+Drift again, and it is the same process failure as round 1: the live file moved 51 lines during the round (commit `4947f06`, the acceptance-criteria execution). Staff read the live tree and credited it; architect read the snapshot. Two rounds, two drifts.
+
+Three findings re-verified here before folding:
+
+| finding | verification |
+|---|---|
+| `flag_value` is first-wins, `gh` is last-wins | `printf 'gh api repos/o/r -X GET -X DELETE' \| flag_value '' '-X'` returns `GET`, while `gh api -X POST -X GET /rate_limit` returns rate-limit data, which a POST could not |
+| a plain commit walk misses merge-introduced content | built a merge whose resolution alone added `.env`: `git log --name-only BASE..HEAD` lists `a.txt s.txt`, `--diff-merges=first-parent` lists `a.txt .env s.txt` |
+| the obvious `flag_value` fix corrupts live guards | accepted on the panel's evidence: `-t` yields `esting` from `--body -testing`, `-H` yields `bad/name`, and `lib-test.sh` passes 135/0 over the patched copy, so the matrix does not protect it |
+
+The reversal worth recording: **round 1 decided the parser gap belonged in `lib.sh`, and round 2 reversed it.** `flag_value` has no per-flag arity table, so it cannot distinguish an attached value from a value that begins with a dash. That is not fixable generically without giving the parser a flag spec, which is a chunk-B-sized change to a dependency three shipped guards share. GH-WRITE parses the method itself; the five measured rows land in `lib-test.sh` as characterization fixtures.
+
+Two findings were rules that could not work as written, not predicates that were merely wrong:
+
+- **RESEND was inert.** A `PreToolUse` hook cannot observe a send result, so the state round 1 asked for could never be written. Fixed with a `PostToolUse` registration.
+- **INGEST's raw-text scan denies the writing of this design doc**, which contains both `while IFS= read -r url` and `sb borg ingest`. Bounded to heredocs whose redirect target is a shell script, with both shapes pinned as fixtures. Chunk C's self-reference class, caught by a reviewer rather than by the author for the second chunk running.
+
+Six fold-introduced contradictions were fixed: stale predicates in Edge cases, a stale `last-post` record in Data Model and Phase 5, LN described as a pure function of the command string, Rollout still saying hooks go live on commit, Goal 1 still promising coverage for every class including item 1, and the recorder decision framed as settled while Phase 0 lists its gate as open.
+
+Round 2 nominated four items for Open Questions. All four were decisions rather than unknowns and are decided in the doc: PUBLIC-REPO's outgoing-object set, the stale-private window, RESEND's lifecycle, and which recipient set is authoritative.
+
+## Process notes, both rounds
+
+- **Do not touch the live doc while a panel round is running.** It happened twice. Round 1's drift produced a finding that existed only because of the fold; round 2's split the two seats onto different texts. Snapshot, dispatch, wait, then edit.
+- **A predicate written from a man page is not measured.** Round 1 caught `realpath -m` and the `flag_value` gap this way; round 2 caught first-wins-versus-last-wins and the merge walk. Four defects, four one-line commands, none of them run before the text was written.
+- **Ask what writes the state before designing the state.** RESEND specified a ledger no registered component could write.

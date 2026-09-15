@@ -3,7 +3,7 @@
 **Author:** Scott Idler
 **Date:** 2026-09-15
 **Status:** Draft
-**Review Passes Completed:** 5/5, then a research fold-in, then panel round 1
+**Review Passes Completed:** 5/5, then a research fold-in, then panel rounds 1 and 2
 
 > Panel round 1 ran 2026-09-15 against the pre-fold snapshot (`/tmp/review-panel/GOX7yywR/`): 10 must-fix, 7 cheap wins, 2 defers, 8 findings rejected with measurements. All folded below. Five of the must-fix were re-verified in this session before folding, because each one changes a predicate: the commit half of PUBLIC-REPO reading an index that does not exist yet, `realpath -m` dereferencing an existing link, `stmts` splitting the ingest out of its loop, `flag_value` returning empty for `-XDELETE`, and `~/.claude/hooks/*` being per-file symlinks so a hook is live on save. The round also refuted one claim the research fold-in had just introduced (the `last-prompt` ordering), and produced two more measured item-1 predicates, both worse. Minutes: `docs/design/2026-09-15-intent-guards-review-log.md`.
 >
@@ -113,7 +113,7 @@ One live demonstration of that, from this session: the naive `acli.*delete` patt
 
 ### Goals
 
-- Every action class in the table is denied by a hook or a permission entry, not discouraged by a sentence.
+- Every action class in the table **except item 1** is denied by a hook or a permission entry, not discouraged by a sentence. Item 1 is uncovered by Scott's 2026-09-15 ruling, on measured precision; see Non-Goals.
 - Each guard's predicate is measured against the corpus before it ships: fires, and which known incidents it catches.
 - No guard infers human intent from word-matching a prompt. Where authorization matters, it is a named target or a named path, not a verb.
 - Guards work in subagents, which originate 31% of commits and 40% of `rm -r`, except where the subagent is structurally the wrong place to deny.
@@ -158,7 +158,7 @@ Measured on this machine, 2026-09-15: the ten hooks registered on the `PreToolUs
 
 Not restated per rule below:
 
-- **Sourcing:** `. "$(dirname "$0")/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }` (`lib.sh:5`).
+- **Sourcing:** `. "$(dirname "$0")/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }` (`lib.sh:5`). Note that this **fails open**, which is right for the existing guards and wrong for an authorization gate. So the two rules described as fail-closed, SLACK and PUBLIC-REPO, **deny** when `lib.sh` is unreadable rather than inheriting the allow; the other rules keep the tree's fail-open behavior, and `hooks-preflight.sh` already asserts `lib.sh` is readable at session start.
 - **Deny:** `jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'` then `exit 0`. Allow is `echo '{}'; exit 0`. Copied from `manifest-scope-guard.sh:24-27`.
 - **The command-word test, and the one way to get it wrong:** `cmdword_is <verb>` only, which consumes chunk B's structural `cmdword_index` walk (`lib.sh:396-423`, the fix for the prefix regex that let `{ git reset --hard; }`, `timeout 5 git push --tags` and `\git tag -d v1` through). Run it on a copy masked with `mask_heredoc | mask_comment` **only**. Quote-masking the command-word test makes the verb read as no verb at all, which is audit finding CW1, cited in `manifest-scope-guard.sh:29-43`. Flag values come from `flag_value`, never a substring match, so `--method=PATCH` is caught as well as `--method PATCH`.
 - **Matrices are wired by glob:** `.otto.yml`'s `test` task runs every `HOME/.claude/hooks/*-test.sh`, so a new matrix needs no `.otto.yml` edit. The `lint` task's `FILES=()` array is explicit and every new file must be added to it, or the em-dash gate does not cover the file (chunk A audit finding M3, five files shipped with em-dashes for exactly this reason).
@@ -176,7 +176,9 @@ Deny a statement whose command word is `gh` when either holds:
   - **effective method** is computed first, then the path is classified. Method comes from `-X`/`--method` in all three spellings: separated (`-X DELETE`), attached (`-XDELETE`), and equals (`--method=DELETE`). With no method flag, the presence of any of `-f`, `-F`, `--field`, `--raw-field`, `--input` makes it a POST, because `gh api` switches on its own as soon as a body field is present. An **explicit** `--method GET` with body fields is a GET and is not a write.
   - write = effective method in `PATCH`, `PUT`, `POST`, `DELETE`
 
-**The attached form is a `lib.sh` gap, and it is fixed in `lib.sh`, not worked around here.** Verified 2026-09-15 against the shipped parser and the installed `gh`:
+**The method is parsed by the guard itself, not by `flag_value`.** Round 1 decided the opposite and round 2 reversed it with two measurements.
+
+First, `flag_value` cannot see the attached form:
 
 ```
 printf 'gh api -XDELETE repos/o/r'  | flag_value -X value  ->  ''        (empty)
@@ -185,7 +187,30 @@ gh api -XDELETE   ->  "accepts 1 arg(s), received 0"        (gh parsed the flag)
 gh api -QDELETE   ->  "unknown shorthand flag: 'Q'"         (control)
 ```
 
-So `gh api -XDELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins` runs fine and reads as no method at all to the guard. This is chunk B's prefix-regex class again: reads complete, silently allows a subset. The hole is in `lib.sh`'s `flag_value` (`:357-368`), which every future guard will consume, so `flag_value` learns the attached short-option form and the fix lands with the existing `lib-test.sh` matrix extended. A per-guard workaround would leave the same hole open for the next guard.
+Second, and worse, `flag_value` returns on its **first** match while `gh` honours the **last**. Verified 2026-09-15:
+
+```
+printf 'gh api repos/o/r -X GET -X DELETE' | flag_value '' '-X'  ->  GET
+gh api -X POST -X GET /rate_limit  ->  {"resources":{"core":{"limit":5000,...
+```
+
+That second line is the proof of last-wins: a POST to `/rate_limit` would not return rate-limit data. So `gh api repos/tatari-tv/valet/branches/main/protection -X GET -X DELETE` reads as a GET to the guard and executes as a DELETE.
+
+**Teaching `flag_value` the attached form is not the fix, because it corrupts three shipped guards.** Reproduced against a patched copy under `$TMPDIR`, never in the tree:
+
+| payload | shipped | with a naive attached-form fix |
+|---|---|---|
+| `gh api -XDELETE repos/o/r` (`-X`) | `` (the gap) | `DELETE` (fixed) |
+| `gh pr create --body -testing --title "feat: right"` (`-t`) | `feat: right` | **`esting`** |
+| `gh pr create --body -Hbad/name --head right` (`-H`) | `right` | **`bad/name`** |
+| `gh api -H "-XGET: x" -XDELETE repos/o/r` (`-X`) | `` | **`GET: x`** |
+| `gh pr create --title=add-viewport-support` (`-t`) | unchanged | unchanged |
+
+Rows 2 and 3 are allow-to-deny flips in `branch-pr-title-guard.sh:145,146,154` and `branch-name-guard.sh:172`. Row 4 is a fresh bypass the fix itself creates. `bash lib-test.sh` against the patched copy returns **pass=135 fail=0**, so the matrix does not protect the change.
+
+The root cause is that `flag_value` has no per-flag arity table, so it cannot tell an attached value from a value that merely begins with a dash. That is not fixable generically without giving the parser a flag spec, which is a chunk-B-sized change to a dependency three live guards share.
+
+**So: `flag_value` is left alone**, its limitation is documented at its definition, and the five rows above are added to `lib-test.sh` as characterization fixtures that pin current behavior. GH-WRITE gets a **local** effective-method parse over the `gh api` token list: `-X V`, `-XV`, `--method V`, `--method=V`, **last occurrence wins**, compared **case-insensitively** (`gh api -X get /rate_limit` returns data, so `gh` accepts lowercase and an uppercase-only membership test misses `-X delete`). A repeated method flag is honoured as last-wins rather than denied, because that is what `gh` does.
 
 Also corrected from the draft: `-F` and `--field` are the same flag (`gh api --help`), and the draft listed only `-F`, so `gh api repos/o/r --field description=x` was an implicit POST outside the predicate.
 - `repo edit`
@@ -232,7 +257,11 @@ Two independent denies on a statement whose command word is `ln` with `-s`:
 
 Why the predicate and not the verb: 112 `ln -s` statements in the window, nearly all installing hook and config symlinks. A verb matcher is 112 denies for one incident.
 
-How well the predicate discriminates is **partly unmeasured, and Phase 3 closes that**: of 100 absolute two-arg `ln -s` pairs in the window, 3 are ancestor-shaped and all 3 are deliberate loop-repro probes under `/tmp`, so zero legitimate instances. But 97 of the 100 use relative paths and cannot be classified without the cwd each ran in. So Phase 3 replays all ~112 corpus statements **with their recorded cwd** and asserts zero denies. That replay is exactly the measurement that would have caught the `realpath -m` defect before it was written into a doc.
+How well the predicate discriminates is **partly unmeasured, and Phase 3 closes that**: of 100 absolute two-arg `ln -s` pairs in the window, 3 are ancestor-shaped and all 3 are deliberate loop-repro probes under `/tmp`, so zero legitimate instances. But 97 of the 100 use relative paths and cannot be classified without the cwd each ran in. So Phase 3 replays all ~112 corpus statements **with their recorded cwd** and asserts **zero denies outside the 3 known loop-repro probes, which must deny**. Asserting zero across all 112 would be unsatisfiable, because 3 of them are the exact shape the rule exists to catch.
+
+Resolving those cwds needs more than the shipped helpers: `cd_last` (`lib.sh:371-381`) and `cd_at` (`:635-645`) return the **last** `cd` operand and replace rather than accumulate, so `cd ~/repos/scottidler/claude && cd HOME && ln -s ...` yields the relative `HOME`. 97 of the 100 measured absolute-pair statements use relative paths, so the rule accumulates the cwd across the statement's `cd` chain itself, starting from the payload's `cwd` field. That accumulation is LN-local and does not touch `lib.sh`.
+
+That replay is exactly the measurement that would have caught the `realpath -m` defect before it was written into a doc.
 
 #### INGEST: bulk vault ingest
 
@@ -251,6 +280,20 @@ stmts : while IFS= read -r url | do | out=$() | rc=$? | done < urls.txt
 The command substitution is split out into its own statement, which carries the ingest but **no loop keyword, no second URL and no file redirect**. A per-statement predicate does not fire on the shape that actually happened. The plain forms are fine: `for url in a b; do sb borg ingest -- "$url"; done` and `cat urls.txt | xargs -n1 sb borg ingest --` each emit one statement holding both the loop construct and the ingest, verified. So the exception is narrow and it is named here rather than left as a silent inconsistency with the contract.
 
 Second predicate, and the sharper one for this shape: **deny an ingest whose URL operand is not a literal `http(s)://` token.** The incident's operand is `"$url"`. A variable operand means the target is not in the command, so it cannot be the thing a human named.
+
+**The three verbs do not share an operand shape, and one of them has a built-in bulk door the draft never named.** From `scottidler/second-brain/main/sb/src/cli/borg.rs`:
+
+| verb | operands | verdict |
+|---|---|---|
+| `ingest` (`:36-46`) | optional URL, `--clipboard`, **`--file <path>`** | `--file` is the CLI's own bulk path and is denied outright without the door; a single literal URL passes |
+| `reingest` (`:75-91`) | **no URL operand**; `--all` and filters | `--all` is denied without the door; a filtered reingest passes |
+| `reingest-failed` (`:96-100`) | **no URL operand** | read-only forms (`--dry-run`) always pass |
+
+So the literal-URL clause applies to `ingest` **only**. Applied to the other two it would deny every `reingest-failed --dry-run`, and `reingest --all` trips none of the loop, xargs or repeat triggers while being the largest bulk action available.
+
+**Precedence, which the draft left undefined:** the deny clauses are evaluated first and any one of them denies. `echo while; sb borg ingest -- https://one.url` satisfies both "single literal URL" and "contains a loop keyword", and it denies. The single-literal-URL form is an allow only when no deny clause fires.
+
+**The raw-text scan needs a bound, and this document proves it.** The INGEST section above contains both `while IFS= read -r url; do` and `sb borg ingest`, so writing this design doc through a heredoc would deny under an unbounded command-scope raw scan. That is chunk C's self-reference class exactly. The bound: a heredoc body is scanned **only when its redirect target is a shell script**, meaning a `.sh` path or a target that the same command marks executable. The incident's target is `"$S/ingest.sh"`; this doc's target is a `.md` path. Both shapes are pinned as fixtures, the deny and the allow.
 
 Note the wording: not "bulk". A loop body is one statement regardless of how many times it runs, so "bulk" is not statically countable and a rule phrased that way cannot be implemented. What is countable is the loop, the `xargs`, the file redirect, the repeat count, and whether the operand is a literal.
 
@@ -279,19 +322,46 @@ cd ~/repos/scottidler/claude && git add .gitignore HOME/Claude/writing/voice \
   HOME/repos/.claude/rules/voice.md && git commit -m "add voice corpus ..."
 ```
 
-At hook time the index holds none of those paths. So the commit half's path set is the **union of three sources**: the arguments of any `git add` statement in this same command, the arguments of `git commit <paths>` (which commits working-tree content and bypasses the index entirely), and the current index. The 1 MB check measures the blob that will be committed, not whatever currently occupies the path.
+At hook time the index holds none of those paths. So the commit half's path set is computed per commit form, not as one blanket union:
+
+| commit form | path set |
+|---|---|
+| plain `git commit` | current index, plus the arguments of any `git add` statement in this same command |
+| `git commit <paths>` | those paths only (working-tree content, index bypassed) |
+| `git commit --only <paths>` | those paths only. Unioning the whole index here produces false denies |
+| `git commit -a` / `--all` | current index plus every tracked modification. No `git add` appears and there is no path operand |
+
+`git commit -a` was missing from the draft, and the doc's own evidence counts 65 such statements in the window. Its severity is bounded: `-a` reaches **tracked** files only, and there are zero tracked sensitive paths in this repo today, so it is a completeness gap rather than a live leak. It is in the set regardless.
+
+Directory operands (`git add .`, `git add docs/`) are **expanded to files** against the working tree, never pattern-matched as the literal string. The 1 MB check measures the blob that will be committed, not whatever currently occupies the path.
 
 **The push half has no index at all, and `@{u}..HEAD` is the wrong question.** Three defects in the draft:
 
-- **Refspec and non-HEAD sources.** `@{u}..HEAD` describes HEAD, not the ref being pushed. 32 refspec-form push statements in the window, including **this chunk's own landing command** (`git push origin intent-guards:main`), plus `git push origin 472114f:refs/heads/bump-v0.2.0` and a push from a different HEAD. The rule parses the source ref out of the refspec and diffs that, and **fails closed** when it cannot resolve one. `@{u}` errors with "no upstream configured" on a fresh branch, which is the normal state for this repo's landing flow.
-- **An endpoint diff hides add-then-remove.** `git diff A..B` compares two trees, so a sensitive file added and then removed inside the pushed range diffs to nothing while its bytes are published in history. The rule walks the commits (`git log --name-only A..B`), not the endpoints.
+- **Refspec and non-HEAD sources.** `@{u}..HEAD` describes HEAD, not the ref being pushed. 32 refspec-form push statements in the window, including **this chunk's own landing command** (`git push origin intent-guards:main`), plus `git push origin 472114f:refs/heads/bump-v0.2.0` and a push from a different HEAD. The rule parses the source ref out of the refspec and diffs that, and **fails closed** when it cannot resolve one.
+- **The destination boundary is read from the remote, on the push path only.** `@{u}` errors with "no upstream configured" on a fresh branch, the normal state for this repo's landing flow, and a remote-tracking ref can be arbitrarily stale. So the guard resolves the destination with one `git ls-remote <remote> <dest-ref>`: a push is already a network operation, so one extra round trip is not the hot path, and an absent destination ref means the whole source history is in range. An unresolvable destination **denies**.
+- **An endpoint diff hides add-then-remove, and a plain commit walk hides merge-introduced content.** Neither single method is sufficient, measured 2026-09-15 on a synthetic repo whose merge **resolution** added `.env`:
+
+  ```
+  git log --format= --name-only BASE..HEAD                            ->  a.txt  s.txt
+  git log --format= --name-only --diff-merges=first-parent BASE..HEAD ->  a.txt  .env  s.txt
+  ```
+
+  `git log --name-only` shows no diff for a merge commit by default, so bytes published through a merge resolution are invisible to the walk the draft prescribed. `--diff-merges=first-parent` catches both classes: it lists per-commit names, so an add-then-remove pair still surfaces the filename, and it attributes the merge's own resolution.
+- **Blob size is measured over the range, not on disk.** A filename cannot distinguish a currently-small file from a 4 MB blob earlier in the pushed history, so the size check runs `git rev-list --objects` over the range into `git cat-file --batch-check`.
 - **Cases to model:** a new branch with no upstream, force-push, detached HEAD, tag push, and `--all` or multiple refspecs. `--no-verify` is **not** one of them and is recorded here so it is not re-raised: it bypasses git's own pre-push hook and never a Claude `PreToolUse` hook.
 
 Standing on this: **119 of Scott's 136 personal repos are public, including `scottidler/claude` itself**, the repo that holds his rules, `WHOAMI.md` and every design doc in this program. `scottidler/keep`, where the `.age` secrets live, is private, so the `.age` pattern costs nothing there.
 
 Observed on main, 2026-09-15: `git ls-files | grep -E '<pattern>'` returns 0 matches in this repo, and no tracked file exceeds 1 MB. The guard has zero standing false positives against the current tree.
 
-Visibility is read once per repo with `gh repo view --json visibility` and cached under `~/.cache/`, because a `gh` call on every commit is not acceptable at 689 ms of existing hook latency. An unknown or unreadable cache entry is treated as **public**, so a repo that flips to public between refreshes fails closed.
+Visibility is read once per repo with `gh repo view --json visibility` and cached under `~/.cache/`, because a `gh` call on every commit is not acceptable at 689 ms of existing hook latency. The cache entry is `visibility` plus the epoch it was read, with a one-week life.
+
+Two cases, and the draft only handled the easy one:
+
+- **Unknown, missing or unreadable** reads as **public**, so the guard is on rather than off when it has no answer.
+- **A cached `private` that has since gone public** is the case that matters, and unknown-reads-as-public does nothing for it: a stale `private` entry stays private for the rest of its week. So a cached `private` is **revalidated with `gh` before the guard allows a sensitive path**, and only then. The revalidation is on the deny-candidate path, not the hot path: a commit with no sensitive path never triggers it, which is every commit in this repo today. If the revalidation cannot run, the guard denies.
+
+The refresher is the guard itself, on read, with no background job.
 
 Scope stays `~/repos/scottidler/*`: no repository outside it has an origin remote Scott owns, third-party clones are not pushable, and `tatari-tv` is a different threat model.
 
@@ -307,7 +377,15 @@ The draft carried a blanket-staging deny (`git add -A` / `.` / `--all`) as item 
 - **TEST-TEXT**: deny when the first line matches test/testing/verify/verifying and the target is not one of the two exempt ids. This is the 2026-07-10 class: five live posts and an MCP write test into a coworker DM during a shakedown whose prompt was "merged #10, tag v0.2.0 and run the shakedown". The rule is purely textual on purpose: the audit's phrasing of it ("no live posts during a `/cli-shakedown`") is not implementable, see Non-Goals.
 - **RESEND**: deny a repost of the same body to the same target. This is the 2026-06-09 class: "having you spam multiple versions of shit into our DMs is NOT what I asked you to do", one post asked, two sent.
 
-  The draft's "one `last-post` record, first 40 characters, 120 seconds" does not survive contact: an A then B then A sequence loses A's entry, two concurrent sessions can both pass before either writes, recording at `PreToolUse` suppresses a legitimate retry after a **failed** send or after another hook's deny, and first-40-chars matching would block correcting a typo. So the state is keyed on `(target, body-hash, confirmed-sent)` with an entry per target rather than one global record, only a confirmed send counts, and **`chat_update` is exempt** because editing an existing message is the opposite of a resend.
+  The draft's "one `last-post` record, first 40 characters, 120 seconds" does not survive contact: an A then B then A sequence loses A's entry, two concurrent sessions can both pass before either writes, recording at `PreToolUse` suppresses a legitimate retry after a **failed** send or after another hook's deny, and first-40-chars matching would block correcting a typo. So the state is keyed on `(target, body-hash)` with an entry per pair rather than one global record.
+
+  **A `PreToolUse` hook cannot write that state**, which round 2 caught and which made the round-1 rewrite inert: the hook never sees a send result. So `slack-post-guard.sh` is registered on **`PostToolUse`** as well, and the two registrations split the work: `PreToolUse` reads the ledger and denies a match, `PostToolUse` reads the tool result and records the pair as sent. Concurrency is handled with an exclusive `flock` on the ledger, so two sessions cannot both read "absent" and both send.
+
+  **A failed call does not mean nothing was sent.** Verified in the client: `post_chunks` can fail after the parent message has landed, and follow-ups post after it (`tatari-tv/slack-cli/src/mcp/helpers.rs:300-320`). So the `PostToolUse` side records per-recipient from what the result reports, and a parent that landed stays blocked even when the overall call returned an error.
+
+  **`chat_update` is exempt**, because editing an existing message is the opposite of a resend, and checked so it is not re-raised: `ChatUpdateRequest` carries no `dm_mentioned` and no `follow_ups` (`slack-cli/src/mcp/request.rs`), so an edit cannot fan out and the exemption opens no recipient hole.
+
+  Cleanup: a ledger entry expires after an hour, and an unreadable or unwritable ledger **denies** on the `PreToolUse` side, consistent with the rest of this rule.
 
 **The exemption is not a bound on recipients, and that is the sharpest finding of round 1.** One call to the Slack client can reach people other than the named target, confirmed in the client source:
 
@@ -316,6 +394,10 @@ The draft carried a blanket-staging deny (`git add -A` / `.` / `--all`) as item 
 - `follow_ups`, additional bodies threaded under the parent (`src/mcp/request.rs:113-122`)
 
 So a post whose primary target is `#clipboard` can still land in a coworker's channel or DM. The guard resolves the full recipient set (primary target, every `--broadcast`, every mention when `dm_mentioned` is set) **before** granting either exemption, and TEST-TEXT applies to every `follow_ups` body as well as the primary one. A body read from a file is checked as the text that will be sent, not as the filename.
+
+**The guard's recipient set can be smaller than the client's, and that decides the exemption.** Verified in the client: `write::fanout_recipients` calls `ensure_users_fresh()` then `ensure_usergroups_fresh()` and **refreshes a stale cache from the API before expanding recipients** (`tatari-tv/slack-cli/src/command/write.rs:785-787`, impl at `src/slack/mention.rs:906`). The guard reads `~/.cache/slack/ids.json` as it stands, so a cache older than the client's staleness window authorizes a smaller set than the client then sends to.
+
+The ruling: **the client's set is authoritative, and the guard never grants an exemption on a set it cannot vouch for.** Concretely, an exemption requires the cache's `users_synced_at` and `usergroups_synced_at` to be inside the client's own staleness window. Outside it, or with any mention the cache cannot resolve, there is no exemption and the post needs a named target in the prompt. The two exempt ids themselves are literals and never need the cache, so a post to `#clipboard` with no mentions and no `--broadcast` passes regardless of cache age.
 
 Why name resolution and not a literal channel id: for 86 of 120 posts in the window Scott names the target by person or `#name` only ("message russ", "slackify this to Reno"). A guard requiring the literal id in the prompt blocks 72% of legitimate posts.
 
@@ -371,7 +453,11 @@ The pattern list is built from that measurement, not from the audit's globs: `/r
 
 **3. The `Read` matcher.** The `.env` leak came through the Read tool, which no hook in this repo has ever matched. Two things are unproven and both are Phase 0 criteria: whether a `"matcher": "Read"` block fires at all, and whether its deny survives `Read(**)` sitting in `permissions.allow`. Chunk A's spike proved only that a `Write|Edit|MultiEdit|NotebookEdit` matcher does **not** fire on Read (`docs/design/2026-09-13-enforcement-core-phase0/evidence.md:90-104`), which is a different claim. `rewrite-cd-read.py:5-9` documents the adjacent asymmetry, that allow and deny evaluation runs regardless of what a hook returns, which is exactly why this needs a measurement and not an argument.
 
-Residual hole, named rather than patched blind: `Grep` and `Glob` over a credential path are not covered, and a `Grep` result can carry a matching line. No instance appears in the corpus.
+Residual holes, named rather than patched blind:
+
+- `Grep` and `Glob` over a credential path are not covered, and a `Grep` result can carry a matching line. No instance appears in the corpus.
+- Slack message **deletes** (`mcp__slack__chat_delete`, `chat_delete_scheduled_message`, CLI `slack delete`) are uncovered. Audit item 6's Slack scope is the unasked post, and round 1 rejected DELETE-OUT expansions on measured grounds, so this is deferred rather than refused. The MCP already fails closed on messages the agent did not author.
+- `gh api graphql` mutations: 716 statements, 170 mutations, zero on a guarded surface.
 
 **Handed to Scott, not fixed here:** `/run/user/1000/{borg,cortex,sb-harvest}.env` are mode 0664, so roughly 40 live credentials are readable by any local process on this machine. That is a configuration finding for the daemons that write those files, outside this chunk and outside this repo.
 
@@ -383,7 +469,7 @@ Found in pass 4, each one pinned as a matrix fixture in its phase:
 - **DELETE-OUT**: `--help` passes; `--yes` does not change the verdict; the deny covers `acli jira workitem delete` and `acli confluence page delete` and nothing else in `acli`.
 - **LN**: the one-argument form (`ln -s target`, link name inferred from the basename in the cwd), a relative target, combined short flags (`-sfn`), the long form (`--symbolic`), and a `cd` prefix, which the rule resolves with `lib.sh`'s `cd_target`/`cd_at` rather than trusting `$PWD`.
 - **INGEST**: `sb borg reingest` and a bare `borg ingest` both count. The `BULK_INGEST_ORDERED_BY_SCOTT` door can be typed by the model as easily as by Scott, exactly like chunk C's `PANEL_ROUNDS_ORDERED_BY_SCOTT`. The mitigation is the same and it is not cryptographic: the variable name makes an agent-authored override plainly visible in the transcript and in `clyde permit log`.
-- **PUBLIC-REPO**: `git commit` reads the index (`git diff --cached --name-only`); `git push` has no index to read and must query the outgoing commits instead (`git diff --name-only @{u}..HEAD`, falling back to the range against `origin/<default>` when there is no upstream). Treating push like commit would make the push half inert. Bare-container worktrees put the tree under `/main/`, so the rule resolves the repo root with `git rev-parse --show-toplevel` and never by string-matching the cwd.
+- **PUBLIC-REPO**: the path sets are specified at the rule, per commit form and per push form; neither is `git diff --cached` alone and neither is an endpoint diff. Bare-container worktrees put the tree under `/main/`, so the rule resolves the repo root with `git rev-parse --show-toplevel` and never by string-matching the cwd.
 - **SLACK**: a missing or unreadable `~/.cache/slack/ids.json` fails **closed** with a deny that names the refresh command, rather than failing open into an inert guard. `#clipboard` and Scott's own DM stay allowed in that state, because their ids are literals in the hook and need no cache.
 - **SECRET**: the `Read` deny covers `Read` only. `Grep` and `Glob` over a credential path are not covered, and a `Grep` result can carry a matching line. Named as a residual hole rather than patched blind, because no instance of it appears in the corpus.
 
@@ -402,12 +488,14 @@ Nothing changes in a rule before the guard that replaces it is live and its matr
 ## Data Model
 
 ```
-~/.cache/intent-guard/visibility/<owner>-<repo>    public|private, one line, refreshed weekly
-~/.cache/slack/ids.json                            channels, users, handles (existing)
-~/.cache/slack/last-post                           target + first 40 chars + epoch, for RESEND
+~/.cache/intent-guard/visibility/<owner>-<repo>    visibility + epoch read, one week life,
+                                                   a cached `private` revalidated before an allow
+~/.cache/slack/ids.json                            channels, users, handles, *_synced_at (existing)
+~/.cache/slack/sent-ledger                         one entry per (target, body-hash), one hour life,
+                                                   written by the PostToolUse half, flock-guarded
 ```
 
-No state is kept for GH-WRITE, DELETE-OUT, LN or INGEST: all four are pure functions of the command string.
+GH-WRITE, DELETE-OUT and INGEST keep no state: all three are pure functions of the command string. **LN is not**: it needs the cwd the statement runs in and the filesystem state of the link's parent, which is why its corpus replay has to carry the recorded cwd.
 
 ## Implementation Plan
 
@@ -428,9 +516,9 @@ Two of the three questions the draft asked are already answered by chunk C's own
 - **Still unproven, and this is the gate.** Whether the record is flushed at the instant a hook fires cannot be read off a completed file. A scratch `PreToolUse` Bash hook dumps what it can see, for three cases: a plain prompt, a slash-command prompt, and a turn whose first tool call is the guarded one.
 - **Also unproven.** Whether a `"matcher": "Read"` block fires at all, and whether its deny blocks the call with `Read(**)` still in `permissions.allow`.
 - **Free measurement while the harness is up.** Whether `prompt_id` is constant across every tool call in one turn. If it is, it replaces `prose.sh`'s ordering heuristic with an exact staleness key.
-- **The latency measurement needs a budget, not just a number.** Pass is added hook cost under 150 ms per Bash call for the one new hook; over that, the design reopens on rule-count-per-hook. A measurement with no threshold is evidence collection, not a gate.
-- **Extractor miss rate.** Run the extractor over at least 40 turns from `~/.claude/projects`, counting false authorizations by class: teammate relays and `<command-*>` wrappers. Two defects are already known in `prose.sh:131-153` and get fixed rather than measured: the relay filter `startswith("Another Claude session sent a message:")` is applied only on the `last-prompt` branch (`:137`) and not the `user` fallback (`:139-143`), and the `startswith("<")` clause silently discards slash-command turns whose shape is `<command-message>...</command-message>` plus `<command-name>` plus `<command-args>`.
-- **Success criteria:** `docs/design/2026-09-15-intent-guards-phase0/evidence.md` answers all six, each with its command and output. If the `Read` matcher does not fire or its deny loses to `Read(**)`, the SECRET Read half has no seam and this doc reopens rather than the phase improvising. If the current turn's prompt is not reliably readable, the SLACK TARGET rule degrades to the exempt-id allowlist plus TEST-TEXT plus RESEND, and the doc is amended before Phase 5.
+- **The latency measurement needs a budget, not just a number.** Pass is **total** added cost under 250 ms per Bash call across everything this chunk registers, not 150 ms for one hook: the chunk adds `intent-guard.sh`, `slack-post-guard.sh` (which scans a transcript and reads `ids.json`) and a `Read` matcher. Measured against the named payload classes: a small command, a command in a repo with a cold visibility cache, and a session with a large transcript. Over budget, the design reopens on rule-count-per-hook. A re-measure after the last phase is part of the final sweep.
+- **Extractor miss rate, with a threshold.** Run the extractor over at least 40 turns from `~/.claude/projects`, counting false authorizations by class: teammate relays and `<command-*>` wrappers. Pass is **zero** false authorizations of either class, because a single one is a guard that treats machine traffic as Scott's instruction. A miss that returns *no* prompt is a different outcome and is measured separately: over 20% of turns and the TARGET rule degrades per the fallback below. Two defects are already known in `prose.sh:131-153` and get fixed rather than measured: the relay filter `startswith("Another Claude session sent a message:")` is applied only on the `last-prompt` branch (`:137`) and not the `user` fallback (`:139-143`), and the `startswith("<")` clause silently discards slash-command turns whose shape is `<command-message>...</command-message>` plus `<command-name>` plus `<command-args>`.
+- **Success criteria:** `docs/design/2026-09-15-intent-guards-phase0/evidence.md` answers all six, each with its command and output. If the `Read` matcher does not fire or its deny loses to `Read(**)`, the SECRET Read half has no seam and this doc reopens rather than the phase improvising. If the current turn's prompt is not reliably readable, the fallback is the `UserPromptSubmit` recorder in Alternative 4, and the SLACK TARGET rule degrades to the exempt-id allowlist plus TEST-TEXT plus RESEND only if the recorder is also unavailable. Round 2 flagged that Phase 0 and Alternative 4 disagreed on this; the recorder is first, the degrade is second, and the doc is amended before Phase 5 either way.
 
 #### Phase 1: close chunk B's secret-guard hole
 **Model:** opus
@@ -446,7 +534,9 @@ Two of the three questions the draft asked are already answered by chunk C's own
 - `intent-guard-test.sh` matrix, every deny fixture re-run through `shapes.sh`'s `WRAPPER_SHAPES`
 - permission-deny entries for `acli jira workitem delete`, `acli confluence page delete`, `gh repo edit`
 - `.otto.yml` lint `FILES` list grown with every file this phase touches
-- **Success criteria:** `otto ci` exits 0; the matrix denies the two incident commands verbatim (`gh api -X DELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins`, `acli jira workitem delete --key SEC-2997 --yes`) in all `WRAPPER_SHAPES`; `gh api repos/tatari-tv/philo/pulls/1 -X PATCH -f body=x` is allowed
+- **Success criteria:** `otto ci` exits 0; the matrix denies the two incident commands verbatim (`gh api -X DELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins`, `acli jira workitem delete --key SEC-2997 --yes`) in all 18 `wrap_shapes` spellings; `gh api repos/tatari-tv/philo/pulls/1 -X PATCH -f body=x` is allowed
+- **Method-parse criteria, one fixture each, because these are what the phase exists to get right:** `-XDELETE`, `--method=DELETE`, `-X delete` (lowercase), `-X GET -X DELETE` (last wins, denies), `--method GET -f x=1` on a guarded path (explicit GET with fields, allows), `--field x=1` with no method (implicit POST, denies), a leading slash (`/repos/o/r`), and gh's `{owner}`/`{repo}` placeholders
+- The five `flag_value` characterization fixtures added to `lib-test.sh`, pinning current behavior without changing the parser
 
 #### Phase 3: LN and the `~/Claude` policy
 **Model:** opus
@@ -462,9 +552,9 @@ Two of the three questions the draft asked are already answered by chunk C's own
 
 #### Phase 5: SLACK
 **Model:** opus
-- `slack-post-guard.sh` on both matchers, three rules, `~/.cache/slack/last-post` for RESEND
+- `slack-post-guard.sh` on the MCP write tools and the Bash matcher for `PreToolUse`, **and on `PostToolUse`** to record confirmed sends; three rules; `~/.cache/slack/sent-ledger` under `flock`
 - The two-target confirmation split written into the Slack skills
-- **Success criteria:** a post to `#clipboard` passes with no confirmation; a post to an unnamed channel is denied; a `**MCP write test**` first line to a DM is denied; a same-text repost inside 120 s is denied
+- **Success criteria:** a post to `#clipboard` with no mentions and no `--broadcast` passes with no confirmation and no cache read; a post to an unnamed channel is denied; a `**MCP write test**` first line to a DM is denied; a repost of the same body to the same target after a recorded successful send is denied, while the same body after a recorded failure is allowed; a `#clipboard` post carrying `--broadcast <other-channel>` is denied
 
 #### Phase 6: SECRET vectors and the Read deny
 **Model:** opus
@@ -482,7 +572,7 @@ Two of the three questions the draft asked are already answered by chunk C's own
 - **Single repo.** Every file this chunk touches is in `scottidler/claude`: `HOME/.claude/hooks/*`, `HOME/.claude/settings.json`, `HOME/repos/.claude/rules/{git,interaction}.md`, the Slack skills, `.otto.yml`. No other repo changes.
 - **The write fence is Bash-only, not absolute.** Verified 2026-09-15 with touch probes from this session: writable via Bash are `HOME/.claude/hooks/`, `HOME/repos/.claude/rules/`, `bin/`, `docs/design/` and `.otto.yml`; denied via Bash are `HOME/.claude/agents/`, `HOME/.claude/skills/`, `HOME/.claude/output-styles/`, `HOME/.claude/settings.json` and `HOME/.claude/CLAUDE.md`. The **Edit tool reaches the denied set**, proven inside this program by `f257ddb` (registered `panel-round-guard` in `settings.json`) and `ca3bfe8` (edited `HOME/.claude/agents/review-panel.md`). So the chunk is not blocked: new hook files land in a Bash-writable directory, and the `settings.json` registrations go through Edit. What is forbidden is a Bash redirect or heredoc into the denied set.
 - **Hooks go live on SAVE, not on commit.** `~/.claude/hooks/` holds **per-file** symlinks into the working tree (verified 2026-09-15: `allow-help.sh -> /home/saidler/repos/scottidler/claude/HOME/.claude/hooks/allow-help.sh`, and the same for every entry). So an already-linked script is live the instant the file is written, before `otto ci` and before the commit. "Matrix green before the commit" isolates nothing for an **edited** hook. Only a **new** file waits, and it waits for its `manifest -l` link plus its `settings.json` registration, not for the commit.
-- **Consequence for the two phases that edit a live guard** (Phase 1 and Phase 6, both on `secret-echo-guard.sh`): the candidate predicate is developed and exercised against a **copy** under a scratch name, the matrix is run against the copy, and only then is the live file written. Writing first and testing after means every session on this machine runs the untested predicate in between.
+- **Copy-before-live applies to every already-live script and every shared dependency, not just the two phases that edit `secret-echo-guard.sh`.** The candidate predicate is developed and exercised against a **copy** under a scratch name, the matrix runs against the copy, and only then is the live file written. That covers Phase 1 and Phase 6 on `secret-echo-guard.sh`, and it also covers `intent-guard.sh` in Phases 3, 4 and 7, because Phase 2 registers it and every later edit lands on a live hook. `lib.sh` is in the same position (`~/.claude/hooks/lib.sh` is a symlink into the working tree and three shipped guards source it), which is one of the reasons this chunk no longer edits it.
 - **Recovery path for a guard that denies its own repair.** `secret-echo-guard.sh` is registered on Bash, so a broken version can deny the very `sed`/`python3` call that would fix it. The escape is the Edit tool, which is not on the Bash matcher, and the fallback is Scott running the repair with `!`. Named because Phase 1 edits that exact guard.
 - **The rails plugin loads once per session**, so nothing in this chunk may depend on a rails change taking effect in the session that lands it. Chunk D adds no rails hooks, so this only matters if the Open Question resolves to option B.
 - **Ship order: Phase 0, then Phase 1, then free.** Phase 1 closes a live bypass of a shipped guard and outranks every new rule. After that the rules are independent: no rule reads another's state, and the only shared file is the hook skeleton Phase 2 creates. Phases 3, 4 and 7 depend on that skeleton; Phases 5 and 6 are separate files and can land in any order. Eight phases, 0 through 7.
@@ -519,7 +609,7 @@ This chunk is the security work. Two notes on not making it worse:
 - **Chunk C's process rule applies directly here**: a guard that parses a document or a script body must be tested in the form the artifact actually uses. INGEST reads heredoc bodies, so its matrix pins the incident's quoted-delimiter heredoc verbatim, not an inline-backtick paraphrase.
 
 ### Rollout Plan
-Phase by phase, each its own commit, `otto ci` green before the commit, pushed to `main` with `git push origin intent-guards:main`. No flag, no staged rollout: a shell hook is live the moment it is committed. After the last phase, a round-1 implementation audit dispatched under the guards it is auditing, then the acceptance criteria re-run against the live setup and recorded.
+Phase by phase, each its own commit, `otto ci` green before the commit, pushed to `main` with `git push origin intent-guards:main`. No flag and no staged rollout, and note what that means precisely: a shell hook is live the moment its file is **written**, not when it is committed (see Blast radius). The commit records it; the save deploys it. After the last phase, a round-1 implementation audit dispatched under the guards it is auditing, then the acceptance criteria re-run against the live setup and recorded.
 
 ## Acceptance Criteria
 
@@ -560,13 +650,18 @@ Every criterion below was executed against `main` at 53f2904 on 2026-09-15 and t
 - **2026-09-15: one hook, not five.** 689 ms of measured Bash-hook latency and five rules over one command string.
 - **2026-09-15: LN guards the predicate, not the verb.** 112 legitimate `ln -s` statements in the window make a verb matcher unshippable.
 - **2026-09-15: INGEST reads heredoc bodies**, against the general rule that guards match on the masked copy. The measured vector lives only in a heredoc body and the surface is 11 statements in four months.
-- **2026-09-15: no `UserPromptSubmit` recorder.** The `PreToolUse` payload already carries `transcript_path` and `prompt_id`, and the prompt record lands before the turn's first tool call. A recorder would be a second source of truth for the same fact. Narrowed by panel round 1: the source is the `user` string records, not `last-prompt`. Kept as Alternative 4 against Phase 0's flush-timing result.
+- **2026-09-15: no `UserPromptSubmit` recorder, *provisionally*.** Settled: the `PreToolUse` payload carries `transcript_path` and `prompt_id`, and the source is the `type=="user"` string records, not `last-prompt` (panel round 1 measured the ordering over 1,122 turns). **Not settled, and it is Phase 0's gate:** whether the current turn's `user` record is visible at the instant a hook fires. Alternative 4 stays live against that result, and Phase 0 owns the fallback for both outcomes.
 - **2026-09-15: skill-activity inference is refused outright**, not deferred. No payload field, and the transcript signal has no end marker. See Non-Goals.
 - **2026-09-15: item 8's `Environment=` vector is replaced by the measured `EnvironmentFile=` targets.** Zero secret values in any unit file's `Environment=`; the credentials are in `/run/user/1000/*.env` and `*/token*.json`.
 - **2026-09-15: chunk B's single-quoted-verb hole is chunk D's Phase 1**, ahead of every new rule, because it is a live bypass of a guard that is already shipped and already trusted.
 - **2026-09-15, Scott's ruling: item 1 ships with no guard.** Asked as an A/B with five measured predicates; answer was A, accept the gap. Not a deferral: the class is uncovered and recorded as such in Non-Goals.
 - **2026-09-15: the blanket-staging deny is dropped entirely**, after panel round 1 removed its item-1 claim and a measurement removed its phantom claim. Author's call on the evidence in Alternative 5, reversing the draft's own Rec.
-- **2026-09-15 (panel round 1): the `flag_value` attached-short-option gap is fixed in `lib.sh`, not worked around in the guard.** Every future guard consumes the same parser, so a local workaround would leave the class open.
+- **2026-09-15 (panel round 2, reversing round 1): `flag_value` is NOT changed.** Round 1 decided the attached-short-option gap belonged in `lib.sh`. Round 2 measured the obvious fix flipping two shipped guards from allow to deny (`-t` yields `esting`, `-H` yields `bad/name`) and creating a fresh `-X` bypass, with `lib-test.sh` passing 135/0 over the patched copy. Root cause: `flag_value` has no per-flag arity table, so it cannot tell an attached value from a value beginning with a dash. GH-WRITE parses the method locally, last-wins and case-insensitive; the five measured rows become characterization fixtures in `lib-test.sh`.
+- **2026-09-15 (panel round 2): PUBLIC-REPO's push half reads the destination from the remote** with one `git ls-remote`, and walks the range with `--diff-merges=first-parent`. A plain walk misses a file introduced by a merge resolution, measured; an endpoint diff misses add-then-remove, measured in round 1. The first-parent walk covers both.
+- **2026-09-15 (panel round 2): a cached `private` visibility is revalidated before an allow**, not merely on a cold read. Unknown-reads-as-public does nothing for a stale `private` entry, which is the case that leaks.
+- **2026-09-15 (panel round 2): `slack-post-guard.sh` also registers on `PostToolUse`.** A `PreToolUse` hook cannot observe a send result, so the round-1 RESEND state was unwritable and the rule was inert.
+- **2026-09-15 (panel round 2): the client's recipient set is authoritative.** No exemption is granted on a cache staler than the client's own staleness window, because the client refreshes before expanding and the guard does not.
+- **2026-09-15 (panel round 2): the INGEST raw-text scan is bounded to heredocs whose redirect target is a shell script.** Unbounded, it denies the writing of this design doc, which contains both a loop keyword and the ingest verb.
 - **2026-09-15 (panel round 1): INGEST evaluates at command scope**, a named exception to the "match on `stmts` output" contract, because the measured shape puts the ingest in a statement stripped of its loop.
 - **2026-09-15 (panel round 1): the Slack exemption is a bound on the full recipient set**, not on the primary target. `--broadcast`, `dm_mentioned` and `follow_ups` each reach past it.
 - **2026-09-15: the `~/Claude` symlink deny rides in this chunk.** It is not in the audit's change list; it is in Scott's `CLAUDE.md`, and the LN rule is the only place it can be enforced.
@@ -627,6 +722,13 @@ None. The two that survived panel round 1 are both closed:
 
 - **Does item 1 stay uncovered?** Scott ruled A on 2026-09-15: accept the gap. Recorded in Non-Goals with all five measured predicates.
 - **Is phantom prevention worth 454 denials?** Closed by measurement, not by ruling: git refuses to add a character-special file and aborts the whole `git add -A`, so there is no phantom class left for the rule to close. The rule is dropped (Alternative 5).
+
+Round 2 nominated four for this section. All four are decisions rather than unknowns, so they are decided here rather than parked, which is what `rules/taste.md` requires of an author:
+
+- **PUBLIC-REPO's outgoing-object set.** Destination boundary: one `git ls-remote` on the push path, unresolvable denies. Merge handling: `--diff-merges=first-parent`. Blob identity: `git rev-list --objects` into `git cat-file --batch-check` over the range.
+- **The stale-private visibility window.** Not accepted: a cached `private` is revalidated before the guard allows a sensitive path, and a failed revalidation denies. The call is on the deny-candidate path only, so it is not in the hot path.
+- **RESEND's lifecycle.** A `PostToolUse` registration records confirmed sends, `flock` serializes concurrent sessions, per-recipient recording handles a partial failure where the parent landed, entries expire after an hour, and an unreadable ledger denies.
+- **Which recipient set is authoritative.** The client's. No exemption on a cache staler than the client's staleness window, or on a mention the cache cannot resolve.
 
 Closed earlier, recorded so they are not reopened:
 
