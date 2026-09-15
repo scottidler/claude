@@ -32,7 +32,7 @@
 | A | 1, 2, 3 | Sandbox config fixes, first prose hooks (Stop + em-dash deny), rm guard via rails | done | `docs/design/2026-09-13-enforcement-core.md` | no PR, landed on main: [`0d252b8..5faca7d`](https://github.com/scottidler/claude/compare/0d252b8...5faca7d) |
 | B | 5 | Hook preflight, heredoc-aware guard parser, git -C rewrite, branch-name guard, release-guard gaps, stale tag-first text, broken frontmatter | done | `docs/design/2026-09-13-guard-precision.md` | no PR, landed on main: [`8ee8f60..96e6a79`](https://github.com/scottidler/claude/compare/473fb6d...96e6a79) |
 | C | 4 | review-panel round cap made mechanical, poll snippet removed, agent file shrunk | done | `docs/design/2026-09-14-panel-round-cap.md` | no PR, landed on main: [`bff72f2..a165fd3`](https://github.com/scottidler/claude/compare/bff72f2...a165fd3) |
-| D | 6 | Intent guards: commit, Slack post, vault ingest, gh api writes, outward deletes, ln, public-repo; secret-guard vectors | next | | |
+| D | 6 | Intent guards: commit, Slack post, vault ingest, gh api writes, outward deletes, ln, public-repo; secret-guard vectors | drafting | `docs/design/2026-09-15-intent-guards.md` | |
 | E | 7, 8 | Inline /skill token hook, review-panel shim, one release chain, execute-a-plan synchronous + self-audit, pr-open helper | queued | | |
 | F | 9, 10, 11 | Session recall rule + skill + grounding hook, own the handoff skill + resume, sleep -> Monitor deny + pr-babysitter agent | queued | | |
 | G | 12, 13 | Agent definitions (house rules, dispatch.md, model defaults, worktree isolation, phase return contract), doc-gate + template | queued | | |
