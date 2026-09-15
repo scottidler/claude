@@ -122,3 +122,58 @@ atomicity.
   checks out, including that `block-question-picker.sh:20` really does read only
   `.tool_name`, so the caveat was correct. Nothing anywhere shows an Agent
   PreToolUse payload.
+
+## Implementation audit, round 1 (2026-09-14, Mode 2)
+
+Rulings are in the design doc's Implementation Audit section. These are the
+minutes. Recorded here because the run dir (`/tmp/review-panel/EQQ6ToY8`) is on
+tmpfs and does not survive a reboot, which is the same fact that forced this
+doc's evidence to be re-derived in the first place.
+
+Seats: architect rc=0 (6,535B, attempt 2 of 2 after the known Invalid-stream
+retry); staff-engineer rc=0 (7,836B). Snapshot equalled the live file, 0 lines
+of drift. 5 questions asked, 5 answered. Counts: 3 must-fix, 4 cheap wins,
+4 defer.
+
+### The seats disagreed, and that was the finding
+
+The Architect (Gemini) reported zero defects: "the regex is robust", "prose
+discussing `Status: Implemented` will not trigger a mode flip". It ran no
+commands. Two of its five verdicts were falsified by probes. The Staff Engineer
+(Codex) named both parser defects and disclosed that it could not execute the
+matrix under a read-only `mktemp`. It was right on both. Step 4's
+verify-every-negative-claim rule is what caught the difference, which is an
+argument for that rule surviving Phase 3.
+
+### Verified, not taken on either seat's word
+
+Q2, the compression risk, was the finding most expected to bite. The audit
+diffed `762016f`'s 26,322B agent file against the shipped 19,954B one,
+enumerated all 190 removed lines, and confirmed each of the 12 rules the moved
+incidents produced is still stated explicitly: Step 0.3 stale-diff, Step 0.4
+questions, Step 1.1 snapshot-and-pass-the-snapshot, Step 3 never-detach,
+Step 3 dispatch-status-is-the-record, Step 3 no-outer-timeout, Step 3 rc=3
+remedy, Step 3.5 substitute-labeling, Step 3.75 probes-and-UNVERIFIED, Step 4
+file-first, Step 4 unverified-absolutes, Step 5 SendMessage-is-the-path, Step 6
+questions-non-negotiable. Frontmatter intact, nine step headers present,
+em-dashes 44 to 0 across all three files. The only content that left the tree
+entirely was Step 4's four rejected-dogma examples, since restored.
+
+### Defer, all four ride as disclosed
+
+- Artifact-name inconsistency in `review-panel.md`. Now in Open Questions, and
+  upgraded from untidiness to measured friction: this audit's own artifacts are
+  `-r1`-suffixed while Step 3.75 tells it to read `arch.out`, so the reviewer
+  tripped over it while reviewing it.
+- `review-panel.md` joining the lint list in Phase 4 rather than Phase 2.
+  Coherent: `aa25d97` updated the exclusion comment in the same commit.
+- Docless Mode 2 audits uncapped. Named in Non-Goals with the measurement.
+- The companion-drop step in `extract_doc()`. Not in the doc body, disclosed in
+  `evidence.md` and the Phase 0 and 1 notes, and judged the right behavior.
+
+### Rejected
+
+Gemini's "zero undisclosed deviations, no behavioral regressions, every AC
+holds." Two of five verdicts falsified; the rest rested on command output it
+could not produce. Nothing from Codex rejected: its five verdicts (FAIL,
+mostly-PASS, PARTIAL, PASS, PARTIAL) all matched what was measured.
