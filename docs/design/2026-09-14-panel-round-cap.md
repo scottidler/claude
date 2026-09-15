@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-14
-**Status:** In Review
+**Status:** Implemented
 **Review Passes Completed:** 5/5, then a rewrite, then passes 2 and 4 re-run
 
 > Passes 1 to 5 ran against a design built on a `PreToolUse(Bash)` guard at the seat scripts. A codebase dig after pass 5 measured that seam wrong on two counts (the counter does not accumulate; the deny lands in the subagent, not the caller), so the core was rewritten onto the `Agent` dispatch. The superseded design is kept as Alternative 3 rather than deleted.
