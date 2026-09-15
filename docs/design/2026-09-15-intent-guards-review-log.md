@@ -90,3 +90,33 @@ Round 2 nominated four items for Open Questions. All four were decisions rather 
 - **Do not touch the live doc while a panel round is running.** It happened twice. Round 1's drift produced a finding that existed only because of the fold; round 2's split the two seats onto different texts. Snapshot, dispatch, wait, then edit.
 - **A predicate written from a man page is not measured.** Round 1 caught `realpath -m` and the `flag_value` gap this way; round 2 caught first-wins-versus-last-wins and the merge walk. Four defects, four one-line commands, none of them run before the text was written.
 - **Ask what writes the state before designing the state.** RESEND specified a ledger no registered component could write.
+
+## Round 3, 2026-09-15
+
+The last round under the cap. Architect rc=0, staff engineer rc=0. 9 must-fix, 20 cheap wins, 4 rejected. Both seats returned "not ready to build" independently and neither touched a settled ruling. **Live vs snapshot: 0 lines.** The doc was held still this round and both seats read identical bytes, which is the process fix working.
+
+Both probed bypasses re-verified here before folding:
+
+| finding | verification |
+|---|---|
+| `gh` accepts `-X=VALUE` | `gh api -X=GET /rate_limit` returns rate-limit data, so a local parse that does not strip the `=` reads `-X=DELETE` as the value `=DELETE` and allows |
+| a dash-leading header value poisons last-wins | `printf 'gh api -XDELETE -H "-XGET: x" repos/o/r' \| args` yields `-XDELETE \| -H \| -XGET: x \| repos/o/r`, so a naive last-wins scan resolves the method to `GET` from the operand of `-H` |
+| `stmts` erases a subshell boundary | `printf '(cd /tmp); pwd' \| stmts` yields `cd /tmp \| pwd`, so naive cwd accumulation concludes `pwd` runs in `/tmp` |
+
+Of round 2's ten fixes, six held and four did not: RESEND, GH-WRITE's method parse, PUBLIC-REPO's push destination, and PUBLIC-REPO's commit table. LN was right in direction and missing a scope boundary.
+
+Three findings were the same class as round 2's RESEND: a rule whose mechanism could not do what the text claimed.
+
+- **The `flock` claim was false.** A `PreToolUse` process exits before the tool runs, so a lock it holds covers the hook and not the send. Replaced with an `O_EXCL` entry create, where the exclusion spans processes because the create does.
+- **`PostToolUseFailure` is a distinct event carrying `error`, not a tool result**, so per-recipient recording had nothing to read. The rule now fails closed on a failure and Phase 0 gained a criterion to dump that payload.
+- **The INGEST door was unreachable**, because the deny clauses were evaluated first. Precedence is now stated as door, then read-only verbs, then denies.
+
+One finding is a repeat of my own making: **round 2's "zero denies" fix reached the LN rule text and never reached either criterion.** Phase 3 and the overall acceptance list both still asserted zero denies across a corpus containing three commands the rule exists to deny. Fixed in both places.
+
+Rejected with measurements: the architect's whole-history false-deny severity claim (0 pattern matches across all history, 0 blobs over 1 MB, 2,905 objects), its Goal-1 contradiction claim, its "Phase 1 is unrequested scope" claim, and any reopening of `flag_value`, whose five characterization rows the staff seat re-ran with matching output.
+
+## Standing after three rounds
+
+The cap is reached. Nine must-fix folded, all of them decisions rather than unknowns, and no reviewer has read the post-round-3 text. That is the honest state to hand Scott: the rulings are settled, Open Questions is empty, and the last fold is unreviewed.
+
+Pattern across all three rounds, worth carrying into chunk E: **every round found at least one rule whose stated mechanism could not perform the stated job** (round 1: `realpath -m` denying its own legitimate shape; round 2: a ledger nothing could write; round 3: a lock that does not span the operation it guards). None of the three was a fire-count or precision error. The question that would have caught all three is "what process, at what moment, executes this, and what can it see?"
