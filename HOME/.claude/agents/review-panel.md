@@ -176,6 +176,15 @@ returned an empty response or malformed tool call`, codex's bare `Execution
 error` / 5xx). Do not add a retry loop on top; they deliberately do NOT retry
 credits/quota/auth (Step 3.5) or a timeout.
 
+**Known live defect, not yours to work around silently.** Step 3's "ONE
+foreground Bash call" is currently un-followable: the rails `tool.call` hook
+denies a Bash call that compounds a `sandbox.excludedCommands` head with any
+other acting stage, and both seat scripts are excluded heads while the block
+also carries `wait`, `echo`, `wc` and `tee`. If the compound call is denied,
+say so in your report and name this paragraph; do NOT quietly detach the seats,
+because that is the failure the rule exists to prevent. Tracked in
+`docs/design/2026-09-14-panel-round-cap.md` Open Questions (audit must-fix 3).
+
 ## Step 3.5: Credits/tokens fallback, substitute an Anthropic model
 
 If a reviewer failed because its backend is out of credits/tokens (the output

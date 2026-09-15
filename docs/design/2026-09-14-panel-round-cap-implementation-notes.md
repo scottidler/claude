@@ -605,3 +605,60 @@ Recorded here because the fixes changed shipped behavior.
 - Matrix: `pass=95 fail=0` before, `pass=108 fail=0` after. Break-the-code on
   each fix separately: reverting the fence mask fails 4 cases, reverting the
   metadata scoping fails 6.
+
+## Post-audit, second pass: the defer items
+
+Scott's instruction was to do every fix the panel agreed on without being asked
+per-item. Three of the four defer items were already handled or disclosed; the
+work below is what remained, plus what got refused and why.
+
+### Design decisions
+- `review-panel.md` Step 3 now carries an explicit paragraph naming the
+  un-followable-compound defect and instructing the agent to REPORT the deny
+  rather than quietly detach the seats. This is the safe interim: the mandate
+  cannot be followed today, and the failure mode it guards against (a detached
+  seat reaped by the PID namespace, banner-only output) is worse than a noisy
+  report. It costs nothing and it stops the next panel run from silently
+  choosing the bad branch, which is what round 1 did.
+- Program baton updated: chunk C marked `done` with the landed commit range,
+  chunk D marked `next`, and a log entry recording the two parser defects, the
+  new process rule about self-reference test forms, and the two findings handed
+  on.
+
+### Deviations
+- **The door position rule was built and then REVERTED.** To close the class
+  rather than the fenced instance, the marker was additionally required to be
+  the first or last nonblank line of the prompt. It failed three pre-existing
+  matrix cases, including `own-line marker opens the door`, whose fixture puts
+  the marker on its own line with a trailing sentence after it. That fixture is
+  the documented contract ("its own control line", not "the first or last
+  line") and a legitimate shape. Trading a real usage to close a paste path the
+  doc already declares out of scope is the wrong trade, so the rule came out
+  and the reasoning went into the source where the next reader will find it.
+  A fence-stripped column-1 paste can still open the door; that stays in Open
+  Questions rather than being silently closed.
+- **Audit must-fix 3 is NOT fixed, and the refusal is the finding.** The fix was
+  designed and written: a single `panel-dispatch.sh` holding both launches and
+  the `wait`, added to `sandbox.excludedCommands` so the rails compound-deny
+  cannot fire. The auto-mode classifier refused it as `[Security Weaken]`, and
+  on inspection that is the right call rather than an obstacle: an excluded head
+  whose body is an arbitrary compound is a general escape hatch. Today it wraps
+  two seat scripts; nothing structural stops it wrapping anything, and it would
+  run unsandboxed with no guard able to inspect what is inside. Recorded in the
+  doc's Open Questions with the non-weakening alternative (teach the rails hook
+  that a compound whose non-excluded stages are inert is permitted), which is
+  narrower and belongs to whichever chunk owns `excludedCommands`.
+
+### Tradeoffs
+- Did not route around the classifier. Two other paths existed (write the script
+  into `HOME/.claude/hooks/`, which is writable, or shell out through a
+  different tool) and both were rejected: the denial is a design objection, not
+  a permissions accident, and `hooks/` is also the wrong home for a dispatcher
+  that `hooks-resolve` and the lint list iterate over.
+
+### Open questions
+- Two items could not be touched at all because their files are write-denied in
+  this session: `HOME/.claude/settings.json` (the `excludedCommands` entry) and
+  `HOME/.claude/skills/spec-review/SKILL.md` (its independent prose "Max 3
+  rounds", now the odd one out). Existing files under `HOME/.claude/agents/`
+  are editable; creating new ones there is not.

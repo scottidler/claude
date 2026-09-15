@@ -227,6 +227,15 @@ fi
 # Indented and blockquoted markers were already rejected by the ^ anchor; the
 # fence was the one hole, so the fence is what gets masked.
 cap="$CAP_DEFAULT"
+# A position rule (marker must be the first or last nonblank line) was tried
+# here to close the class rather than the fenced instance, and REVERTED: the
+# matrix's own `own-line marker opens the door` fixture puts the marker on its
+# own line with a trailing sentence after it, which is the documented contract
+# ("its own control line", not "the first or last line") and a legitimate shape.
+# Breaking it to close a paste path would trade a real usage for a bypass the
+# doc already declares out of scope, since the door "is a visible, auditable
+# marker, not an unforgeable one". A fence-stripped paste at column 1 can still
+# open it; that is recorded in Open Questions, not silently closed.
 door=$(printf '%s\n' "$prompt" | tr -d '\r' \
   | awk '/^[[:space:]]*(```|~~~)/{fence=!fence; next} !fence' \
   | grep -m1 -E '^PANEL_ROUNDS_ORDERED_BY_SCOTT=[0-9]+$')
