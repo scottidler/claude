@@ -915,6 +915,15 @@
         ]
       },
       {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/panel-round-guard.sh"
+          }
+        ]
+      },
+      {
         "matcher": "",
         "hooks": [
           {

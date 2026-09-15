@@ -155,3 +155,115 @@ FAIL  [want allow got deny] gamma mode 1 round 3
 - The hook is NOT registered in `settings.json` and `.otto.yml` is untouched,
   per the phase boundary. `otto ci`'s `test` task picks the new matrix up
   anyway, because it globs `HOME/.claude/hooks/*-test.sh`.
+
+## Phase 2: Register it and wire the gates
+
+### Design decisions
+- New `PreToolUse` matcher entry `"Agent"` added to `settings.json`, one hook,
+  `~/.claude/hooks/panel-round-guard.sh`, matching the JSON shape of the
+  existing `"AskUserQuestion"` entry exactly (single-hook array, `type:
+  "command"`, tilde-path `command`). Placed directly after the
+  `AskUserQuestion` entry and before the catch-all `""` matcher (`clyde permit
+  log`), preserving the existing ordering convention of named matchers before
+  the blank one.
+- Link step run as `manifest -l 'panel-round-guard' | bash` from the repo
+  root, per the doc's "link step runs in this phase" rule and the exact
+  method the guard-precision Phase 7 orchestrator note used
+  (`docs/design/2026-09-13-guard-precision-implementation-notes.md:222-223`).
+  Confirmed the pattern is scoped to exactly the two new files by inspecting
+  the generated (unexecuted) bash script first:
+  `manifest -l 'panel-round-guard'` emitted only two `linker` lines, one per
+  file, before piping to `bash`. `~/.claude/hooks/` is NOT a single directory
+  symlink into this repo (unlike `~/.claude/skills` and `~/.claude/agents`,
+  which are whole-directory links per `manifest.yml`'s `link.dirs`); it is a
+  real directory populated by `manifest.yml`'s top-level `link.recursive: true`
+  HOME entry, one symlink per file. So a new hook file needs its own link
+  created, which is exactly the failure mode the guard-precision Phase 7 note
+  describes ("three files this PR's phases add are not yet symlinked").
+  `ln` failed once under the Bash sandbox (`Read-only file system`, writing
+  into `~/.claude/hooks/`) and was retried unsandboxed per the sandbox-phantom
+  guidance; the retry created both symlinks cleanly.
+- `review-panel-notes.md` (which Phase 3 creates) is added to the `.otto.yml`
+  lint list NOW, per the design doc's Phase 2 bullet, after checking rather
+  than assuming how the lint task iterates. Traced the exact mechanics: the
+  lint task is `if rg -n '\x{2014}' "${FILES[@]}"; then echo "Found..."; exit
+  1; fi` under `set -e`. `rg` exits 2 (IO error) on a missing path, not 0 or
+  1; a command inside an `if` condition is exempt from `set -e`; and `if`
+  treats any nonzero exit (1 "no match" or 2 "error") identically as false, so
+  the `exit 1` branch never fires. Proved directly:
+  `bash -c 'set -e; FILES=(missing.md real.md); if rg -n "\x{2014}"
+  "${FILES[@]}"; then exit 1; fi; echo reached'` prints `rg: missing.md: No
+  such file or directory (os error 2)` to stderr, then `reached`, exit 0.
+  Re-ran the full `otto ci` with the file still absent: it printed that exact
+  `rg` IO-error line under `[lint]` and still finished
+  `✅ All CI checks passed!`, exit 0. So the lint list tolerates a missing
+  path (does not fail the build); the doc's instruction to add it now stands.
+
+### Deviations
+- None. Registration, the link step, the lint-list additions and the doc
+  correction all match the design doc's Phase 2 bullets and the landmine
+  guidance.
+
+### Tradeoffs
+- Left the `rg` IO-error line as a known, harmless side effect of adding
+  `review-panel-notes.md` to the lint list before the file exists, rather than
+  working around it (e.g. a `[ -f ... ] &&` guard per path). The design doc's
+  own precedent (chunk B's CW5, cited in the Phase 2 bullet) is "a file not on
+  the list drifts em-dashes back in where CI cannot see it"; the fix for that
+  is exactly this list entry, and the stderr noise is temporary (Phase 3
+  creates the file). Adding conditional guards per-entry would be scope this
+  phase does not own and would blur why the line briefly errors.
+- Verified the production hook via the `~/.claude/hooks/` symlink path with an
+  isolated `PANEL_ROUND_CACHE_DIR` pointed at a scratch directory under
+  `$TMPDIR`, rather than the test matrix's own fixtures, so the verification
+  proves the actual registered artifact (the symlink, the settings.json entry)
+  rather than re-running Phase 1's already-green matrix. The env prefix was
+  placed on the hook invocation only (`PANEL_ROUND_CACHE_DIR="$CACHE_DIR"
+  "$HOOK"`), never on `jq`, per Phase 1's own postmortem about a stray real
+  counter entry from a misplaced prefix.
+
+### Open questions
+- None.
+
+### Verification: `bin/hooks-resolve`
+```
+hooks-resolve: all hook files resolved (0 PATH warning(s))
+```
+Exit 0.
+
+### Verification: `otto ci`
+Full run (lint + test) exits 0, ending:
+```
+[test] === bin/hooks-resolve ===
+[test] hooks-resolve: all hook files resolved (0 PATH warning(s))
+[test] bun test v1.3.14 (0d9b296a)
+[test]  114 pass
+[test]  0 fail
+[test]  188 expect() calls
+[test] Ran 114 tests across 1 file. [45.00ms]
+[test] finished successfully
+[ci] ✅ All CI checks passed!
+[ci] finished successfully
+```
+`HOME/.claude/hooks/panel-round-guard-test.sh` inside that run: `pass=95
+fail=0`. The `[lint]` phase of the same run also printed
+`rg: HOME/.claude/agents/review-panel-notes.md: No such file or directory (os
+error 2)` (expected, see Design decisions) and still finished
+`finished successfully`.
+
+### Verification: production symlink path, isolated counter
+`readlink -f ~/.claude/hooks/panel-round-guard.sh` -> the repo path
+(`.../HOME/.claude/hooks/panel-round-guard.sh`), confirming `$0` is the
+production path for this run. Four dispatch payloads for one fake doc, piped
+through `~/.claude/hooks/panel-round-guard.sh` with `PANEL_ROUND_CACHE_DIR`
+set to a scratch directory under `$TMPDIR` (never the user's real
+`~/.cache/review-panel/rounds/`):
+```
+round 1: exit=0 stdout=[]
+round 2: exit=0 stdout=[]
+round 3: exit=0 stdout=[]
+round 4: exit=0 stdout=[{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"panel-round-guard: this is round 4 on <doc>; the cap is 3 (rules/interaction.md). ..."}}]
+```
+Cache entry after the run: `path=<doc>`, `mode=1`, `rounds=3`. Confirmed
+`~/.cache/review-panel/rounds/` is empty afterward (the user's real counter
+was never touched).

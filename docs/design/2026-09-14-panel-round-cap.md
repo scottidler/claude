@@ -246,7 +246,7 @@ Zero code. The design rests on one unproven harness fact, so it gets measured be
 - Match `subagent_type == "review-panel"`; everything else allows before any other work.
 - Extract the doc path from `tool_input.prompt`; unparseable allows and warns.
 - Counter at `~/.cache/review-panel/rounds/<sha of abs doc path + mode>`, incremented on allow. Mode is read off the doc's `Status:` line, the same test Step 1.2 uses.
-- Door: `PANEL_ROUNDS_ORDERED_BY_SCOTT=<n>` matched at a word boundary in the prompt, ceiling semantics.
+- Door: `PANEL_ROUNDS_ORDERED_BY_SCOTT=<n>` matched as `^PANEL_ROUNDS_ORDERED_BY_SCOTT=[0-9]+$` against a nonblank line of its own in the prompt, ceiling semantics. (Corrected during Phase 1: this bullet said "at a word boundary", contradicting the "The door" section above and AC3. The control-line rule is the correct one and its reasoning is stated there: this document carries the literal marker four times, so an anywhere-match would let the guarded doc raise its own cap.)
 - `panel-round-guard-test.sh` alongside its 10 sibling matrices: allow rounds 1-3 and deny 4 for one doc; two docs counted independently; a different `subagent_type` always allows; an unparseable prompt allows; the door at `=5` allows round 4 and denies round 6; a doc path given relative versus absolute resolves to the same counter; flipping the doc to `Status: Implemented` starts a fresh count.
 - **Success criteria:** `bash HOME/.claude/hooks/panel-round-guard-test.sh` exits 0; reverting the round comparison fails at least 4 cases (break-the-code evidence recorded).
 

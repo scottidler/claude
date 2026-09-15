@@ -62,6 +62,12 @@ tasks:
         docs/design/2026-09-13-guard-precision-phase0/evidence.md
         docs/design/2026-09-13-guard-precision-audit/synthesis.md
         docs/design/2026-09-13-guard-precision-audit/probes.md
+        HOME/.claude/hooks/panel-round-guard.sh
+        HOME/.claude/hooks/panel-round-guard-test.sh
+        docs/design/2026-09-14-panel-round-cap.md
+        docs/design/2026-09-14-panel-round-cap-implementation-notes.md
+        docs/design/2026-09-14-panel-round-cap-phase0/evidence.md
+        HOME/.claude/agents/review-panel-notes.md
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
