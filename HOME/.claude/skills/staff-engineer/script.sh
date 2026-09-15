@@ -194,7 +194,7 @@ preserve_trace() {
 run_attempt() {
   timeout --kill-after=30s "$WALL_CLOCK" \
     codex exec \
-    -m gpt-5.5 \
+    -m gpt-6-astra \
     -c model_reasoning_effort="high" \
     -s read-only \
     --skip-git-repo-check \

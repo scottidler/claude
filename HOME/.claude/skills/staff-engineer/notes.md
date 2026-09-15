@@ -26,7 +26,7 @@ how the skill is wired.
 ## How the skill is wired
 
 - `script.sh` runs:
-  `cat <doc> | codex exec -m gpt-5.5 -c model_reasoning_effort="high" -s read-only --skip-git-repo-check --color never -o <last-msg> "<prompt>"`.
+  `cat <doc> | codex exec -m gpt-6-astra -c model_reasoning_effort="high" -s read-only --skip-git-repo-check --color never -o <last-msg> "<prompt>"`.
 - **Persona delivery**: `persona.md` is prepended to the prompt by `script.sh`.
   It is deliberately NOT placed in any global codex config or `AGENTS.md`, so
   plain `codex` invocations stay neutral. `persona.md` is the single source of
@@ -75,7 +75,7 @@ Codex-specific, and deliberately NOT retried by the script:
 
 ## Real caveats (still worth knowing)
 
-- **Model / effort are pinned** in `script.sh` (`gpt-5.5`, `model_reasoning_effort=high`).
+- **Model / effort are pinned** in `script.sh` (`gpt-6-astra`, `model_reasoning_effort=high`).
   If codex changes its model lineup, update the `-m` value there. `high` is a
   deliberate default for review depth; `xhigh` (the user's interactive default)
   is slower and rarely changes the verdict for a review pass.
