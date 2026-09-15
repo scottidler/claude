@@ -435,7 +435,9 @@ Two of the three questions the draft asked are already answered by chunk C's own
 #### Phase 1: close chunk B's secret-guard hole
 **Model:** opus
 - `secret-echo-guard.sh`'s echo/printf check gated with `cmdword_is` per statement, payload matched on the squote-masked copy, the verb regex deleted from the Python matcher
-- **Success criteria:** `'echo' $GH_TOKEN` denies; `echo '$GH_TOKEN'` still allows; both ride all 18 `wrap_shapes` spellings green; the existing 39 assertions in `secret-echo-guard-test.sh` pass unchanged
+- **Success criteria:** `'echo' $GH_TOKEN` denies and `echo '$GH_TOKEN'` still allows, both asserted **directly**; the unquoted `echo $GH_TOKEN` rides all 18 `wrap_shapes` spellings green; the existing 39 assertions in `secret-echo-guard-test.sh` pass unchanged
+
+> Why the split: `shapes.sh:45-46` states that "a command carrying a single quote or a newline cannot ride the quoted shapes, so fixtures fed to this are the plain ones." Two of the 18 spellings are `eval '%s'` and `bash -lc '%s'`, which a single-quoted fixture cannot survive. Every chunk-D fixture was checked against this: the `gh api -XDELETE`, `acli ... delete`, `ln -s` and `aws secretsmanager` fixtures are quote-free and ride the full sweep; the two single-quoted secret fixtures are asserted directly.
 
 #### Phase 2: `intent-guard.sh` skeleton, GH-WRITE and DELETE-OUT
 **Model:** opus
@@ -521,12 +523,35 @@ Phase by phase, each its own commit, `otto ci` green before the commit, pushed t
 
 ## Acceptance Criteria
 
-- [ ] Every rule in this doc has a deny fixture in a `*-test.sh` matrix that also runs through `shapes.sh`'s `WRAPPER_SHAPES`, and `otto ci` exits 0. **Observed on main:** `shapes.sh` exists with the `WRAPPER_SHAPES` array (`HOME/.claude/hooks/shapes.sh:21`); matrices today are `lib-test.sh`, `panel-round-guard-test.sh`, `rewrite-cd-read-test.sh`, `branch-pr-title-guard-test.sh` and six more; `intent-guard-test.sh` does not exist yet, so this criterion cannot pass before Phase 1.
-- [ ] Every incident command quoted verbatim in this doc is denied by the shipped guards, each in all 18 `wrap_shapes` spellings. **Observed on main, 2026-09-15:** all of them are allowed; no registered hook matches any of them (`settings.json` hooks block has matchers for Bash, `Write|Edit|MultiEdit|NotebookEdit`, the Slack MCP writes, `mcp__multi-account-github__create_pr`, `AskUserQuestion` and `Agent`, and none of the ten Bash guards covers these verbs).
-- [ ] The `ln -s` corpus replay (all ~112 statements with their recorded cwd) produces zero denies, and the `secret-echo-guard` path list's ~200 measured auth-debugging occurrences produce zero denies. **Observed on main, 2026-09-15:** no guard exists to deny them, so the criterion is trivially true today and becomes meaningful only after Phases 3 and 6.
-- [ ] `hooks-preflight.sh` reports every new hook as resolving and executable at session start. **Observed on main:** preflight is registered on SessionStart (`settings.json` hooks block) and green; it has caught zero misses, so it proves registration, not behavior.
-- [ ] `git ls-files | grep -E 'personal/|excluded/|voice/|secrets?/|\.env$|\.age$'` returns 0 matches in `scottidler/claude`, and no tracked file exceeds 1 MB. **Observed on main, 2026-09-15:** 0 matches, 0 files over 1 MB.
-- [ ] `rules/git.md:62` and `rules/interaction.md:110` each name the guard that now enforces the clause. **Observed on main, 2026-09-15:** `git.md:62` reads "do not change repo settings (merge methods, protection, rulesets)" with no hook named; `interaction.md:110` reads "not auto-filed into the vault or elsewhere" with no hook named.
+Every criterion below was executed against `main` at 53f2904 on 2026-09-15 and the output recorded. Where a criterion cannot pass until a phase ships, it says which phase.
+
+- [ ] Every rule in this doc has a deny fixture in a `*-test.sh` matrix, quote-free fixtures riding the full `wrap_shapes` sweep, and `otto ci` exits 0.
+  **Observed on main:** `WRAPPER_SHAPES` holds 16 entries (`HOME/.claude/hooks/shapes.sh:21-37`) and `wrap_shapes "git tag -d v1" | wc -l` returns **18** (the 16 wrappers plus `\cmd` and `"verb" rest`). 11 `*-test.sh` matrices exist; 5 of them source `shapes.sh`. `HOME/.claude/hooks/intent-guard-test.sh`: "No such file or directory". Cannot pass before Phase 2.
+- [ ] Every incident command quoted verbatim in this doc is denied by the shipped guards.
+  **Observed on main:** all ten fed through the live nine-guard Bash chain, every one **allowed**:
+
+  ```
+  allow  gh api -X DELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins
+  allow  gh api -XDELETE  repos/tatari-tv/valet/branches/main/protection/enforce_admins
+  allow  acli jira workitem delete --key SEC-2997 --yes
+  allow  ln -s ~/repos/scottidler/claude/HOME/Claude/writing/voice ~/Claude/writing/voice
+  allow  cd ~/repos/scottidler/claude && git add .gitignore HOME/Claude/writing/voice && git commit -m x
+  allow  aws secretsmanager get-secret-value --secret-id x
+  allow  systemctl --user show-environment
+  allow  cat /run/user/1000/borg.env
+  allow  'echo' $GH_TOKEN
+  allow  gh repo edit tatari-tv/mcp-io-rs --visibility public
+  ```
+
+  The ninth line is chunk B's open hole reproduced through the live chain, not a synthetic case.
+- [ ] The `ln -s` corpus replay (all ~112 statements with their recorded cwd) produces zero denies, and the `secret-echo-guard` path list's ~200 measured auth-debugging occurrences produce zero denies.
+  **Observed on main:** no guard denies any of them today, so the criterion is trivially true and becomes meaningful only after Phases 3 and 6. It is stated as `exactly zero denies`, not as a count that the phases' own work would change.
+- [ ] `hooks-preflight.sh` reports every new hook as resolving and executable at session start.
+  **Observed on main:** registered at `HOME/.claude/settings.json:973`; run directly it emits no warning and exits 0. It proves registration, not behavior: it has caught zero misses since it shipped.
+- [ ] `git ls-files | grep -cE 'personal/|excluded/|voice/|secrets?/|\.env$|\.age$'` returns 0 in `scottidler/claude`, and no tracked file exceeds 1 MB.
+  **Observed on main:** `0` and `0`.
+- [ ] `rules/git.md:62` and `rules/interaction.md:110` each name the guard that now enforces the clause.
+  **Observed on main:** `git.md:62` is the push-rejection bullet ending "do not change repo settings (merge methods, protection, rulesets)", no hook named; `interaction.md:110` reads "auto-filed into the vault or elsewhere", no hook named.
 
 ## Resolved Decisions
 
@@ -535,7 +560,7 @@ Phase by phase, each its own commit, `otto ci` green before the commit, pushed t
 - **2026-09-15: one hook, not five.** 689 ms of measured Bash-hook latency and five rules over one command string.
 - **2026-09-15: LN guards the predicate, not the verb.** 112 legitimate `ln -s` statements in the window make a verb matcher unshippable.
 - **2026-09-15: INGEST reads heredoc bodies**, against the general rule that guards match on the masked copy. The measured vector lives only in a heredoc body and the surface is 11 statements in four months.
-- **2026-09-15: no `UserPromptSubmit` recorder.** The `PreToolUse` payload already carries `transcript_path` and `prompt_id`, and the prompt record lands before the turn's first tool call. A recorder would be a second source of truth for the same fact. Kept as Alternative 4 against Phase 0's flush-timing result.
+- **2026-09-15: no `UserPromptSubmit` recorder.** The `PreToolUse` payload already carries `transcript_path` and `prompt_id`, and the prompt record lands before the turn's first tool call. A recorder would be a second source of truth for the same fact. Narrowed by panel round 1: the source is the `user` string records, not `last-prompt`. Kept as Alternative 4 against Phase 0's flush-timing result.
 - **2026-09-15: skill-activity inference is refused outright**, not deferred. No payload field, and the transcript signal has no end marker. See Non-Goals.
 - **2026-09-15: item 8's `Environment=` vector is replaced by the measured `EnvironmentFile=` targets.** Zero secret values in any unit file's `Environment=`; the credentials are in `/run/user/1000/*.env` and `*/token*.json`.
 - **2026-09-15: chunk B's single-quoted-verb hole is chunk D's Phase 1**, ahead of every new rule, because it is a live bypass of a guard that is already shipped and already trusted.
@@ -584,7 +609,7 @@ fatal: adding files failed
 
 ### Alternative 4: a `UserPromptSubmit` recorder writing `~/.claude/state/last-prompt`
 - **Description:** the audit's prescribed mechanism for carrying prompt context to a `PreToolUse` guard.
-- **Why not chosen, provisionally:** `prose.sh` already extracts the last typed prompt from the transcript's `last-prompt` records, so a second mechanism would be a second source of truth for the same fact. Phase 0 decides it: if the current turn's record is not flushed when a `PreToolUse` hook runs, the recorder is the only way and this alternative becomes the design.
+- **Why not chosen, provisionally:** the transcript already carries the answer, so a recorder would be a second source of truth for the same fact. Corrected by panel round 1: the source is the `type=="user"` string records (earlier in append order in 1,122 of 1,122 measured turns), not the `last-prompt` records `prose.sh` prefers. Phase 0 decides whether that is enough: if the current turn's `user` record is not yet visible when a `PreToolUse` hook runs, the recorder is the only way and this alternative becomes the design.
 
 ## Risks and Mitigations
 
