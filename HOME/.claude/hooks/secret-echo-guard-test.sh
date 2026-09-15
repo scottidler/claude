@@ -92,6 +92,16 @@ run deny "$(printf 'cat > notes.md <<EOF\ntoken: ${GITHUB_TOKEN}\nEOF')"
 run allow "$(printf "cat <<'EOF'\n\$GH_TOKEN\nEOF")"
 run allow "$(printf 'cat <<EOF\nno secret named here\nEOF')"
 
+echo "=== chunk B's hole: a single-quoted verb is still the verb ==="
+# mask_squote erased the verb before an unanchored /\becho\b/ ever saw it, so
+# 'echo' $GH_TOKEN allowed while "echo" $GH_TOKEN denied. The verb test is
+# cmdword_is now, per statement. Asserted directly because shapes.sh:45 says a
+# command carrying a single quote cannot ride the quoted wrapper shapes.
+run deny "'echo' \$GH_TOKEN"
+run deny "'printf' '%s' \$GH_TOKEN"
+run deny "'printenv' GH_TOKEN"
+run allow "echo '\$GH_TOKEN'"
+
 echo "=== every leak holds in every shape bash offers ==="
 runwrapped() { # runwrapped <command>
   local w

@@ -40,9 +40,41 @@ command=$(echo "$input" | jq -r '.tool_input.command // ""')
 # One masked statement per line, so the matcher's [^\n;|&]* windows cannot
 # straddle two statements and the safe-form anchors below mean "statement start".
 scan=""
+prints=""
+printenvs=""
 while IFS= read -r -d '' stmt; do
-  scan="$scan$(printf '%s' "$stmt" | mask_heredoc | mask_comment | mask_squote)
+  masked=$(printf '%s' "$stmt" | mask_heredoc | mask_comment | mask_squote)
+  scan="$scan$masked
 "
+  # Resolving the command word costs a subprocess per verb, so it runs only for
+  # a statement that could possibly deny. This pattern is a deliberate SUPERSET
+  # of the Python NAME regex below: every name that matcher fires on contains
+  # one of these tokens, so skipping a statement without them cannot lose a
+  # deny. Measured: ungated, the per-statement cmdword calls added 45 ms per
+  # Bash call on a 3-statement command, against a 250 ms whole-chunk budget.
+  case "$masked" in
+    *[Ss][Ee][Cc][Rr][Ee][Tt]*|*[Tt][Oo][Kk][Ee][Nn]*|*[Pp][Aa][Ss][Ss][Ww][Dd]*|\
+    *[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]*|*[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]*|\
+    *[Bb][Ee][Aa][Rr][Ee][Rr]*|*[Hh][Mm][Aa][Cc]*|*[Ss][Ii][Gg][Nn][Ii][Nn][Gg]*|\
+    *[Pp][Rr][Ii][Vv][Aa][Tt][Ee]*|*[Aa][Pp][Ii][Kk][Ee][Yy]*|*_[Kk][Ee][Yy]*|*_[Pp][Aa][Tt]*) ;;
+    *) continue ;;
+  esac
+
+  # The command-word test runs on a heredoc/comment-masked copy ONLY, never a
+  # quote-masked one: mask_squote erases the verb itself, so an unanchored
+  # `\becho\b` regex saw nothing in `'echo' $GH_TOKEN` and allowed it while
+  # `"echo" $GH_TOKEN` denied. That was chunk B's open hole, and it is why the
+  # verb test is cmdword_is here instead of a regex in the Python matcher.
+  verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
+  if printf '%s' "$verbscan" | cmdword_is echo >/dev/null 2>&1 \
+  || printf '%s' "$verbscan" | cmdword_is printf >/dev/null 2>&1; then
+    prints="$prints$masked
+"
+  fi
+  if printf '%s' "$verbscan" | cmdword_is printenv >/dev/null 2>&1; then
+    printenvs="$printenvs$masked
+"
+  fi
 done < <(printf '%s' "$command" | stmts)
 
 # The one place the h/H heredoc split is visible. A heredoc body whose delimiter
@@ -54,11 +86,13 @@ done < <(printf '%s' "$command" | stmts)
 # expanded bodies arrive here as their own input instead (audit MF4).
 heredocs=$(printf '%s' "$command" | heredoc_expanded)
 
-reason=$(GUARD_CMD="$scan" GUARD_HEREDOC="$heredocs" python3 <<'PY'
+reason=$(GUARD_CMD="$scan" GUARD_HEREDOC="$heredocs" GUARD_PRINTS="$prints" GUARD_PRINTENV="$printenvs" python3 <<'PY'
 import os, re, sys
 
 cmd = os.environ.get("GUARD_CMD", "")
 heredoc = os.environ.get("GUARD_HEREDOC", "")
+prints = os.environ.get("GUARD_PRINTS", "")
+printenvs = os.environ.get("GUARD_PRINTENV", "")
 
 # Distinctive secret-name components. Underscore-anchored _KEY/_PAT avoid PATH,
 # "monkey", "compatible", etc. TOKEN/SECRET/PASSWORD/CREDENTIAL are distinctive
@@ -81,7 +115,7 @@ if re.search(rf"\$\{{{NAME}:?[-=?]", cmd, re.IGNORECASE):
 # and a [ -n "$NAME" ] / [ -z "$NAME" ] test. The test form is anchored to the
 # start of a statement so that `echo [ -n "$NAME" ]`, which WOULD print the
 # value, is not stripped into an allow.
-stripped = re.sub(rf"\$\{{{NAME}:?\+[^}}]*\}}", "", cmd, flags=re.IGNORECASE)
+stripped = re.sub(rf"\$\{{{NAME}:?\+[^}}]*\}}", "", prints, flags=re.IGNORECASE)
 stripped = re.sub(rf"\$\{{#{NAME}\}}", "", stripped, flags=re.IGNORECASE)
 stripped = re.sub(
     rf"(?m)^[ \t]*(?:if|elif|while|until)?[ \t]*\[\[?[ \t]+-[nz][ \t]+\"?\$\{{?{NAME}\}}?\"?[ \t]+\]\]?",
@@ -90,12 +124,15 @@ stripped = re.sub(
     flags=re.IGNORECASE,
 )
 
-# 2) Printing a secret var directly: echo/printf with $NAME or ${NAME},
-#    or printenv naming a secret var.
-if re.search(rf"\b(?:echo|printf)\b[^\n;|&]*\$\{{?{NAME}", stripped, re.IGNORECASE):
+# 2) Printing a secret var directly. The VERB is no longer matched here: the
+#    shell above already selected the statements whose command word is echo,
+#    printf or printenv, using lib.sh's structural cmdword walk. All that is
+#    left is the payload, and it is matched on the squote-masked copy so
+#    `echo '$GH_TOKEN'` stays an allow.
+if re.search(rf"\$\{{?{NAME}", stripped, re.IGNORECASE):
     print("print-secret")
     sys.exit(0)
-if re.search(rf"\bprintenv\b[^\n;|&]*{NAME}", stripped, re.IGNORECASE):
+if re.search(NAME, printenvs, re.IGNORECASE):
     print("printenv-secret")
     sys.exit(0)
 
