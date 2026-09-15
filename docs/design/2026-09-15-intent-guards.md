@@ -13,7 +13,9 @@
 
 Chunk D of the setup-audit program (`docs/design/2026-09-13-setup-audit-program.md`), covering audit item 6: the actions that reach outside this machine or cannot be undone, and the secret-leak vectors the echo guard does not cover.
 
-The audit prescribes eight guards. Measured against the corpus before designing anything: four hold as specified (`gh api` writes, public-repo leak, secret vectors, Slack posts), three need a different predicate than the verb they name (outward deletes, symlink cycle, vault ingest), and one is refused. The refused one is the `git commit` intent guard: it would have denied 590 legitimate commits to catch 2 of 5 known incidents, and it cannot run at all in the subagents that make 31% of commits. What replaces it is a blanket-staging deny that infers no intent.
+The audit prescribes eight guards. Measured against the corpus before designing anything, **seven ship and one does not**: four hold as specified (`gh api` writes, public-repo leak, secret vectors, Slack posts), three need a different predicate than the verb they name (outward deletes, symlink cycle, vault ingest), and item 1, the unrequested-commit guard, ships nothing at all. Five predicates were derived for it and the best costs 820 denials to catch 4 of 5 known incidents against a 0.18% base rate. Scott ruled on 2026-09-15 to accept that gap. The blanket-staging rule proposed as a partial substitute is also dropped, because git already refuses to stage the only class it would have closed.
+
+The chunk also carries one thing the audit did not list: a live bypass of `secret-echo-guard.sh` that chunk B handed over and the draft missed.
 
 ## Problem Statement
 
@@ -125,7 +127,8 @@ One live demonstration of that, from this session: the naive `acli.*delete` patt
 - **`git reset --hard` / `git clean -f` tightening.** The audit ranks it 12 of 12 and it belongs to the release/working-tree family that chunk B owns, not to outward actions.
 - **Agent-definition hard-constraints blocks.** The audit's incidents lens proposes a safety block in `phase-implementer.md`, `release-driver.md`, `review-panel.md`, `design-research.md`. That is audit item 12, chunk G.
 - **`spec-review`'s independent round cap.** Handed on from chunk C; belongs to whichever chunk owns skill hygiene.
-- **Item 1, the unrequested-commit class, ships with no mechanical coverage.** This is the chunk's one scope reduction and it is Scott's to overturn. Four predicates were derived and measured, all against 5 known incidents out of 2,832 commit statements: prompt-word over the last 3 prompts, 590 denies / 2 of 5; the same over a session-wide window, 318 / 1 of 5; docs-only staged set, 351 / precision 1.4%; subagent-type allowlist, 569 of 882 subagent commits / **0** of 5, since all five incidents are main-thread and `agentType` is free-text dispatcher naming across ~190 values; path provenance (a staged basename never named in any prompt), 820 / 4 of 5. The base rate is 0.18%, so any predicate coarser than "exactly this commit" lands under 2% precision. The STAGING rule is **not** a substitute, for the causal-closure reason given at that rule. One caveat on the docs-only figure: it classifies by the `git add` arguments in the same call plus file extension, so it is a proxy for the staged set, not the staged set.
+- **Item 1, the unrequested-commit class, ships with no mechanical coverage. Scott ruled this on 2026-09-15: accept the gap.** Four predicates were derived and measured, all against 5 known incidents out of 2,832 commit statements: prompt-word over the last 3 prompts, 590 denies / 2 of 5; the same over a session-wide window, 318 / 1 of 5; docs-only staged set, 351 / precision 1.4%; subagent-type allowlist, 569 of 882 subagent commits / **0** of 5, since all five incidents are main-thread and `agentType` is free-text dispatcher naming across ~190 values; path provenance (a staged basename never named in any prompt), 820 / 4 of 5. The base rate is 0.18%, so any predicate coarser than "exactly this commit" lands under 2% precision. The blanket-staging rule is **not** a substitute and is not built either (Alternative 5). One caveat on the docs-only figure: it classifies by the `git add` arguments in the same call plus file extension, so it is a proxy for the staged set, not the staged set.
+- **Blanket staging.** See Alternative 5: no item-1 claim, no surviving phantom claim, and zero of five incidents.
 - **Any "an allowlisted skill is active" clause.** The audit's prescription for item 1 and its "no live posts during a `/cli-shakedown`" clause for item 2 both depend on a guard knowing which skill is running. No measured `PreToolUse` payload carries a skill field (full 2.1.272 key set at `docs/design/2026-09-14-panel-round-cap-phase0/evidence.md:16-41`). The only available signal is the newest `Skill` tool_use record in the transcript, which has **no end marker**, so "active" is unbounded and the inference is wrong in exactly the long-running sessions where it matters. Both clauses are refused. TEST-TEXT covers the shakedown case textually instead, and item 1's skill allowlist is moot because item 1 is refused on its own numbers.
 - **Mode-0664 credential files on this machine.** `/run/user/1000/{borg,cortex,sb-harvest}.env` hold roughly 40 live credentials and are readable by any local process. Found while measuring item 8. It is a configuration fix in the daemons that write them, not a guard, and not in this repo.
 - **Redacting secrets already in a transcript.** A `PostToolUse` hook cannot unwrite the transcript. The audit says so and the fix lives in `clyde`'s indexer, which already redacts.
@@ -137,7 +140,7 @@ One live demonstration of that, from this session: the naive `acli.*delete` patt
 One new Bash hook carrying the statement-level rules, one new hook on the Slack write surfaces, and an extension of the guard that already owns secrets. Plus permission-deny entries as a second layer where a literal verb exists.
 
 ```
-PreToolUse(Bash)                 -> intent-guard.sh      rules: GH-WRITE, DELETE-OUT, INGEST, LN, PUBLIC-REPO, STAGING
+PreToolUse(Bash)                 -> intent-guard.sh      rules: GH-WRITE, DELETE-OUT, INGEST, LN, PUBLIC-REPO
 PreToolUse(Bash | mcp__slack__*) -> slack-post-guard.sh   rules: TARGET, TEST-TEXT, RESEND
 PreToolUse(Bash | Read)          -> secret-echo-guard.sh  extended: 5 statement vectors + credential-path Read deny
 permissions.deny                 -> acli deletes, gh repo edit
@@ -145,7 +148,7 @@ permissions.deny                 -> acli deletes, gh repo edit
 
 ### Why one hook and not six
 
-Measured on this machine, 2026-09-15: the ten hooks registered on the `PreToolUse` Bash matcher cost 689 ms when run one after another over a trivial payload (`git status --porcelain`), individual times 18 to 137 ms. Every Bash call in every session pays that. Six new scripts would add roughly half again as much, and all six rules need the same `lib.sh` parse of the same command string, so parsing once is strictly cheaper than parsing six times.
+Measured on this machine, 2026-09-15: the ten hooks registered on the `PreToolUse` Bash matcher cost 689 ms when run one after another over a trivial payload (`git status --porcelain`), individual times 18 to 137 ms. Every Bash call in every session pays that. Five new scripts would add roughly 300 to 400 ms more, and all five rules need the same `lib.sh` parse of the same command string, so parsing once is strictly cheaper than parsing five times.
 
 `prose.sh` is the in-house precedent: one script, three rules, one payload read, `--self-test` on the side. `intent-guard.sh` copies that shape.
 
@@ -292,17 +295,9 @@ Visibility is read once per repo with `gh repo view --json visibility` and cache
 
 Scope stays `~/repos/scottidler/*`: no repository outside it has an origin remote Scott owns, third-party clones are not pushable, and `tatari-tv` is a different threat model.
 
-#### STAGING: no blanket staging
+#### STAGING: dropped, and the measurement that dropped it
 
-Deny `git add -A`, `git add --all`, and `git add .` when they carry **no path operand**. `git add -A <path>` is path-scoped and does not match. `git add -u` and `git commit -a`/`-am` are **not** covered, and the reason is below. Deny text names the mechanical fix: stage the paths `git status --porcelain` lists, and verify that list outside the sandbox namespace, because `git status` is itself phantom-contaminated inside it (`CLAUDE.md`).
-
-Fires in the window: 454 statements of `add -A`/`add .`, flat month over month (108 / 129 / 115 / 102), 135 of them from subagents.
-
-**This rule does not address item 1, and claiming it did was the draft's mistake.** The argument against it is the strongest thing either reviewer produced: the deny's own recovery instruction permits the identical violation, because `git add docs/design && git commit` satisfies the rule and commits the same unrequested artifacts. By the standard in `rules/taste.md` ("every fix carries causal closure"), that is not a fix for the unrequested-commit class. Item 1 is therefore uncovered, recorded in Non-Goals with all four measured predicates.
-
-What the 454 does buy, and the only thing it buys, is **phantom-file prevention plus staging discipline**. The sandbox leaks char devices and stubs named `.bashrc`, `.zshrc`, `.profile`, `.gitconfig`, `.mcp.json` into the working tree (`CLAUDE.md`), none of them tracked and none of them gitignored in this repo (verified: `git ls-files` returns none of them, `git check-ignore` reports NOT ignored for each). A blanket stage is the only way they reach a commit. The audit's subagent lens counts 96 phases that ran `git add -A`.
-
-That justification covers `-A`, `.` and `--all` and stops there: `git add -u` stages only already-tracked files and `git commit -a` only already-tracked modifications, so neither can pick up an untracked phantom. Keeping them would be 20 statements with no argument behind them, so they are out.
+The draft carried a blanket-staging deny (`git add -A` / `.` / `--all`) as item 1's replacement. Panel round 1 took its item-1 justification away, and a measurement in this session took the remaining one. It is not built. Full reasoning in Alternative 5, kept so it is not re-proposed.
 
 #### SLACK: a post goes where Scott named, once, and not as a test
 
@@ -412,7 +407,7 @@ Nothing changes in a rule before the guard that replaces it is live and its matr
 ~/.cache/slack/last-post                           target + first 40 chars + epoch, for RESEND
 ```
 
-No state is kept for GH-WRITE, DELETE-OUT, LN, INGEST or STAGING: all five are pure functions of the command string.
+No state is kept for GH-WRITE, DELETE-OUT, LN or INGEST: all four are pure functions of the command string.
 
 ## Implementation Plan
 
@@ -480,11 +475,6 @@ Two of the three questions the draft asked are already answered by chunk C's own
 - Visibility cache (unknown reads as public), the three-source path set for commit, refspec parsing plus commit-walking for push, blob-size check
 - **Success criteria:** the founding incident's `git add ... && git commit` one-liner is denied with an empty index; `git push origin intent-guards:main` on a public repo with a sensitive path in the outgoing commits is denied, and an unresolvable refspec is denied rather than allowed; the same paths in `scottidler/keep` (private) are allowed
 
-#### Phase 8: STAGING
-**Model:** sonnet
-- The blanket-staging deny for `-A` / `.` / `--all` with no path operand, pending the decision below
-- **Success criteria:** `git add -A && git commit -m x` is denied; `git add -A docs/design` (path-scoped) and `git add -u` are both allowed; denial holds in all 18 `wrap_shapes` spellings
-
 ## Blast radius and ship order
 
 - **Single repo.** Every file this chunk touches is in `scottidler/claude`: `HOME/.claude/hooks/*`, `HOME/.claude/settings.json`, `HOME/repos/.claude/rules/{git,interaction}.md`, the Slack skills, `.otto.yml`. No other repo changes.
@@ -493,7 +483,7 @@ Two of the three questions the draft asked are already answered by chunk C's own
 - **Consequence for the two phases that edit a live guard** (Phase 1 and Phase 6, both on `secret-echo-guard.sh`): the candidate predicate is developed and exercised against a **copy** under a scratch name, the matrix is run against the copy, and only then is the live file written. Writing first and testing after means every session on this machine runs the untested predicate in between.
 - **Recovery path for a guard that denies its own repair.** `secret-echo-guard.sh` is registered on Bash, so a broken version can deny the very `sed`/`python3` call that would fix it. The escape is the Edit tool, which is not on the Bash matcher, and the fallback is Scott running the repair with `!`. Named because Phase 1 edits that exact guard.
 - **The rails plugin loads once per session**, so nothing in this chunk may depend on a rails change taking effect in the session that lands it. Chunk D adds no rails hooks, so this only matters if the Open Question resolves to option B.
-- **Ship order: Phase 0, then Phase 1, then free.** Phase 1 closes a live bypass of a shipped guard and outranks every new rule. After that the rules are independent: no rule reads another's state, and the only shared file is the hook skeleton Phase 2 creates. Phases 3, 4, 7 and 8 depend on that skeleton; Phases 5 and 6 are separate files and can land in any order.
+- **Ship order: Phase 0, then Phase 1, then free.** Phase 1 closes a live bypass of a shipped guard and outranks every new rule. After that the rules are independent: no rule reads another's state, and the only shared file is the hook skeleton Phase 2 creates. Phases 3, 4 and 7 depend on that skeleton; Phases 5 and 6 are separate files and can land in any order. Eight phases, 0 through 7.
 - **Landing.** `git push origin intent-guards:main`, per the program hazard: `git checkout <branch>` fails in this repo from a session whose own config it is, and a partial checkout leaves the working tree half-reverted.
 
 ## Requirement traceability
@@ -540,16 +530,17 @@ Phase by phase, each its own commit, `otto ci` green before the commit, pushed t
 
 ## Resolved Decisions
 
-- **2026-09-15: the prompt-word commit guard is not built.** Measured 590 denials against 2 of 5 incidents, and structurally unavailable in subagents. Author's call on the numbers above, not a deferral: item 1 ships as the STAGING rule, which infers nothing. Recorded as Alternative 1 so it is not re-proposed.
+- **2026-09-15: the prompt-word commit guard is not built.** Measured 590 denials against 2 of 5 incidents, and structurally unavailable in subagents. Superseded by Scott's 2026-09-15 ruling, which accepted the gap outright. Recorded as Alternative 1 so it is not re-proposed.
 - **2026-09-15: Gmail delete/trash is not guarded.** Zero observed vectors across 10 `gws` delete-shaped statements, all Drive, all requested or `--help`. Revisit condition stated in Non-Goals.
-- **2026-09-15: one hook, not six.** 689 ms of measured Bash-hook latency and six rules over one command string.
+- **2026-09-15: one hook, not five.** 689 ms of measured Bash-hook latency and five rules over one command string.
 - **2026-09-15: LN guards the predicate, not the verb.** 112 legitimate `ln -s` statements in the window make a verb matcher unshippable.
 - **2026-09-15: INGEST reads heredoc bodies**, against the general rule that guards match on the masked copy. The measured vector lives only in a heredoc body and the surface is 11 statements in four months.
 - **2026-09-15: no `UserPromptSubmit` recorder.** The `PreToolUse` payload already carries `transcript_path` and `prompt_id`, and the prompt record lands before the turn's first tool call. A recorder would be a second source of truth for the same fact. Kept as Alternative 4 against Phase 0's flush-timing result.
 - **2026-09-15: skill-activity inference is refused outright**, not deferred. No payload field, and the transcript signal has no end marker. See Non-Goals.
 - **2026-09-15: item 8's `Environment=` vector is replaced by the measured `EnvironmentFile=` targets.** Zero secret values in any unit file's `Environment=`; the credentials are in `/run/user/1000/*.env` and `*/token*.json`.
 - **2026-09-15: chunk B's single-quoted-verb hole is chunk D's Phase 1**, ahead of every new rule, because it is a live bypass of a guard that is already shipped and already trusted.
-- **2026-09-15 (panel round 1): STAGING narrows to `-A` / `.` / `--all` with no path operand**, justified only as phantom-file prevention and staging discipline. The item-1 framing is deleted because the deny's own recovery instruction permits the identical violation. `-u` and `-a` are dropped: neither can stage an untracked file, so the phantom argument does not reach them.
+- **2026-09-15, Scott's ruling: item 1 ships with no guard.** Asked as an A/B with five measured predicates; answer was A, accept the gap. Not a deferral: the class is uncovered and recorded as such in Non-Goals.
+- **2026-09-15: the blanket-staging deny is dropped entirely**, after panel round 1 removed its item-1 claim and a measurement removed its phantom claim. Author's call on the evidence in Alternative 5, reversing the draft's own Rec.
 - **2026-09-15 (panel round 1): the `flag_value` attached-short-option gap is fixed in `lib.sh`, not worked around in the guard.** Every future guard consumes the same parser, so a local workaround would leave the class open.
 - **2026-09-15 (panel round 1): INGEST evaluates at command scope**, a named exception to the "match on `stmts` output" contract, because the measured shape puts the ingest in a statement stripped of its loop.
 - **2026-09-15 (panel round 1): the Slack exemption is a bound on the full recipient set**, not on the primary target. `--broadcast`, `dm_mentioned` and `follow_ups` each reach past it.
@@ -570,9 +561,24 @@ Phase by phase, each its own commit, `otto ci` green before the commit, pushed t
 - **Path provenance** (deny a commit whose staged paths include a basename that never appears in any typed prompt of the session): 1,348 in-scope statements, 820 denies, 4 of 5 incidents, precision ~0.5%. Best recall of the five, worst volume.
 - **Why neither is chosen:** both are worse than what they replace. Recorded so round 2 does not re-derive them.
 
+### Alternative 5: the blanket-staging deny
+- **Description:** deny `git add -A`, `git add .`, `git add --all` with no path operand. 454 statements in the window, flat month over month, 135 from subagents.
+- **Why not chosen, first reason (panel round 1):** it cannot claim item 1. Its own deny text instructs the model to stage explicit paths, and `git add docs/design && git commit` satisfies the rule while committing the same unrequested artifacts. `rules/taste.md` calls that a fix with no causal closure.
+- **Why not chosen, second reason (measured 2026-09-15):** the phantom-prevention justification does not hold. Every sandbox phantom in this working tree is a **character special file, size 0, mode 666** (`.bash_profile`, `.bashrc`, `.zshrc`, `.profile`, `.mcp.json`, `.ripgreprc`, `.zprofile`, `.gitmodules`), and git refuses to add one:
+
+```
+$ git add -A --dry-run
+error: .bash_profile: can only add regular files, symbolic links or git-directories
+fatal: adding files failed
+```
+
+  The abort is all-or-nothing, so a blanket stage in a phantom-contaminated tree stages nothing. Git already fails closed on the only class the rule would have closed. `git status --porcelain` reported zero regular-file phantoms at the time of measurement.
+- **Why not chosen, third reason:** the one incident it was credited with, `2a4d6300` at 2026-09-09T00:49:24, is `git add -A docs/design && git commit`. That is `-A` **with** a path operand, which cheap win C2 correctly requires the rule to allow. So the narrowed rule catches zero of the five incidents.
+- **Revisit condition:** a phantom that appears as a 0-byte **regular** file rather than a char device. `CLAUDE.md` describes both shapes; only the char-device shape was present when this was measured. A regular-file phantom is addable, and then `git add -A` does commit it.
+
 ### Alternative 3: one hook per verb, the tree's current pattern
-- **Description:** a separate `gh-write-guard.sh`, `ln-guard.sh`, `ingest-guard.sh`, `public-repo-guard.sh`, `staging-guard.sh`, each with its own matrix. This is how the existing ten guards are organized, and the research dig recommended it for `rules/general.md` naming and legible per-guard matrices.
-- **Why not chosen:** ten Bash `PreToolUse` guards already cost 689 ms as a sum of individual runs, 18 to 137 ms each. Five more would add roughly 400 ms to **every Bash call in every session**, and all five rules parse the same command string, so the parse would be repeated five times for one answer. `prose.sh` is the counter-precedent in the same tree: one script, three rules, one payload read, one `--self-test`.
+- **Description:** a separate `gh-write-guard.sh`, `ln-guard.sh`, `ingest-guard.sh`, `public-repo-guard.sh`, each with its own matrix. This is how the existing ten guards are organized, and the research dig recommended it for `rules/general.md` naming and legible per-guard matrices.
+- **Why not chosen:** ten Bash `PreToolUse` guards already cost 689 ms as a sum of individual runs, 18 to 137 ms each. Four more would add roughly 300 ms to **every Bash call in every session**, and all four rules parse the same command string, so the parse would be repeated four times for one answer. `prose.sh` is the counter-precedent in the same tree: one script, three rules, one payload read, one `--self-test`.
 - **What the pushback concedes:** matrix legibility. `intent-guard-test.sh` is sectioned one block per rule, in the order the rules appear in this doc, so a reader looking for the LN fixtures finds them without reading the GH-WRITE ones. The naming objection is answered by the one-word name `intent`.
 - **Open on one fact:** if Phase 0 finds the harness runs a matcher list in parallel, the latency argument weakens and per-verb hooks become defensible. The parse-once argument stands either way.
 
@@ -592,10 +598,12 @@ Phase by phase, each its own commit, `otto ci` green before the commit, pushed t
 
 ## Open Questions
 
-- [ ] **Does item 1 stay uncovered?** Chunk D ships no guard for the unrequested-commit class. Five predicates were derived and measured against 5 incidents in 2,832 commit statements, and the best of them is 820 denials for 4 of 5 (full table in Non-Goals). The base rate is 0.18%. Options: (A) accept the gap, ship the other seven rules, and leave the class to prose; (B) order one of the five predicates anyway, naming which; (C) leave the class open and revisit when a sixth incident gives a sharper shape. **Rec: A.** Every measured predicate costs between 318 and 820 interruptions to catch between 1 and 4 events, and the one with the best recall has 0.5% precision. This is the only scope reduction in the chunk and it is yours to overturn.
-- [ ] **Is phantom prevention worth 454 denials?** STAGING's only surviving justification is that a blanket stage is the single way a sandbox phantom file reaches a commit, and none of them is tracked or gitignored here. That costs 454 denials over four months, about 3.7 a day, each recoverable by staging explicit paths. Options: (A) ship it as Phase 8; (B) drop it and record the phantom class as uncovered too. **Rec: A**, because it closes a class completely rather than partially, which is what the item-1 refusal could not do.
+None. The two that survived panel round 1 are both closed:
 
-Closed during the research fold-in and panel round 1, recorded so they are not reopened:
+- **Does item 1 stay uncovered?** Scott ruled A on 2026-09-15: accept the gap. Recorded in Non-Goals with all five measured predicates.
+- **Is phantom prevention worth 454 denials?** Closed by measurement, not by ruling: git refuses to add a character-special file and aborts the whole `git add -A`, so there is no phantom class left for the rule to close. The rule is dropped (Alternative 5).
+
+Closed earlier, recorded so they are not reopened:
 
 - **Fail-open or fail-closed when the transcript is unreadable.** Only SLACK reads prompts now, and it fails **closed** with the two exempt ids still passing on hardcoded literals. `panel-round-guard.sh:50-57` fails open behind a measured 97.4% hit rate, which is right for a round counter and wrong for an authorization gate.
 - **Item 1's repo scope** (every repo, or only repos with a remote). Moot: item 1 is uncovered.

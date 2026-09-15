@@ -52,3 +52,10 @@ Recorded so round 2 does not re-derive them.
 
 - **Do not dispatch the panel while a research fold-in is still outstanding.** The live doc moved 194 lines while round 1 ran, both seats reviewed the snapshot, and one of the round's findings exists only because the fold introduced a claim mid-review. Land every fold-in first, then snapshot, then dispatch.
 - **A predicate written from a man page is not measured.** M3 and M5 would both have been caught by running the command once. The doc's own rule says every predicate is measured before it ships; the draft applied that to fire counts and not to the predicate's own mechanics.
+
+## Post-round-1: the two open questions close, 2026-09-15
+
+- **Item 1's coverage.** Asked to Scott as an A/B with five measured predicates. Ruling: **A**, accept the gap. Item 1 ships no guard and is recorded in Non-Goals.
+- **STAGING's price.** Closed by measurement rather than by ruling, and it reversed the author's own Rec. Every sandbox phantom in the working tree is a character special file, so `git add -A --dry-run` aborts with `error: .bash_profile: can only add regular files, symbolic links or git-directories / fatal: adding files failed` and stages nothing. Git already fails closed on the class. Add the third strike: the one incident the rule was credited with is `git add -A docs/design`, path-scoped, which cheap win C2 requires the rule to allow. Zero of five incidents, no phantom class, no item-1 claim. Dropped to Alternative 5 with a revisit condition (a 0-byte regular-file phantom, which is addable).
+
+Net effect on scope: eight phases, 0 through 7. Seven rules ship. Open Questions is empty.
