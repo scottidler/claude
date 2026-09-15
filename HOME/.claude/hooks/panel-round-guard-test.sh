@@ -278,6 +278,32 @@ run allow 'eta round 1' "Design Review of $REPO/docs/design/eta.md"
 check 'Implemented-with-follow-up still reads mode 2' 'mode=2' \
   "$(sed -n '2p' "$CACHE/$(ls "$CACHE" | head -1)")"
 
+echo "=== regression: a RELATIVE cache override never writes into the cwd ==="
+# The round-1 audit's probing ran with PANEL_ROUND_CACHE_DIR set to a relative
+# path, which resolved against its cwd and left a bare `bin/<sha256>` counter
+# file in this repo's tracked bin/ directory (found 2026-09-15). A guard that
+# scatters state into whatever repo is under review is the bug; a relative
+# override is refused and falls back to the default.
+REL_WORK="$ROOT/relwork"
+mkdir -p "$REL_WORK"
+rel_payload=$(jq -n --arg s "$SUB" --arg p "Design Review of $ALPHA" --arg d "$REL_WORK" \
+  '{tool_name:"Agent",tool_input:{subagent_type:$s,prompt:$p},cwd:$d}')
+# HOME is redirected into $ROOT for this one case: the refusal falls back to
+# $HOME/.cache/review-panel/rounds by design, and a test must never write to the
+# user's real counter. Caught while adding this case, which did exactly that.
+REL_HOME="$ROOT/relhome"
+mkdir -p "$REL_HOME"
+rel_out=$( cd "$REL_WORK" \
+  && printf '%s' "$rel_payload" \
+  | HOME="$REL_HOME" PANEL_ROUND_CACHE_DIR=relbin bash "$HOOK" 2>&1 >/dev/null )
+check 'the refusal fell back under the redirected HOME' 1 \
+  "$(find "$REL_HOME" -type f | wc -l)"
+case "$rel_out" in
+  *"must be an absolute path"*) pass=$((pass + 1)); echo "PASS  [warn] relative cache override is refused" ;;
+  *) fail=$((fail + 1)); echo "FAIL  [warn] relative cache override was not refused: $rel_out" ;;
+esac
+check 'a relative override wrote nothing under the cwd' 0 "$(find "$REL_WORK" -type f | wc -l)"
+
 echo "=== mutation: two .md paths in one prompt key on the design doc ==="
 fresh_cache
 run allow 'two paths, round 1' "Design Review of $ALPHA. Cross-check against $BETA."

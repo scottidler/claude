@@ -718,3 +718,44 @@ Both of those were my errors, and both are corrected here.
   agent had already demonstrated on `settings.json` earlier in this same
   session. Creating a NEW file under `HOME/.claude/agents/` is what was refused,
   and that refusal was about the design, not the path.
+
+## Post-audit, fourth pass: a stray counter file in tracked bin/
+
+Found while verifying the tree was clean for the "are we code complete" check,
+not by any reviewer. Worth recording because the guard caused it.
+
+### Design decisions
+- `PANEL_ROUND_CACHE_DIR` must now be an ABSOLUTE path. A relative value is
+  refused with a warning and falls back to the default. Root cause of the
+  find: the round-1 audit probed the hook with a relative override, which
+  resolved against its cwd and left a bare `bin/<sha256>` counter file in this
+  repo's tracked `bin/` directory (mtime 18:40, mid-audit). A guard that
+  scatters state into whatever repo is under review is a defect in the guard,
+  not in the caller, so the check belongs in the hook.
+- The warn is deferred through `CACHE_DIR_RELATIVE` because `CACHE_DIR` is
+  resolved at the top of the file and `warn()` is not defined until below it.
+  Calling `warn` at resolution time silently produced nothing.
+
+### Deviations
+- None. This is a hardening found in the tree, not a plan bullet.
+
+### Tradeoffs
+- Refuse-and-fall-back rather than refuse-and-deny, consistent with the
+  guard's fail-open posture: a misconfigured cache dir should not block every
+  panel dispatch in the session.
+
+### Open questions
+- None.
+
+### Notes on the test, which caught its own bug
+- The first version of the regression case let the refusal fall back to the
+  REAL `~/.cache/review-panel/rounds/`, so running the matrix polluted the
+  user's counter. `HOME` is now redirected into `$ROOT` for that one case, and
+  a `check` asserts the fallback landed under the redirected `HOME`. The
+  matrix's own header promises it "cannot touch the user's real cache"; that
+  promise was briefly false and is now enforced rather than asserted.
+- Two stray files archived with `rkvr rmrf` (`bin/<sha256>` from the audit, and
+  the counter the first test version wrote), per `rules/safety.md`: `bin/` is
+  deliberately not in the regenerable set, so neither got a plain `rm`.
+- Matrix 108 to 111. Break-the-code: allowing the relative path through fails
+  all 3 new cases.

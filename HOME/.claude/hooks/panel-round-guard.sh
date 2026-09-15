@@ -85,6 +85,18 @@ esac
 
 CAP_DEFAULT=3
 CACHE_DIR="${PANEL_ROUND_CACHE_DIR:-$HOME/.cache/review-panel/rounds}"
+# A relative override resolves against the caller's cwd, which scatters counter
+# files into whatever repo is being reviewed. The round-1 audit did exactly that
+# and left `bin/<sha256>` in this repo's tracked bin/ directory (2026-09-14).
+# The warn is deferred because warn() is not defined until below.
+CACHE_DIR_RELATIVE=""
+case "$CACHE_DIR" in
+  /*) ;;
+  *)
+    CACHE_DIR_RELATIVE="$CACHE_DIR"
+    CACHE_DIR="$HOME/.cache/review-panel/rounds"
+    ;;
+esac
 
 log() { # log <message>
   [ -n "${PANEL_ROUND_GUARD_DEBUG:-}" ] && printf 'panel-round-guard: %s\n' "$*" >&2
@@ -95,6 +107,10 @@ warn() { # warn <message>
   printf 'panel-round-guard: %s\n' "$*" >&2
   return 0
 }
+
+if [ -n "$CACHE_DIR_RELATIVE" ]; then
+  warn "PANEL_ROUND_CACHE_DIR must be an absolute path, got '$CACHE_DIR_RELATIVE'; using $CACHE_DIR"
+fi
 
 deny() { # deny <reason>
   jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
