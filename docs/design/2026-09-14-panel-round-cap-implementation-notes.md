@@ -267,3 +267,137 @@ round 4: exit=0 stdout=[{"hookSpecificOutput":{"hookEventName":"PreToolUse","per
 Cache entry after the run: `path=<doc>`, `mode=1`, `rounds=3`. Confirmed
 `~/.cache/review-panel/rounds/` is empty afterward (the user's real counter
 was never touched).
+
+## Phase 3: Shrink review-panel.md to the contract
+
+### Design decisions
+- Moved every dated incident narrative to
+  `HOME/.claude/agents/review-panel-notes.md`, keeping the rule each incident
+  produced stated explicitly in `review-panel.md`, verified present after the
+  move:
+  - "Why this agent exists" (serialize/re-resolve/die-silently): rule
+    ("resolve context once, dispatch both in parallel... synthesize once")
+    kept in the shortened intro paragraph.
+  - Step 0's three 2026-08-13 inheritance-panel failures: rules kept as Step
+    0.3 ("never refuse a round on a stale diff"), Step 0.4 ("enumerate the
+    caller's questions... explicit answered/unanswered verdict"), and the
+    Step 5 hard exit contract.
+  - Step 1's 2026-08-08 mid-round-edit anecdote: rule kept ("snapshot it
+    immediately... pass the snapshot path, never `$DOC_PATH`... diff the
+    snapshot against the live file before writing the synthesis").
+  - Step 3's four dispatch incidents (detached seats 2026-08-31,
+    single-reviewer-as-panel risk, the 2026-08-03/08-04 timeout tie, the
+    2026-07-13-to-08-03 rc=3 sandbox era): rules kept as "never detach the
+    seats", "`dispatch-status-r$ROUND.txt` is a durable record... read it
+    back", "do NOT wrap the scripts in your own `timeout`", and the rc=3
+    remedy paragraph plus the rc-decode table.
+  - Step 3.5's 2026-07-19 Scott approval: rule kept (the fallback mechanics
+    and its four bulleted rules), dropped only the approval-date attribution.
+  - Step 3.75's otto PR #3 (2026-09-03) regression story: rule kept ("you
+    have Bash, and closing that gap is why this step exists", plus the
+    4-step probe procedure).
+  - Step 4's idle-signal-gap history (2026-07-03 to 2026-08-07) and three
+    wrong-absolute anecdotes (APPROVED-ready-to-build, "no 8th key", "no
+    ninth key"): rules kept as "write the synthesis to a file first... never
+    depend on the chat turn" and "before you repeat any seat's negative
+    claim... run the command that tests it yourself... or label it
+    `[UNVERIFIED]`".
+  - Step 5's SendMessage length measurement and the 2026-08-13 unchecked-exit
+    incident: rules kept as "content reaches the caller ONLY through an
+    explicit `SendMessage` call" and the hard exit contract, "check them
+    literally, as a shell command, not from memory".
+  - Step 6's 2026-08-13 dropped-questions incident: rule kept ("Questions is
+    non-negotiable... name every question you did not answer... say `0
+    answered` and list all of them").
+- Moved Step 2's two reviewer prompt bodies (Mode 1 and Mode 2, 3,505B in the
+  original) to `HOME/.claude/agents/review-panel-prompts.md`, one section per
+  mode, referenced by one line from Step 2. Not moved into the seat scripts,
+  per the design doc's Non-Goals (would couple standalone `/architect` and
+  `/staff-engineer` runs to panel behavior).
+- Fixed Step 3's dispatch code block to write `dispatch-status-r$ROUND.txt`
+  (was unsuffixed `dispatch-status.txt`), matching Step 0.1 and Step 5's
+  exit contract exactly, and updated every downstream reference to the same
+  file (Step 4 item 1, Step 6's Seats rule). Left `doc-snapshot.md`,
+  `prompt.txt`, `arch.out`, `staff.out` unsuffixed in Step 1/2/3/3.5, exactly
+  as they stood on `main`: the design doc's Landmine section and Step 5's
+  exit contract single out only the dispatch-status name as the live
+  inconsistency; the other four names are a softer, non-blocking
+  inconsistency with Step 0.1 that this phase's instructions did not ask to
+  fix, so widening the change would be scope this phase does not own.
+- Step 4: `synthesis.md` now documented to carry `[SYNTHESIS]` only; removed
+  the `[ARCHITECT]`/`[STAFF-ENGINEER]` raw-output headers and pointed readers
+  at `$RUN_DIR/arch.out` / `$RUN_DIR/staff.out` by path instead, naming the
+  4,035-line synthesis file as the reason.
+- Step 6: `Round: <n>` in the report template is now `Round: <n> of 3`, with
+  a one-line rule underneath saying to use the door's ceiling instead of 3
+  when the door raised it for that doc. Also merged the template's two
+  separate (and redundant) "Drift" bullets into one; a pre-existing defect,
+  not part of this phase's assigned edits, but touched incidentally while
+  fixing the same paragraph's dispatch-status reference and em-dashes.
+- Documented the door in Step 0 as its own paragraph after the numbered
+  list (not as a 6th numbered item, since it is a fact about enforcement the
+  agent reads, not an action it takes each round): the control-line regex
+  `^PANEL_ROUNDS_ORDERED_BY_SCOTT=[0-9]+$`, "never a word-boundary match
+  anywhere", and the ceiling semantics, copied to match
+  `panel-round-guard.sh`'s header and implementation rather than paraphrased
+  from the design doc.
+- Removed every em-dash (U+2014) from `review-panel.md`: the pre-Phase-3 file
+  carried 44, used throughout as a general-purpose connector, not only inside
+  the moved narratives. Replaced each with a colon, comma, parens, or a split
+  sentence, chosen per site as `rules/voice.md` directs. Also fixed the same
+  in the two new files: `review-panel-prompts.md`'s two prompt bodies
+  (copied verbatim from the pre-Phase-3 Step 2) carried 7 em-dashes between
+  them; `rules/safety.md` admits no quotation exemption, so these were
+  rewritten too, not carried over as "verbatim historical text".
+- Added `HOME/.claude/agents/review-panel-prompts.md` to `.otto.yml`'s lint
+  FILES list (`review-panel-notes.md` was already there from Phase 2).
+- No manifest link step needed: `~/.claude/agents` is a whole-directory
+  manifest symlink into this repo (`readlink -f ~/.claude/agents` resolves to
+  `HOME/.claude/agents`), unlike `~/.claude/hooks` which Phase 2 found is
+  populated file-by-file. Verified both new files resolve to the repo path
+  via `readlink -f`.
+
+### Deviations
+- The design doc's Phase 3 bullet estimates "lore extraction alone lands at
+  ~19,970, zero margin. With the Step 2 move, ~16,500." Measured: after
+  moving both the lore and the Step 2 prompt bodies, the file was still
+  21,690 bytes, well above both predictions, because those two moves alone
+  did not remove the file's 44 em-dash-joined clauses or its remaining
+  verbose prose. Trimmed prose throughout (compressing repeated phrasing in
+  Steps 0, 1, 2, 3, 3.75, 4, 5 and 6, while preserving every rule) to land at
+  19,954. Reported here per the design doc's instruction to record the byte
+  count as an observation; AC4 gates on the properties, not this number, and
+  all of them pass (checked above).
+- `review-panel.md` itself is not on the `.otto.yml` lint FILES list. The
+  list's own leading comment says it "deliberately excludes review-panel.md,
+  which chunk C rewrites wholesale," which reads as a note to revisit after
+  this phase lands. Not added: the Phase 3 task instructions listed only
+  `review-panel-notes.md` and `review-panel-prompts.md` as files to add to
+  the lint list, and adding `review-panel.md` unprompted would be scope this
+  phase was not asked to take. Manually verified zero em-dashes in it
+  (`rg` check above) as a one-time check instead of a standing CI gate.
+  Flagged here as an open question for whoever owns the next chunk.
+
+### Tradeoffs
+- Chose to compress prose rather than cut additional rule content to hit the
+  under-20,000 target. The alternative (dropping a bullet, e.g. the "Declare
+  each seat's tool limits" rule in Step 4) would have been faster but risks
+  exactly the "Shrinking review-panel.md drops a rule that was load-bearing"
+  risk the design doc's own risk table rates Med/High. Compression cost more
+  edit passes; it cost zero rules.
+- Left the pre-existing softer artifact-naming inconsistency
+  (`doc-snapshot.md`/`prompt.txt`/`arch.out`/`staff.out` vs Step 0.1's
+  suffixed names) unfixed, per the Deviations note above. Fixing it now would
+  have been a larger, more scope-creepy edit than this phase's instructions
+  called for, and it is not wired to any hard downstream check the way
+  `dispatch-status.txt` is to Step 5's exit contract.
+
+### Open questions
+- Should `review-panel.md` itself join the `.otto.yml` lint FILES list now
+  that Phase 3 has finished the "wholesale rewrite" the list's comment refers
+  to? It currently relies on a one-time manual `rg` check rather than a
+  standing CI gate.
+- Should the artifact-naming inconsistency in Step 1/2/3/3.5
+  (`doc-snapshot.md`, `prompt.txt`, `arch.out`, `staff.out`, `staff-sub.txt`
+  unsuffixed, against Step 0.1's `-r$ROUND` convention) be fixed in a later
+  chunk, the same way this phase fixed `dispatch-status.txt`?
