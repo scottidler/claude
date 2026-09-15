@@ -1,6 +1,6 @@
 # Chunk D review log: intent guards
 
-Minutes for `docs/design/2026-09-15-intent-guards.md`. Rounds are capped at 3 by `panel-round-guard.sh`.
+Minutes for `docs/design/2026-09-15-intent-guards.md`. Rounds are capped at 3 by `panel-round-guard.sh`. Round 4 ran on Scott's order, through the guard's `PANEL_ROUNDS_ORDERED_BY_SCOTT=<n>` control line.
 
 ## Pre-panel: `design-research` fold-in, 2026-09-15
 
@@ -120,3 +120,62 @@ Rejected with measurements: the architect's whole-history false-deny severity cl
 The cap is reached. Nine must-fix folded, all of them decisions rather than unknowns, and no reviewer has read the post-round-3 text. That is the honest state to hand Scott: the rulings are settled, Open Questions is empty, and the last fold is unreviewed.
 
 Pattern across all three rounds, worth carrying into chunk E: **every round found at least one rule whose stated mechanism could not perform the stated job** (round 1: `realpath -m` denying its own legitimate shape; round 2: a ledger nothing could write; round 3: a lock that does not span the operation it guards). None of the three was a fire-count or precision error. The question that would have caught all three is "what process, at what moment, executes this, and what can it see?"
+
+## Round 4, 2026-09-15
+
+Ordered by Scott past the cap to review the round-3 fold, which no reviewer had read. Dispatched with `PANEL_ROUNDS_ORDERED_BY_SCOTT=4` on its own control line, which is the only way `panel-round-guard.sh` allows a fourth dispatch. Architect (gemini) rc=0, staff engineer (codex) rc=0. 8 must-fix, 3 cheap wins, 0 defers, 3 rejected. Both seats returned "not ready to build" independently and neither reopened a settled ruling. **Live vs snapshot: 0 lines**, the second clean round running; the doc was held still and both seats read sha256 `d97a5701...`.
+
+Five of round 3's nine fixes verified clean: the `O_EXCL` replacement for `flock`, the `PostToolUseFailure` fail-closed ruling, `-X=VALUE` stripping, the push-destination three-outcome table, and the directory-expansion and zero-denies-propagation halves. Four needed another pass.
+
+**Two findings are working bypasses, executed against the live endpoint, not reasoned from a man page:**
+
+```
+$ gh api -XDELETE -p -XGET /rate_limit --verbose 2>&1 | sed -n 3p
+> DELETE /rate_limit HTTP/1.1
+$ gh api -XDELETE --header "-XGET: x" /rate_limit --verbose 2>&1 | sed -n 3p
+> DELETE /rate_limit HTTP/1.1
+```
+
+Round 3 fixed the `-H` operand-poisoning case and hand-listed the skip flags. The hand-list omitted `--header` (the long alias of the flag it had just fixed), `-p`/`--preview` and `--cache`. The fix is the complete `gh api --help` specification, short and long alias per flag, with one operand-skip fixture each in Phase 2.
+
+Four findings re-verified in this session before folding, because each changes a predicate:
+
+| finding | verification |
+|---|---|
+| M1 the skip list is incomplete | `gh api --help` lists ten value-taking flags; the doc carried seven names and missed three aliases |
+| M2 LN's raw-paren fallback over-denies | 51 `ln -s` corpus commands, 8 carry a `(`, only 3 carry a structural `$(`; `lib.sh:68` says class `P` survives masking, so the masked copy separates them |
+| M5 `has(...)` admits expressions | `printf '{"example":"visible"}' \| jq 'has(.example \| debug)'` prints `["DEBUG:","visible"]` to stderr and returns `false` |
+| M6 `git commit --include` misses a prior `git add` | scratch repo: `git diff --cached --name-only` empty at hook time, `git add secrets/new.txt && git commit --include README.md` commits both files |
+
+Three findings were mechanisms that could not do the stated job, the same class every prior round produced:
+
+- **M2, LN.** The paren test ran on the raw command, so a paren in a comment or a quoted string stopped cwd accumulation and denied a legitimate command. That makes Phase 3's "exactly 3 denies" unsatisfiable, which is a criterion the fold had just corrected for a different reason.
+- **M3, INGEST.** Step 2's "read-only verbs always allow" stated no scope, so `sb borg log; sb borg ingest --file urls.txt` returned allow for the whole command and never reached step 3. Round 3 fixed the door's reachability and introduced this one directly above it. Both seats found it independently.
+- **M4, the door.** `BULK_INGEST_ORDERED_BY_SCOTT=<n>` called `<n>` a maximum and never compared it, so `=0` allowed and `=1` allowed five ingests.
+
+Two more were specification gaps the fold exposed without creating: **M5**'s jq grammar (a substring pattern where a whole-filter match was needed) and **M7**'s sourcing contract (the doc asserted SLACK and PUBLIC-REPO fail closed while prescribing the fail-open snippet that exits with an allow before any rule runs). **M8** is one lifecycle sentence: RESEND named no reaper, so two processes could both reclaim an expired entry and both `O_EXCL` create. Reclamation is now an atomic `rename` by whichever guard next touches the expired entry.
+
+**M6 and C1 are the fold-propagation class**: the `-i`/`--include` commit row one row below the `-am` row that was fixed, and an Edge-cases bullet still prescribing the `cd_target`/`cd_at` helpers the LN rule explicitly rejects. Round 2 found six of these, round 3 found one, round 4 found two.
+
+## Findings rejected in round 4, with the measurement
+
+- **The architect's `--cache -XGET` bypass.** `gh api --cache -XGET /rate_limit` fails with `invalid argument "-XGET" for "--cache" flag: time: invalid duration "-XGET"` and nothing executes. The architect never ran `gh` and marked the item `REQUIRES EXECUTION` itself; the staff seat ran it. `--cache` goes on the skip list for completeness, not as a vector.
+- **The architect's demand to name `git diff --name-only HEAD` for the `-am` row.** The row already says "every tracked modification", which specifies the path set. No other row names its command either.
+- **Nothing settled was reopened.** No sixth item-1 predicate, no reversal of LN's cycle direction, no reopening of `flag_value`, no attack on the staging drop. The architect checked the `~/Claude` symlink rule against `CLAUDE.md` and confirmed it traceable.
+
+## Phase 0, partial, 2026-09-15
+
+Run alongside round 4, read-only half only. Evidence: `docs/design/2026-09-15-intent-guards-phase0/evidence.md`.
+
+- **Extractor criterion PASSES**, and it proves both `prose.sh` fixes are load-bearing. 1,237 turns over 250 transcripts. The current extractor false-authorizes **272 turns, 22.0%**, every one a teammate relay, because the relay filter sits only on the `last-prompt` branch and the `user` branch is now primary. The corrected extractor: 0 relay, 0 wrapper, 138 slash-command turns recovered rather than discarded, 0.57% miss against a 20% threshold.
+- **`promptId` is provisionally constant.** 969 of 998 prompt segments. 21 of the 24 varying typed segments are a single monotone shift, which is a prompt start carrying no `promptSource` rather than instability; 3 are genuinely multi-valued and need the live payload.
+- **Latency criterion FAILS.** The transcript scan alone costs 230 ms at `prose.sh:95`'s `TAIL_CAP=4000000`; with `intent-guard.sh`'s floor and `ids.json` the chunk adds 274 ms against a 250 ms budget, before the `Read` matcher. Two levers are specified in Phase 0 and the choice waits on one more measurement (whether a 200K tail contains the turn's `user` record), which the flush-instant dump now also records.
+- **Three criteria outstanding**, all needing a live `settings.json` registration: the flush instant, the `Read` matcher and its deny against `Read(**)`, and the `PostToolUseFailure` payload. Deferred while round 4 ran because the `Read` criterion registers a **deny** that would have fired inside the panel's own seats.
+
+## Standing after four rounds
+
+Round 4 was the narrow round Scott ordered and it paid for itself: two live bypasses that three rounds of review and a fold had left in the doc. The post-round-4 fold is now the unreviewed text, and the cap is reached again.
+
+Pattern, now four for four: **every round has found at least one rule whose stated mechanism could not perform its stated job.** Round 1 `realpath -m`, round 2 a ledger nothing could write, round 3 a lock that did not span the operation, round 4 a skip list that did not cover the flag it had just fixed. The question that catches them stays the same: what process, at what moment, executes this, and what can it see?
+
+Second pattern worth carrying to chunk E: **the fold is where defects enter.** M6, C1 and arguably M3 are all cases where a fix landed at one site and not at its siblings. Round 2 found six, round 3 one, round 4 two. A fold is not done when the rule text is right; it is done when every place the doc states the same fact has been walked.
