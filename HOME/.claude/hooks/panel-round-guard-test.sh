@@ -232,6 +232,52 @@ CRLF=$'Design Review of '"$ALPHA"$', round 5\r\nPANEL_ROUNDS_ORDERED_BY_SCOTT=5\
 run allow 'a CRLF prompt still opens the door' "$CRLF"
 run deny 'and the raised ceiling still holds at 6' "$OWNLINE" 'the cap is 5'
 
+echo "=== regression: a FENCED marker at column 1 does NOT open the door ==="
+# Audit round 1, 2026-09-14. The group above only ever quoted the marker with
+# inline backticks or indentation, both of which the ^ anchor already rejected,
+# so CI could not see the one form that mattered: column 1 INSIDE a fenced code
+# block. The design doc this guard enforces carries exactly that at :165, so a
+# round-4 prompt quoting the doc's own door section raised the cap from 3 to 5.
+# The document was opening its own door. These cases are the reason the hook
+# masks fences before matching; break the awk mask and they fail.
+fresh_cache
+FENCED=$'Design Review of '"$ALPHA"$', round 4. Prior findings referenced the door section:\n\n```\nreview-panel this doc, round 4\nPANEL_ROUNDS_ORDERED_BY_SCOTT=5\n```\n'
+run allow 'fenced: round 1' "Design Review of $ALPHA"
+run allow 'fenced: round 2' "Design Review of $ALPHA"
+run allow 'fenced: round 3' "Design Review of $ALPHA"
+run deny  'a FENCED marker does NOT open the door' "$FENCED" 'the cap is 3'
+TILDE=$'Design Review of '"$ALPHA"$'\n~~~\nPANEL_ROUNDS_ORDERED_BY_SCOTT=9\n~~~\n'
+run deny  'a tilde-fenced marker does NOT open the door' "$TILDE" 'the cap is 3'
+INDENTED_FENCE=$'Design Review of '"$ALPHA"$'\n  ```\nPANEL_ROUNDS_ORDERED_BY_SCOTT=9\n  ```\n'
+run deny  'an indented fence still masks its marker' "$INDENTED_FENCE" 'the cap is 3'
+AFTER_FENCE=$'Design Review of '"$ALPHA"$'\n```\nsome quoted block\n```\nPANEL_ROUNDS_ORDERED_BY_SCOTT=5\n'
+run allow 'a real control line AFTER a closed fence still opens the door' "$AFTER_FENCE"
+
+echo "=== regression: mode is read from the METADATA BLOCK, not the whole file ==="
+# Same audit finding. The prose case above put `Status: Implemented` inside
+# backticks; a FENCED one at column 1 slipped through the whole-file grep and
+# keyed an In Review doc as Mode 2. The real damage is the inverse: the key then
+# does not change when the status genuinely flips, so the first implementation
+# audit inherits the exhausted design counter and is denied at dispatch.
+printf '# Epsilon\n\n**Status:** In Review\n\n## Body\n\n```\nStatus: Implemented\n```\n' \
+  > "$REPO/docs/design/epsilon.md"
+fresh_cache
+run allow 'epsilon round 1' "Design Review of $REPO/docs/design/epsilon.md"
+check 'a fenced Status below the metadata block stays mode 1' 'mode=1' \
+  "$(sed -n '2p' "$CACHE/$(ls "$CACHE" | head -1)")"
+# And the genuine flip still reads as mode 2, including the follow-up-owed form
+# that must NOT be broken by anchoring the match at end of line.
+printf '# Zeta\n\n**Status:** Implemented\n\n## Body\n' > "$REPO/docs/design/zeta.md"
+fresh_cache
+run allow 'zeta round 1' "Design Review of $REPO/docs/design/zeta.md"
+check 'a genuine Implemented status reads mode 2' 'mode=2' \
+  "$(sed -n '2p' "$CACHE/$(ls "$CACHE" | head -1)")"
+printf '# Eta\n\n**Status:** Implemented with a follow-up owed\n\n## Body\n' > "$REPO/docs/design/eta.md"
+fresh_cache
+run allow 'eta round 1' "Design Review of $REPO/docs/design/eta.md"
+check 'Implemented-with-follow-up still reads mode 2' 'mode=2' \
+  "$(sed -n '2p' "$CACHE/$(ls "$CACHE" | head -1)")"
+
 echo "=== mutation: two .md paths in one prompt key on the design doc ==="
 fresh_cache
 run allow 'two paths, round 1' "Design Review of $ALPHA. Cross-check against $BETA."

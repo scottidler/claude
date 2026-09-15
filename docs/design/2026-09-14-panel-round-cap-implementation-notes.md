@@ -523,3 +523,85 @@ a scratch directory under `$TMPDIR`, on the hook invocation itself, never on
 ### Observations, not gates
 - `wc -c HOME/.claude/agents/review-panel.md` at shakedown time: `19954`,
   matching Phase 3's landed value.
+
+## Post-audit fix-forward: round-1 implementation audit findings
+
+Not a phase. Appended after the five phases landed and the branch was pushed to
+`main`, when the round-1 implementation audit found two live parser defects.
+Recorded here because the fixes changed shipped behavior.
+
+### Design decisions
+- Must-fix 1, the fenced door. Fixed by masking fenced code blocks out of the
+  prompt before matching the control line, in `panel-round-guard.sh`. Chose the
+  mask over the two alternatives on the grounds that the design doc already
+  names this precedent: `git-release-guard.sh:298-310` reads its own marker off
+  a masked copy "so the marker cannot open the door from inside a commit
+  message". Requiring the marker on the first or last nonblank line would have
+  been stronger but it changes the documented contract, which says only "a
+  nonblank line of its own". Indented and blockquoted markers were already
+  rejected by the `^` anchor, so the fence was the one hole and the fence is
+  what gets masked.
+- Must-fix 2, mode detection. Fixed by scoping the `Status:` read to the
+  metadata block, everything above the first `## ` heading, rather than the
+  whole file. Deliberately NOT anchored at end of line: the audit warned that
+  `Status: Implemented with a follow-up owed` (enforcement-core.md) has to keep
+  reading as Mode 2, and a `$` anchor would have broken it. There is a matrix
+  case pinning that exact form now.
+- Regression cases were placed AFTER the existing own-control-line group, not
+  before it. The matrix is stateful by design and that group deliberately
+  continues from the indented group's counter; inserting a `fresh_cache` group
+  between them broke the chain and failed one pre-existing case. Moving the new
+  groups down restored it. Worth knowing before editing this file again.
+- Restored Step 4's four enumerated rejected-dogma examples to
+  `review-panel.md` (unquantified least-privilege separation, speculative
+  scale/pagination features, privacy scaffolding for org-visible internal
+  tools, backward-compat shims for replaced tools). The audit found Phase 3 had
+  dropped them and that they had landed nowhere, not even in the notes file.
+  They are the operative content of that rule: without them the instruction is
+  "drop generic dogma" with no referent.
+- Corrected Step 1.2's mode instruction in `review-panel.md`, which still said
+  the doc "contains `Status: Implemented`". That is the exact wording of the
+  defect must-fix 2 fixed in the guard, and the guard's counter key depends on
+  the two readings agreeing.
+
+### Deviations
+- **Phase 3's under-20,000-byte success criterion no longer holds: the file is
+  20,273.** Amended the criterion in the doc with the reasoning and the
+  evidence, per `/how-to-execute-a-plan`'s doc-defect path. The articulable
+  reason it is a doc defect independent of the code: it is a census of the
+  final tree, and AC4's own note in this same doc already demotes byte census
+  to an observation because "an acceptance criterion phrased as a census of the
+  final tree has to be re-derived every time the plan changes". The bytes went
+  UP because a wrongly-deleted rule was restored and a wrong instruction was
+  corrected. Re-deleting a rule to satisfy the number is the failure the
+  criterion would have caused. AC4's property checks are the gate and they pass.
+- The fix went straight to `main` rather than through another phase. The repo
+  takes no PRs (Rollout Plan) and the defect was live on every session on the
+  machine through the manifest symlink, so fix-forward was the only path.
+
+### Tradeoffs
+- Fixed forward on `main` rather than reverting the guard while the parsers were
+  wrong. Reverting would have left the cap unenforced entirely, which is the
+  disease; a guard with a fenced-quote bypass still denies every plain round 4,
+  which the probes confirmed.
+- Did not close the non-fenced paste path: an agent that pastes this doc's door
+  section with the fences stripped can still open the door at column 1. Left
+  open deliberately. The doc is explicit that the door "is a visible, auditable
+  marker, not an unforgeable one", and the accidental-self-trigger path that
+  actually occurs carries its fences. Closing it properly means a position
+  requirement, which is a contract change and belongs in a design doc, not a
+  fix-forward.
+
+### Open questions
+- Three, all recorded in the design doc's Open Questions section rather than
+  only here, which was itself a round-1 cheap-win finding: Step 3's
+  un-followable "ONE foreground Bash call" mandate (audit must-fix 3, owned by
+  whichever chunk owns the `excludedCommands` overlap, not C), the remaining
+  unsuffixed run-dir artifacts, and `spec-review`'s now-inconsistent prose cap.
+
+### Observations, not gates
+- `review-panel.md`: 26,322 on `main` at `762016f`, 19,954 after Phase 3,
+  20,273 after these two corrections.
+- Matrix: `pass=95 fail=0` before, `pass=108 fail=0` after. Break-the-code on
+  each fix separately: reverting the fence mask fails 4 cases, reverting the
+  metadata scoping fails 6.

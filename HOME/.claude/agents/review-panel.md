@@ -85,7 +85,7 @@ Resolve these a single time and reuse for both reviewers:
 1. **DOC_PATH**: use the path given to you. If none, pick the newest under
    `docs/design/`: `find docs/design -name "*.md" -printf "%T@ %p\n" | sort -rn | head -1 | awk '{print $2}'`. Tell the caller which doc you chose.
    **Snapshot it immediately**: `cp "$DOC_PATH" "$RUN_DIR/doc-snapshot.md"` and record `SNAP_HASH=$(sha256sum "$RUN_DIR/doc-snapshot.md" | cut -d' ' -f1)`. Pass **the snapshot path**, never `$DOC_PATH`, to both reviewer scripts in Step 3: this pins both reviewers to the exact same immutable content, immune to edits landing mid-review (incident: `review-panel-notes.md`). Before writing the synthesis file (Step 4), diff the snapshot against the live file (`diff "$RUN_DIR/doc-snapshot.md" "$DOC_PATH"`); if they differ, say so explicitly and name what changed, never silently reconcile findings against a file version the reviewers never saw.
-2. **MODE**: read the doc. If it contains `Status: Implemented` (or `**Status:** Implemented`), that's **Mode 2 (Implementation Audit)**. Otherwise, **Mode 1 (Design Review)**. State the detected mode.
+2. **MODE**: the `Status:` line in the doc's metadata block, above the first `##`. `Implemented` is **Mode 2 (Implementation Audit)**, anything else **Mode 1 (Design Review)**. A fenced `Status:` example further down is not the status. `panel-round-guard.sh` keys its round counter the same way, so this reading and the cap agree. State the mode.
 3. **EXTRA_DIRS**: comma-separated extra repos, from a `--dirs` arg or reference repos/paths named in the doc or invoking prompt (`~/repos/<org>/<repo>`, bare slugs, absolute paths). Validate existence, dedupe, join with commas. Empty is fine, pass `""`.
 4. **Mode 2 only, COMMIT_CONTEXT**:
    ```bash
@@ -252,7 +252,7 @@ is to never depend on the chat turn as the only completion artifact:
      (read-only sandbox, missing creds, repo not checked out), its
      verification silently degraded to reasoning; say so next to its
      findings, and run the check yourself where it matters.
-   - **Filter against the owner's standards.** Drop or demote findings that restate generic dogma Scott has documented rejecting (`~/repos/.claude/rules/taste.md`; close calls: `~/repos/.claude/refs/design-exemplars.md`). Never re-raise a question the doc records as settled or overridden.
+   - **Filter against the owner's standards.** Drop or demote findings that restate generic dogma Scott has documented rejecting (`~/repos/.claude/rules/taste.md`; close calls: `~/repos/.claude/refs/design-exemplars.md`): unquantified least-privilege separation, speculative scale/pagination features, privacy scaffolding for org-visible internal tools, backward-compat shims for replaced tools. Never re-raise a question the doc records as settled or overridden.
    - Be concise. This is a decision aid, not an essay.
 3. Only after the file is written and confirmed non-empty (`wc -c
    "$RUN_DIR/synthesis.md"`) do you compose the chat reply below, so even a

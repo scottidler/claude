@@ -189,8 +189,17 @@ fi
 # design doc this guard enforces discusses `Status: Implemented` in its own
 # prose twice, so a "contains" test reads an In Review doc as Mode 2 and hands
 # it a second set of three rounds. An unreadable or absent doc is Mode 1.
+# Scoped to the doc's METADATA BLOCK, everything above the first `## ` heading,
+# not the whole file. Audit round 1 (2026-09-14) probed the whole-file read and
+# found an In Review doc with a fenced `Status: Implemented` example keying as
+# Mode 2. That is worse than a cosmetic miss: the key then fails to change when
+# the status genuinely flips, so the first implementation audit inherits the
+# exhausted design-review counter and is denied at dispatch.
+# Deliberately NOT anchored at the end: `Status: Implemented with a follow-up
+# owed` (enforcement-core.md) has to keep reading as Mode 2.
 mode=1
-if [ -f "$doc" ] && grep -qE '^[[:space:]]*(\*\*)?Status(\*\*)?:(\*\*)?[[:space:]]*Implemented' "$doc"; then
+if [ -f "$doc" ] && awk '/^## /{exit} {print}' "$doc" \
+   | grep -qE '^[[:space:]]*(\*\*)?Status(\*\*)?:(\*\*)?[[:space:]]*Implemented'; then
   mode=2
 fi
 
@@ -207,8 +216,20 @@ fi
 # why a word-boundary match anywhere in the prompt is a defect and not a
 # simplification. A trailing CR is stripped so a CRLF prompt is not a silent
 # no-door.
+# Fenced code blocks are MASKED OUT before the match. This is the
+# git-release-guard.sh:298-310 precedent the design doc cites, which reads its
+# own marker off a masked copy "so the marker cannot open the door from inside
+# a commit message". The same class bites here and audit round 1 (2026-09-14)
+# proved it: the doc this guard enforces carries the marker at column 1 inside
+# a fence at :165, so a round-4 prompt that quoted the doc's own door section
+# raised the cap from 3 to 5. The document was opening its own door, which is
+# the exact invisible overrun the control-line rule exists to prevent.
+# Indented and blockquoted markers were already rejected by the ^ anchor; the
+# fence was the one hole, so the fence is what gets masked.
 cap="$CAP_DEFAULT"
-door=$(printf '%s\n' "$prompt" | tr -d '\r' | grep -m1 -E '^PANEL_ROUNDS_ORDERED_BY_SCOTT=[0-9]+$')
+door=$(printf '%s\n' "$prompt" | tr -d '\r' \
+  | awk '/^[[:space:]]*(```|~~~)/{fence=!fence; next} !fence' \
+  | grep -m1 -E '^PANEL_ROUNDS_ORDERED_BY_SCOTT=[0-9]+$')
 if [ -n "$door" ]; then
   cap="${door#*=}"
   log "door open: cap raised to $cap by a control line in the prompt"
