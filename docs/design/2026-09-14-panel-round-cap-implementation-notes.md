@@ -662,3 +662,59 @@ work below is what remained, plus what got refused and why.
   `HOME/.claude/skills/spec-review/SKILL.md` (its independent prose "Max 3
   rounds", now the odd one out). Existing files under `HOME/.claude/agents/`
   are editable; creating new ones there is not.
+
+## Post-audit, third pass: must-fix 3 actually fixed, no weakening
+
+The second pass recorded must-fix 3 as blocked and two files as unwritable.
+Both of those were my errors, and both are corrected here.
+
+### Design decisions
+- **Must-fix 3 needed no new `excludedCommands` entry, no rails change, and no
+  security weakening.** `EX_TRANSPARENT` in `rails/hooks/index.ts:519` already
+  holds `echo` and `wait`. The only stages in Step 3's compound that counted as
+  acting were `tee` and the `wc` inside a command substitution. Dropping `tee`
+  for a `>` redirect and moving the byte counts to a separate Step 4 `wc -c`
+  call leaves the compound with two excluded heads plus nothing but builtins,
+  so `excludedDeny` returns null. The mandate is executable again and the
+  guard is untouched.
+- Step 3 now carries a paragraph stating that every non-seat stage in that
+  block must be a builtin, naming `tee`, `wc`, `cat` and `sed` as the things
+  that reintroduce the deny, and pointing at the round-1 incident. Without it
+  the next editor reintroduces the bug, since the reason is invisible from the
+  code.
+- The `-r$ROUND` suffix is now on every run-dir artifact (`doc-snapshot`,
+  `prompt`, `arch`, `staff`, `staff-sub`, `dispatch-status`), so Step 0.1's
+  "suffix EVERY artifact" is true rather than aspirational.
+- `spec-review/SKILL.md:213` now says why the guard cannot cover it (it
+  dispatches 5 persona sub-agents, not the `review-panel` subagent, so the
+  `subagent_type` match never fires), cites this doc's measured prose-cap
+  failure, and tells the agent the cap binds on itself because nothing will
+  stop it at 4. Prose, but prose that knows it is prose.
+
+### Deviations
+- None from the design doc. All three items here are audit findings, not plan
+  bullets.
+
+### Tradeoffs
+- Byte counts left Step 3's status file and moved to Step 4. The status file
+  keeps the rc and the output path, which is what the exit contract reads; the
+  byte count was the "empty output means FAILED" signal and Step 4 gets it with
+  a plain `wc -c`, unblocked because that call has no excluded head. Slightly
+  more work for the agent, in exchange for a mandate that executes.
+- Rejected outright, twice: the `panel-dispatch.sh` + `excludedCommands`
+  approach. The classifier's `[Security Weaken]` verdict was correct, and it
+  stayed rejected even after a non-weakening path was found, because the
+  non-weakening path is strictly better.
+
+### Open questions
+- One: making `spec-review`'s cap mechanical needs its own counter key and
+  belongs to whichever chunk owns skill hygiene. Recorded in the doc.
+
+### Correction to the second pass
+- I reported `HOME/.claude/settings.json` and
+  `HOME/.claude/skills/spec-review/SKILL.md` as write-denied. That was wrong: I
+  ran `[ -w ]` inside the Bash sandbox and treated the sandbox's answer as the
+  session's capability. The Edit tool writes to both paths, which the Phase 2
+  agent had already demonstrated on `settings.json` earlier in this same
+  session. Creating a NEW file under `HOME/.claude/agents/` is what was refused,
+  and that refusal was about the design, not the path.

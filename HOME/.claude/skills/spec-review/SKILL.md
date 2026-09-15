@@ -211,6 +211,9 @@ If the user applies fixes and requests re-review:
 - **Converged**: a round where ALL active personas return CLEAN -> done
 - **Not converged**: repeat from Step 5 with only personas that returned ISSUES_FOUND
 - **Max 3 rounds**: after 3 rounds without convergence, stop and present remaining issues sorted by severity. User decides whether to accept, fix manually, or extend review.
+  - This cap is PROSE, and prose is exactly what failed for the review-panel cap: 17 of 46 measured runs blew a 3-round limit that had been written down, one reaching 14, with zero prompts from Scott (`docs/design/2026-09-14-panel-round-cap.md`). That cap is now mechanical, denied by `panel-round-guard.sh` on the `Agent` dispatch and keyed on (doc, mode), with a `PANEL_ROUNDS_ORDERED_BY_SCOTT` control line as the only door.
+  - This skill's rounds are NOT covered by that guard: it dispatches 5 persona sub-agents, not the `review-panel` subagent, so the guard's `subagent_type` match never fires. Treat the cap here as binding on yourself and say the round number out loud every round (see the Announce line below), because nothing will stop you at 4.
+  - Making it mechanical too is tracked as an Open Question on the doc above.
 
 Announce: "Round N complete. [Converged / N issues remain, starting round N+1 / Max rounds reached, reporting remaining issues]."
 

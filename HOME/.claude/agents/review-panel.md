@@ -84,7 +84,7 @@ Resolve these a single time and reuse for both reviewers:
    (`sandbox.filesystem.allowRead`/`allowWrite`) to it. Change this path, update both.
 1. **DOC_PATH**: use the path given to you. If none, pick the newest under
    `docs/design/`: `find docs/design -name "*.md" -printf "%T@ %p\n" | sort -rn | head -1 | awk '{print $2}'`. Tell the caller which doc you chose.
-   **Snapshot it immediately**: `cp "$DOC_PATH" "$RUN_DIR/doc-snapshot.md"` and record `SNAP_HASH=$(sha256sum "$RUN_DIR/doc-snapshot.md" | cut -d' ' -f1)`. Pass **the snapshot path**, never `$DOC_PATH`, to both reviewer scripts in Step 3: this pins both reviewers to the exact same immutable content, immune to edits landing mid-review (incident: `review-panel-notes.md`). Before writing the synthesis file (Step 4), diff the snapshot against the live file (`diff "$RUN_DIR/doc-snapshot.md" "$DOC_PATH"`); if they differ, say so explicitly and name what changed, never silently reconcile findings against a file version the reviewers never saw.
+   **Snapshot it immediately**: `cp "$DOC_PATH" "$RUN_DIR/doc-snapshot-r$ROUND.md"` and record `SNAP_HASH=$(sha256sum "$RUN_DIR/doc-snapshot-r$ROUND.md" | cut -d' ' -f1)`. Pass **the snapshot path**, never `$DOC_PATH`, to both reviewer scripts in Step 3: this pins both reviewers to the exact same immutable content, immune to edits landing mid-review (incident: `review-panel-notes.md`). Before writing the synthesis file (Step 4), diff the snapshot against the live file (`diff "$RUN_DIR/doc-snapshot-r$ROUND.md" "$DOC_PATH"`); if they differ, say so explicitly and name what changed, never silently reconcile findings against a file version the reviewers never saw.
 2. **MODE**: the `Status:` line in the doc's metadata block, above the first `##`. `Implemented` is **Mode 2 (Implementation Audit)**, anything else **Mode 1 (Design Review)**. A fenced `Status:` example further down is not the status. `panel-round-guard.sh` keys its round counter the same way, so this reading and the cap agree. State the mode.
 3. **EXTRA_DIRS**: comma-separated extra repos, from a `--dirs` arg or reference repos/paths named in the doc or invoking prompt (`~/repos/<org>/<repo>`, bare slugs, absolute paths). Validate existence, dedupe, join with commas. Empty is fine, pass `""`.
 4. **Mode 2 only, COMMIT_CONTEXT**:
@@ -102,7 +102,7 @@ and quote/backtick escaping bugs that broke these scripts before). The two
 prompt bodies (Mode 1 and Mode 2) are verbatim text piped to gemini and
 codex, not agent instruction: they live in
 `~/.claude/agents/review-panel-prompts.md`, one per mode. Copy the body for
-the detected MODE into `$RUN_DIR/prompt.txt` (Mode 1: same body to both
+the detected MODE into `$RUN_DIR/prompt-r$ROUND.txt` (Mode 1: same body to both
 seats; Mode 2: embed the COMMIT_CONTEXT from Step 1 where the prompt calls
 for it).
 
@@ -119,17 +119,28 @@ call**:
 Pass the **snapshot**, not `$DOC_PATH` (see Step 1.1):
 
 ```bash
-~/.claude/skills/architect/script.sh "$RUN_DIR/doc-snapshot.md" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/arch.out" 2>&1 &
+~/.claude/skills/architect/script.sh "$RUN_DIR/doc-snapshot-r$ROUND.md" "$RUN_DIR/prompt-r$ROUND.txt" "$EXTRA_DIRS" > "$RUN_DIR/arch-r$ROUND.out" 2>&1 &
 APID=$!
-~/.claude/skills/staff-engineer/script.sh "$RUN_DIR/doc-snapshot.md" "$RUN_DIR/prompt.txt" "$EXTRA_DIRS" > "$RUN_DIR/staff.out" 2>&1 &
+~/.claude/skills/staff-engineer/script.sh "$RUN_DIR/doc-snapshot-r$ROUND.md" "$RUN_DIR/prompt-r$ROUND.txt" "$EXTRA_DIRS" > "$RUN_DIR/staff-r$ROUND.out" 2>&1 &
 SPID=$!
 wait $APID; ARCH_RC=$?
 wait $SPID; STAFF_RC=$?
-{
-  echo "architect rc=$ARCH_RC ($(wc -c < "$RUN_DIR/arch.out") bytes)"
-  echo "staff-engineer rc=$STAFF_RC ($(wc -c < "$RUN_DIR/staff.out") bytes)"
-} | tee "$RUN_DIR/dispatch-status-r$ROUND.txt"
+echo "architect rc=$ARCH_RC $RUN_DIR/arch-r$ROUND.out" > "$RUN_DIR/dispatch-status-r$ROUND.txt"
+echo "staff-engineer rc=$STAFF_RC $RUN_DIR/staff-r$ROUND.out" >> "$RUN_DIR/dispatch-status-r$ROUND.txt"
 ```
+
+**Why this block uses `>` and not `tee`, and carries no `wc`.** Every stage
+here other than the two seat scripts must be a shell builtin, or this call is
+DENIED and you cannot follow the rule above. The rails `tool.call` hook denies
+a Bash call that compounds a `sandbox.excludedCommands` head with any stage
+that acts, and both seat scripts are excluded heads. `wait` and `echo` are
+already treated as carrying no behavior of their own; `tee` and `wc` are not,
+and an earlier version of this block used both. That is what made this
+mandate unexecutable: the round-1 audit of
+`docs/design/2026-09-14-panel-round-cap.md` was denied three times here and
+had to split the seats, losing the namespace guarantee. Get the byte counts in
+Step 4 with a separate `wc -c` call on the two output files: a plain read with
+no excluded head, so nothing denies it.
 
 **Never detach the seats.** One foreground Bash call carries both launches
 and the `wait`: no `run_in_background`, no `setsid`/`nohup`. A detached child
@@ -176,14 +187,17 @@ returned an empty response or malformed tool call`, codex's bare `Execution
 error` / 5xx). Do not add a retry loop on top; they deliberately do NOT retry
 credits/quota/auth (Step 3.5) or a timeout.
 
-**Known live defect, not yours to work around silently.** Step 3's "ONE
-foreground Bash call" is currently un-followable: the rails `tool.call` hook
-denies a Bash call that compounds a `sandbox.excludedCommands` head with any
-other acting stage, and both seat scripts are excluded heads while the block
-also carries `wait`, `echo`, `wc` and `tee`. If the compound call is denied,
-say so in your report and name this paragraph; do NOT quietly detach the seats,
-because that is the failure the rule exists to prevent. Tracked in
-`docs/design/2026-09-14-panel-round-cap.md` Open Questions (audit must-fix 3).
+**If the Step 3 compound call is ever denied, report it. Never detach.** The
+rails `tool.call` hook denies a Bash call that compounds a
+`sandbox.excludedCommands` head with any stage that acts, and both seat scripts
+are excluded heads. Step 3's block is written to keep every other stage a shell
+builtin precisely so this cannot fire. If you edit that block and add a stage
+that acts (`tee`, `wc`, `cat`, `sed`, anything reading or writing a file), the
+call starts getting denied and the rule above becomes unexecutable. That
+happened: the round-1 audit of
+`docs/design/2026-09-14-panel-round-cap.md` was denied three times and split
+the seats, losing the namespace guarantee. If it happens to you, say so in your
+report and name this paragraph. Do NOT quietly detach the seats.
 
 ## Step 3.5: Credits/tokens fallback, substitute an Anthropic model
 
@@ -198,11 +212,11 @@ Anthropic model, headless:
 # Architect seat uses architect's persona file the same way)
 { cat ~/.claude/skills/staff-engineer/persona.md
   printf '\n\n'
-  cat "$RUN_DIR/prompt.txt"
-  printf '\n\nThe design document (%s):\n\n' "$RUN_DIR/doc-snapshot.md"
-  cat "$RUN_DIR/doc-snapshot.md"
-} > "$RUN_DIR/staff-sub.txt"
-timeout 600 claude -p --model opus < "$RUN_DIR/staff-sub.txt" > "$RUN_DIR/staff.out" 2>&1
+  cat "$RUN_DIR/prompt-r$ROUND.txt"
+  printf '\n\nThe design document (%s):\n\n' "$RUN_DIR/doc-snapshot-r$ROUND.md"
+  cat "$RUN_DIR/doc-snapshot-r$ROUND.md"
+} > "$RUN_DIR/staff-sub-r$ROUND.txt"
+timeout 600 claude -p --model opus < "$RUN_DIR/staff-sub-r$ROUND.txt" > "$RUN_DIR/staff-r$ROUND.out" 2>&1
 ```
 
 Pass each EXTRA_DIRS entry via repeated `--add-dir <dir>` flags so the
@@ -225,7 +239,7 @@ or run one. So each can name a suspected behavioral regression and emit a
 `PROBE:` line, but neither can confirm it. You have Bash, and closing that
 gap is why this step exists (incident: `review-panel-notes.md`).
 
-1. Collect every `PROBE:` line from `$RUN_DIR/arch.out` and `$RUN_DIR/staff.out`. Add any behavior-changing commit in COMMIT_CONTEXT that neither reviewer probed: a commit whose message claims to fix or change runtime behavior is in scope even with no `PROBE:`.
+1. Collect every `PROBE:` line from `$RUN_DIR/arch-r$ROUND.out` and `$RUN_DIR/staff-r$ROUND.out`. Add any behavior-changing commit in COMMIT_CONTEXT that neither reviewer probed: a commit whose message claims to fix or change runtime behavior is in scope even with no `PROBE:`.
 2. Get the previous-release binary once: usually the installed one (`which <tool>`, confirm `<tool> --version` reports `$PREV_TAG`); otherwise `git worktree add "$RUN_DIR/prev" $PREV_TAG` and build there. Build the current tree once; never compare the new tree against itself.
 3. Run each probe against both binaries, capture both outputs verbatim to `$RUN_DIR/probes.md`: the command, previous output, current output, and a one-word verdict, REGRESSION (differs, undisclosed), INTENDED (differs, doc names it), or SAME.
 4. If a working previous binary is genuinely impossible to get (no build for `$PREV_TAG`, toolchain gone), say so in `probes.md`, fall back to reading the base source (`git show $PREV_TAG:<path>`), and mark those verdicts `[UNVERIFIED: reasoned, not run]`.
@@ -244,7 +258,7 @@ is to never depend on the chat turn as the only completion artifact:
    Mandatory inputs: never write the synthesis without looking at them first.
 2. Write `$RUN_DIR/synthesis.md`: **one reconciled findings list** under
    `[SYNTHESIS]`, this round's only. Raw seat output already lives in
-   `$RUN_DIR/arch.out` and `$RUN_DIR/staff.out`; do not copy either into
+   `$RUN_DIR/arch-r$ROUND.out` and `$RUN_DIR/staff-r$ROUND.out`; do not copy either into
    `synthesis.md`. Duplicating raw output into the synthesis file is what
    grew one to 4,035 lines; reference the seat files by path instead.
    - **Convergence first.** Findings BOTH reviewers raised are the strongest signal: lead with them.
