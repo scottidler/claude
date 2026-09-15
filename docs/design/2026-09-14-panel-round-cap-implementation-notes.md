@@ -401,3 +401,62 @@ was never touched).
   (`doc-snapshot.md`, `prompt.txt`, `arch.out`, `staff.out`, `staff-sub.txt`
   unsuffixed, against Step 0.1's `-r$ROUND` convention) be fixed in a later
   chunk, the same way this phase fixed `dispatch-status.txt`?
+
+## Phase 4: Delete the poll snippet, point the rule at the guard
+
+### Design decisions
+- Cut `create-design-doc/SKILL.md:54-67` (the "Poll its run dir" block)
+  exactly, keeping `:69-74` ("Trust the findings, not the verdicts"). Verified
+  the boundaries against the live file with `Read` before cutting rather than
+  trusting the doc's cited line numbers blindly; they matched exactly.
+- `rules/interaction.md:111`'s cap sentence is now a pointer to
+  `panel-round-guard.sh`, in the shape `rules/git.md`'s "Branch names: no
+  slash, mechanically enforced" section already uses for
+  `branch-name-guard.sh` (name the hook, state what it denies mechanically,
+  say there is nothing left in prose to compensate for). Named the door
+  (`PANEL_ROUNDS_ORDERED_BY_SCOTT=<n>` as a control line in the dispatch
+  prompt) and its ceiling semantics in the same sentence, per the task's
+  instruction, so a reader of the rules file knows the escape hatch exists
+  without having to go read the hook.
+- `rules/interaction.md` lives under `HOME/repos/.claude/rules/`, a real
+  directory in this repo, and `~/repos/.claude/rules/interaction.md` was
+  already a live per-file symlink into it (confirmed with `readlink -f`,
+  dated 27 Jun, predating this phase). No link step was needed: editing the
+  repo file is editing the live rule directly.
+- Folded in, from Phase 3's open question: added
+  `HOME/.claude/agents/review-panel.md` to `.otto.yml`'s lint `FILES` list and
+  deleted the comment that excluded it ("deliberately excludes
+  review-panel.md, which chunk C rewrites wholesale"). That rewrite is Phase
+  3, already landed, so the stated reason for the exclusion is spent. This is
+  the design doc's own Phase 2 rationale applied to the file it was withheld
+  from: "a file not on the list drifts em-dashes back in where CI cannot see
+  it." `otto ci` confirms zero em-dashes in the file under the standing gate
+  now, not a one-time manual `rg` check.
+- Checked and left all five deliberately-untouched locations the doc names,
+  confirming each still carries the reason the doc gives:
+  `docs/2026-09-08-rails-function-hooks-handoff.md:65,84,113,133` (a dated
+  handoff, point-in-time per `rules/taste.md`);
+  `docs/design/2026-09-08-rails-bash-rewrite.md:91,518,527` (same class);
+  `docs/sandbox-filesystem-allowlist.md` (documents the `/tmp/review-panel`
+  allowlist and `mktemp -d` shape, both left intact by this chunk);
+  `README.md:31` (references `bin/check-review-panel` by name only, nothing
+  about polling); `bin/check-review-panel` (runs the seat scripts directly,
+  never touches the `Agent` tool, so it was never in this guard's path).
+
+### Deviations
+- None. The cut boundaries, the rule pointer's content, and the lint-list
+  change all match the task's scope; the (doc, mode) key, the door syntax and
+  the ceiling semantics were already implemented in Phases 1-3 and are only
+  being described here, not re-implemented.
+
+### Tradeoffs
+- Wrote the interaction.md pointer as three sentences (mechanism, door,
+  ceiling) rather than one terse line matching git.md's exact length. The
+  git.md precedent is one rule with one hook and no runtime door; this rule
+  has a door Scott can invoke, and the task explicitly asked for the door and
+  ceiling to be named so a reader does not have to open the hook file to find
+  the escape hatch. Chose completeness over matching git.md's brevity
+  exactly.
+
+### Open questions
+- None.

@@ -4,8 +4,7 @@ otto:
 
 tasks:
   # Em-dash check over the touched-file lint list (rules/safety.md:17-28's pattern),
-  # plus whitespace. The list grows chunk by chunk as later phases touch more files;
-  # it deliberately excludes review-panel.md, which chunk C rewrites wholesale.
+  # plus whitespace. The list grows chunk by chunk as later phases touch more files.
   # Grown 2026-09-13 by the implementation audit (finding M3): Phase 4 claimed
   # every file the PR edits leaves with zero em-dashes, and five did not, because
   # the gate never covered them. The rule is only as wide as this list.
@@ -69,6 +68,7 @@ tasks:
         docs/design/2026-09-14-panel-round-cap-phase0/evidence.md
         HOME/.claude/agents/review-panel-notes.md
         HOME/.claude/agents/review-panel-prompts.md
+        HOME/.claude/agents/review-panel.md
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."

@@ -108,8 +108,12 @@ escalates fast. Admit it, fix it, move on.
 
 Do exactly the requested scope. Research results go in the response, not
 auto-filed into the vault or elsewhere; an "investigate and prepare" ask gets a
-short brief, not an open-ended multi-hundred-line doc. Cap review-panel rounds
-at 3 unless Scott asks for more. Never run a full dotfiles manifest apply
+short brief, not an open-ended multi-hundred-line doc. Review-panel rounds are
+capped mechanically now, not by this sentence: `panel-round-guard.sh` denies a
+4th `Agent` dispatch of the `review-panel` subagent on the same doc; there is
+nothing left here to compensate for. Scott opens the door for a specific run
+with a `PANEL_ROUNDS_ORDERED_BY_SCOTT=<n>` control line in the dispatch prompt,
+a ceiling rather than a boolean. Never run a full dotfiles manifest apply
 unscoped: target the specific entry.
 
 ## Don't idle-poll a stalled subagent
