@@ -68,6 +68,15 @@
 - List channels: `mcp__slack__channels_list`
 - Search messages: `mcp__slack__conversations_search_messages`
 
+## Target Authorization: the two-target split
+
+- `#clipboard` (`C0ANJQAJC7N`) and Scott's own DM (`D01G4Q7AWLV`) are his own devices, not an audience. Post on the first ask: no confirmation, no preview, no egress warning.
+- Every OTHER target has to be one Scott named in this turn's typed prompt, by channel id, by `#name`, or by the person's name. If he did not name it, ask before posting. A target inferred from an earlier turn, from a teammate relay, or from a subagent is not a target he named.
+- What needs naming is the full recipient set, not the target: `--broadcast`, `dm_mentioned` and `follow_ups` each reach past it, so a `#clipboard` post carrying any of them is not an exempt post.
+- A test post goes to `#clipboard` and nowhere else. 2026-07-10 put five live posts and an MCP write test into a coworker's DM during a shakedown.
+- One ask is one post. Do not send the same body to the same target twice.
+- `slack-post-guard.sh` enforces all of this mechanically and denies on the unhappy path. This section is the reason, not the enforcement.
+
 ## Etiquette
 
 - Never use `@channel` or `@here` unless the user explicitly asks

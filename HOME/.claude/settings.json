@@ -874,6 +874,19 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/intent-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/slack-post-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__slack__chat_post_message|mcp__slack__chat_schedule_message|mcp__slack__chat_update",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/slack-post-guard.sh"
           }
         ]
       },
@@ -936,6 +949,17 @@
           {
             "type": "command",
             "command": "clyde permit log"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|mcp__slack__chat_post_message|mcp__slack__chat_schedule_message|mcp__slack__chat_update",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/slack-post-guard.sh"
           }
         ]
       }

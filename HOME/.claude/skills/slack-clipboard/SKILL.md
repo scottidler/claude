@@ -20,6 +20,8 @@ Only run when the user explicitly invokes `/slack-clipboard` (or one of the trig
 
 **Do NOT ask for confirmation.** The target is always Scott's own private channel, so the invocation IS the authorization. Asking "post this? (yes/no)" after he said to post it is the failure mode this skill exists to avoid. Same for his own DM: no confirmation there either.
 
+That is half of the rule, and the other half is the opposite: every target that is NOT `#clipboard` or Scott's own DM has to be one he named in this turn's typed prompt, and it needs asking when he did not. `~/repos/.claude/refs/slack.md` carries the split, `slack-post-guard.sh` enforces it.
+
 ## Rules
 
 - If Claude composes or reworks the content (anything beyond verbatim relay), it goes out as Scott: keep it terse, direct, Slack-native.

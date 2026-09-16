@@ -134,3 +134,44 @@ Commit: this phase. The PUBLIC-REPO rule added to `intent-guard.sh`, 10 fixtures
 
 ### Open questions
 - None.
+
+## Phase 5: SLACK
+
+Commit: this phase. New hook `HOME/.claude/hooks/slack-post-guard.sh` with three rules, `slack-post-guard-test.sh` at 108 assertions, registered on the Bash matcher, on the three Slack MCP write tools, and on `PostToolUse`. The two-target split written into `HOME/repos/.claude/refs/slack.md` and pointed at from `slack-clipboard/SKILL.md`.
+
+### Design decisions
+- **The gate is the first thing in the file and `lib.sh` is sourced after it.** Phase 0 made gating a requirement rather than an optimization (230 ms ungated against a 250 ms budget, 27 ms gated), and the prototype it measured sourced `lib.sh` before the predicate. Sourcing after it means a non-Slack Bash call pays one `case` and one jq.
+- **One jq spawn on the hot path, not three.** Reading `hook_event_name`, `tool_name` and `tool_input.command` as separate jq calls cost 71 ms on a plain `git status` and failed the 50 ms criterion on its own, with no transcript read at all: jq costs about 23 ms per invocation here. They come back from one call, with the command base64-encoded because it can carry newlines and tabs, decoded only once the gate passes. Measured after: 27 ms against a 5 MB transcript.
+- **`tail -n +2` is not in the transcript reader.** Phase 0's prototype dropped the tail's first line because a 4 MB tail can start mid-record. That also drops a whole record from any transcript smaller than the cap, which is 98.4% of them. `fromjson? // empty` already discards the partial line, so the truncation guard was doing nothing but losing data.
+- **The prompt extractor is `prompt_id`-first with the corrected selector as the fallback.** Criterion 8 measured the fallback alone at 0 relay and 0 wrapper false authorizations over 1,237 turns; `prompt_id` (identical across every tool call in a turn, per criterion 3's live dump) makes the common case exact instead of positional.
+- **RESEND does not run when every recipient is exempt.** The rule text carries no exemption for the pair, and applying it there would deny a second identical `/slack-clipboard` inside the hour. A duplicate into a single-member private channel harms nobody, and Scott's 2026-09-11 ruling on that pair is about friction, not about recipients. Disclosed deviation, see below.
+- **`--preview` resolves to the exempt DM rather than to the named target**, because that is where the client sends it (a render sandbox in the caller's own self-DM), and `--print` posts nothing at all and returns an allow before any rule runs.
+
+### Deviations
+- **Expiry reclamation is an O_EXCL lock, not the doc's rename.** The doc prescribes "a single atomic rename of a freshly created temp entry over the old path". That rename is atomic and it is not a compare-and-swap: `mv temp path` succeeds whether or not the path still holds the entry the process measured, so every racer that reads the same expired mtime renames and proceeds. Its own acceptance criterion, two concurrent reclaims leaving exactly one allowed, cannot pass in that shape. Renaming the expired entry AWAY is a compare-and-swap and was the first fix here; it still failed 1 round in 30 under 8 racers, because a file that turns out to be someone else's fresh reservation has to be put back and the path is EMPTY for the length of that restore, which a third process's plain O_EXCL create walks straight into. Any scheme that removes a live entry even briefly has that window. The shipped shape never moves the entry: a separate O_EXCL lock admits one reclaimer, which re-reads expiry while holding it. 120 rounds of 8 racers, zero violations.
+- **RESEND is scoped to the non-exempt recipient set** (above). The doc's RESEND text names no exemption; this adds one.
+- **TARGET and TEST-TEXT apply to `chat_update`, RESEND does not.** The doc exempts `chat_update` in the RESEND paragraph only, and the reasoning given (an edit is the opposite of a resend, and `ChatUpdateRequest` cannot fan out) is RESEND-specific. An edit still names a channel and can still rewrite a body into a test post, so the other two rules run.
+- **An unquoted `#channel` denies as a parse failure.** It is a shell comment, so `slack write #engineering hi` runs `slack write` with no arguments and the CLI never sees a target. `lib.sh`'s maskers preserve length, so the target arrives as a run of `\001`; the guard treats that as no target rather than as a name to resolve. Not in the doc, and every fixture in the matrix uses the bare name or a quoted `#name` for the same reason.
+- **The write parser keeps accepting flags after the target.** `content` is a `trailing_var_arg` positional, so clap parses flags right up until the first content token. A parser that stops at the target reads `--broadcast`, `--dm-mentioned` and `--edit` as body words, which silently disarms three rules by argument order alone. Caught by the matrix at four failures.
+
+### Tradeoffs
+- **`HOME` is the test seam and it is therefore a residual hole**, named rather than patched blind, the same way the doc names the Grep/Glob hole for SECRET. A `HOME=/tmp/x slack write ...` reads an id cache an agent could have written. It denies for every target that cache cannot resolve, it cannot fake the transcript (the harness supplies the path), and the prefix is glaring in the transcript and in `clyde permit log`. Closing it costs the matrix every branch it has: missing cache, schema-old cache, stale cache, ledger races, reclaim, unwritable ledger.
+- **A failed send is not retryable until the entry expires**, which is the doc's ruling and is asserted as such. The deny names the exact file to remove.
+- **Name matching authorizes on a common word when a channel is named one.** `#general` matches "in general we should". The alternative, requiring the literal channel id, blocks 72% of legitimate posts by the doc's own measurement.
+- **The plugin's `slack:write` skill is NOT edited.** It lives in `~/.claude/plugins/cache/tatari-skills/`, outside this repo and overwritten on the next plugin update, so the two-target split went into `refs/slack.md` (in-repo, lint-covered, read whenever Slack work begins) with a pointer from `slack-clipboard/SKILL.md`.
+
+### Break-the-code evidence
+Each rule disabled in a scratch copy, matrix re-run against the copy:
+
+```
+baseline        pass=108 fail=0
+TARGET-off      pass=62  fail=46
+TESTTEXT-off    pass=104 fail=4
+RESEND-off      pass=101 fail=7
+```
+
+### Open questions
+- None.
+
+### Observed, not changed
+- `HOME/repos/.claude/refs/slack.md` is stale in three places outside this phase's scope: it points at `mcp__slack__conversations_add_message` (a retired tool), at `~/repos/.claude/slack-ids.json` (the cache is `~/.cache/slack/ids.json` now), and at `~/.claude/skills/slack/slack.py` (the retired monolith, now `slack-old`). Recorded rather than fixed: unrequested scope.
