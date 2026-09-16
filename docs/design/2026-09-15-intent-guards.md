@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-15
-**Status:** Draft
+**Status:** Implemented, with two acceptance criteria failing. All eight phases are built, committed and live; the two failures are rule-tuning decisions Scott owns, recorded under "Acceptance criteria: results" with the evidence and the options.
 **Review Passes Completed:** 5/5, then a research fold-in, then panel rounds 1, 2, 3 and 4
 
 > Panel round 4 ran 2026-09-15, ordered by Scott past the 3-round cap (`PANEL_ROUNDS_ORDERED_BY_SCOTT=4`) to review the round-3 fold, which no reviewer had read. Both seats returned "not ready to build". 8 must-fix, 3 cheap wins, 3 rejected, all folded below. Five of round 3's nine fixes verified clean; four needed another pass. Two of the findings are **live bypasses executed against the real endpoint**: `gh api -XDELETE -p -XGET /rate_limit` and `gh api -XDELETE --header "-XGET: x" /rate_limit` both send DELETE while the round-3 parse resolves GET and allows, because the hand-listed skip list omitted `--header`, `-p`/`--preview` and `--cache`. The skip list is now the complete `gh api --help` flag specification. The round also found LN's raw-paren fallback denying a legitimate corpus command (8 of 51 `ln -s` commands carry a paren, only 3 carry a structural `$(`), INGEST's step 2 short-circuiting the whole command, the `BULK_INGEST_ORDERED_BY_SCOTT` ceiling that was never compared, a `jq 'has(...)'` allowlist that admits arbitrary expressions, and the `git commit -i` row repeating the index omission the `-am` row had just been fixed for. Drift during the round: **0 lines**, the second clean round running. Minutes: `docs/design/2026-09-15-intent-guards-review-log.md`.
@@ -857,6 +857,91 @@ Every criterion below was executed against `main` at 53f2904 on 2026-09-15 and t
 - [ ] `rules/git.md:62` and `rules/interaction.md:112` each name the guard that now enforces the clause. (Phase 4's edit landed the `intent-guard.sh` pointer at 112; the criterion's original `:110` predated it.)
   **Observed on main:** `git.md:62` is the push-rejection bullet ending "do not change repo settings (merge methods, protection, rulesets)", no hook named; `interaction.md:110` reads "auto-filed into the vault or elsewhere", no hook named.
   **Observed on branch `intent-guards` 2026-09-15 (Phases 0-4, 7 committed; Phase 5 in the tree; Phase 6 unbuilt):** `interaction.md:112` names `intent-guard.sh`, so that half **passes** at the corrected line. `git.md` names no guard anywhere, so the GH-WRITE pointer that "Prose narrowed, not deleted" prescribes is **still owed**, and GH-WRITE being live and green satisfies its stated precondition.
+
+## Acceptance criteria: results
+
+Walked 2026-09-15 against the shipped code, after Phase 6. Four pass, two fail, and both failures are decisions rather than unbuilt work.
+
+### 1. Deny fixtures, the wrapper sweep, and green CI: FAIL
+
+`otto ci` exits 0 and every rule has a deny fixture. The sweep is the gap. GH-WRITE, DELETE-OUT, SLACK and SECRET ride `wrap_shapes`; the acceptance walk added LN, which holds 18 of 18 on both `ln -s . 5626` and `ln -s /tmp /tmp/loop`. INGEST and PUBLIC-REPO still do not ride it, and running the sweep by hand says why it matters:
+
+```
+ln -s . 5626              deny=18 allow=0
+ln -s /tmp /tmp/loop      deny=18 allow=0
+sb borg reingest --all    deny=15 allow=3
+  ALLOW: eval "sb borg reingest --all"
+  ALLOW: eval 'sb borg reingest --all'
+  ALLOW: bash -c "sb borg reingest --all"
+```
+
+**INGEST has a live bypass in 3 of 18 spellings.** The rule is command-scoped by design (the doc settles that: `stmts` splits the incident's loop body apart), so it matches on the fully masked copy, and masking double quotes erases the payload of `eval "..."` and `bash -c "..."`. That is the deny-to-allow class chunk C's audit counted 22 of. Not fixed here: it is a change to Phase 4's rule scope and it needs its own decision.
+
+PUBLIC-REPO's fixtures are repo-state, not textual (a real scratch repo, `ls-remote`, `rev-list`), so wrapping them asserts nothing.
+
+### 2. Every incident command denied, except the commit one: PASS
+
+All ten fed through the live 12-hook `PreToolUse` Bash chain, in registration order, first deny wins:
+
+```
+deny   intent-guard.sh       gh api -X DELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins
+deny   intent-guard.sh       gh api -XDELETE  repos/tatari-tv/valet/branches/main/protection/enforce_admins
+deny   intent-guard.sh       acli jira workitem delete --key SEC-2997 --yes
+deny   intent-guard.sh       ln -s ~/repos/scottidler/claude/HOME/Claude/writing/voice ~/Claude/writing/voice
+allow                        cd ~/repos/scottidler/claude && git add .gitignore HOME/Claude/writing/voice && git commit -m x
+deny   secret-echo-guard.sh  aws secretsmanager get-secret-value --secret-id x
+deny   secret-echo-guard.sh  systemctl --user show-environment
+deny   secret-echo-guard.sh  cat /run/user/1000/borg.env
+deny   secret-echo-guard.sh  'echo' $GH_TOKEN
+deny   intent-guard.sh       gh repo edit tatari-tv/mcp-io-rs --visibility public
+mismatches=0  chain=12 hooks
+```
+
+The ninth line is chunk B's hole, closed by Phase 1. The fifth is the allow the 2026-09-15 ruling requires.
+
+### 3a. The `ln -s` corpus replay: PASS
+
+163 statements, 11 denies, every one accounted for:
+
+- 5 cycle-rule: `ln -s . 5626` twice, and the `/tmp/loopprobe`, `/tmp/lp2` and `/tmp/manifest-repro` loop probes.
+- 1 LN fail-closed: the relative link whose cwd cannot be resolved (the `$S` case).
+- 3 `~/Claude` policy, all genuine: two are literally `ln -sfn <repo>/HOME/Claude/writing/voice ~/Claude/writing/voice`, the founding incident.
+- 2 INGEST, a different rule, on commands that genuinely carry an ingest statement. Confirmed not a heredoc false positive: a heredoc body naming the verb and three URLs written to a `.md` target allows, and the same body written to a `.sh` target denies.
+
+### 3b. Zero denies over the credential-path corpus: FAIL
+
+Rebuilt the corpus rather than trusting the count: 5,076 transcripts walked, every Bash `tool_use` command naming `token.json`, `tokens.json`, `/run/user/*/*.env`, `~/.config/*/*.env` or a shell history file. **300 unique commands**, which is the "over 200 occurrences" the pricing paragraph measured.
+
+Against the shipped guard: **84 of 300 deny.** The first pass denied 108; the acceptance walk fixed 24 of those as unambiguous false positives (a statement with no command word, a path appearing only as a redirect target, a credential filename quoted inside `echo` prose, `grep`'s PATTERN operand read as a file, `[` and `source` and `:` and `tee`). What is left is the rule working as this doc specifies it:
+
+```
+  38  jq with a filter that is not on the allowlist   (22 of them captured into a variable)
+  17  cat of a .env or token file
+  14  grep or rg against a history or token file
+   4  strings, 3 awk, 2 head, 1 tail, 1 sed
+   2  the pre-existing env-var rule, not this chunk
+   ~2 residual false positives (a case-arm fragment, one unknown verb)
+```
+
+**The criterion and the rule text contradict each other**, and that is the finding. The rule text says a reader that cannot project denies against these paths and any jq filter off the allowlist denies. The corpus contains those shapes in volume. The criterion's premise, that the measured traffic is `jq .expires_at` / `jq has(...)` / mode checks, is what the measurement refutes: the dominant idiom is `TOKEN=$(jq -r .value "$C")` feeding a `curl`, 22 commands, where the value goes into a shell variable and never reaches the transcript.
+
+Open decision, for Scott: leave the rule as specified and amend the criterion, or carve out a captured-into-a-variable form (`X=$(jq -r .key <file>)` allows, a bare `jq .key <file>` still denies). Not decided here.
+
+### 4. `hooks-preflight.sh` reports every new hook resolving: PASS
+
+Run directly against the current `settings.json`: exit 0, no warning. `slack-post-guard.sh` and `slack-post-guard-test.sh` are linked into `~/.claude/hooks/`.
+
+### 5. No sensitive tracked path, no tracked file over 1 MB: PASS
+
+```
+git ls-files | grep -cE 'personal/|excluded/|voice/|secrets?/|\.env$|\.age$'   ->  0
+tracked files over 1 MB                                                        ->  0
+```
+
+### 6. The two prose clauses name their guard: PASS
+
+`rules/git.md:62` now ends "do not change repo settings (merge methods, protection, rulesets); `intent-guard.sh`'s GH-WRITE rule denies the `gh api` and `gh repo edit` forms mechanically." `rules/interaction.md:112` names `intent-guard.sh` for the ingest clause.
+
 
 ## Resolved Decisions
 

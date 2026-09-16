@@ -114,6 +114,13 @@ runcwd deny  /home/saidler 'ln -s /tmp/lp2/loop /tmp/lp2/loop/d1/self'
 # GH-WRITE takes for his own protection changes.
 runcwd deny  /home/saidler/repos/milwaukie-youth-football/5626/public 'ln -s . 5626'
 
+echo "=== LN: the cycle deny holds in every shape bash offers ==="
+# Added by the chunk's acceptance walk. Criterion 1 asks for quote-free deny
+# fixtures riding the full sweep, and the LN rule had deny fixtures that never
+# rode it. Both hold 18 of 18.
+runwrapped 'ln -s . 5626'
+runwrapped 'ln -s /tmp /tmp/loop'
+
 echo "=== LN: the reinstall shape must survive, which realpath -m breaks ==="
 # realpath -m FOLLOWS an existing link, so link and target resolve identically
 # on every `ln -sf` reinstall and an equality test fires on the single most

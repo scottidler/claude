@@ -151,11 +151,18 @@ verb_of() {
 
 # Readers that cannot project: there is no safe form of pointing one of these at
 # a credential file, so they deny outright.
-PRINTERS="cat strings head tail less more xxd base64 sed awk perl od hexdump tee cut tr nl paste sort uniq"
+# `tee` is deliberately NOT here: its operand is a file it WRITES, never one
+# it reads.
+PRINTERS="cat strings head tail less more xxd base64 sed awk perl od hexdump cut tr nl paste sort uniq"
 # Metadata readers: mode, size, mtime, existence, byte count. No value.
-METADATA="stat ls test wc file du realpath readlink basename dirname"
+METADATA="stat ls test [ wc file du realpath readlink basename dirname"
 # Mutators: they move or destroy the file without printing it.
 MUTATORS="rm mv cp chmod chown touch ln mkdir install shred rkvr"
+# Verbs whose arguments are TEXT or whose effect is not printing a file.
+# `echo "no slack token.json"` names a credential file in prose and reads
+# nothing; `source <file>` loads it into the environment, where the env-var half
+# of this guard covers what happens next. 10 of 108 corpus denies were these.
+NONREADERS="echo printf source eval export set unset true false : tee"
 MATCHERS="grep rg egrep fgrep ag"
 PROJECTORS="jq yq"
 
@@ -179,8 +186,8 @@ jq_filter_is_safe() {
 
 # artifact_verdict <verbscan> -> prints a deny code, or nothing
 artifact_verdict() {
-  local stmt="$1" verb filter q i n k tok hit seen_verb
-  local -a toks
+  local stmt="$1" verb filter q i n k tok hit seen_verb pattern seen_pattern
+  local -a toks optoks
   mapfile -t toks < <(printf '%s' "$stmt" | args)
   n=${#toks[@]}
 
@@ -215,14 +222,39 @@ artifact_verdict() {
     esac
   fi
 
-  # Everything below needs a credential path as an operand.
+  # A statement with no command word cannot read anything. Measured over the
+  # 299-command corpus: a bare assignment (`C="$HOME/.cache/slack/token.json"`),
+  # a `for` header and a `case` arm account for 21 of 108 denies on their own,
+  # and not one of them runs a command at all.
+  # The splitter leaves the keyword attached (`if true; then cat f; fi` yields
+  # `then cat f`), so the keywords come off first. Bailing on a LEADING keyword
+  # instead would have allowed the whole `if`/`for`/`while` half of the
+  # wrapper sweep, which is where this was caught.
+  local -a head=("${toks[@]}")
+  while [ "${#head[@]}" -gt 0 ]; do
+    case "${head[0]}" in
+      if|then|else|elif|fi|do|done|while|until|case|esac|time|\!) head=("${head[@]:1}") ;;
+      *) break ;;
+    esac
+  done
+  case "${head[0]:-}" in
+    [A-Za-z_]*=*) return 1 ;;
+    for) return 1 ;;
+  esac
+
+  # Everything below needs a credential path as a READ OPERAND, which is why
+  # redirect targets come out first: `printf ... > digest.env` and `: >
+  # digest.env` WRITE the file, and a write is not this rule's subject. Same
+  # `sed` the LN rule uses for the same reason.
+  mapfile -t optoks < <(printf '%s' "$stmt" \
+    | sed -E 's/[0-9]*>>?&?[^[:space:]]*//g' | args)
   hit=""
-  for tok in "${toks[@]}"; do
+  for tok in "${optoks[@]}"; do
     if path_is_secret "$tok"; then hit="$tok"; break; fi
   done
   [ -z "$hit" ] && return 1
 
-  verb_of "$stmt" $METADATA $MUTATORS >/dev/null && return 1
+  verb_of "$stmt" $METADATA $MUTATORS $NONREADERS >/dev/null && return 1
 
   if verb=$(verb_of "$stmt" $PROJECTORS); then
     i=0
@@ -248,12 +280,34 @@ artifact_verdict() {
     return 0
   fi
 
-  if verb_of "$stmt" $MATCHERS >/dev/null; then
+  if verb=$(verb_of "$stmt" $MATCHERS); then
     # A match prints the matching LINE, which is the credential. A count and an
     # exit code carry nothing.
-    case " ${toks[*]} " in
+    case " ${optoks[*]} " in
       *" -c "*|*" -q "*|*" --count "*|*" --quiet "*) return 1 ;;
     esac
+    # The FIRST non-flag operand is the PATTERN, not a file. 14 of 108 corpus
+    # denies were `grep -rln "...tokens.json..." --include=*.md`, where the only
+    # credential-shaped token was the search string and no credential file was
+    # opened at all.
+    seen_verb=0
+    pattern=""
+    for tok in "${optoks[@]}"; do
+      if [ "$seen_verb" -eq 0 ]; then
+        case "$tok" in "$verb"|"\\$verb"|*/"$verb") seen_verb=1 ;; esac
+        continue
+      fi
+      [ "${tok:0:1}" = "-" ] && continue
+      pattern="$tok"
+      break
+    done
+    hit=""
+    seen_pattern=0
+    for tok in "${optoks[@]}"; do
+      if [ "$seen_pattern" -eq 0 ] && [ "$tok" = "$pattern" ]; then seen_pattern=1; continue; fi
+      [ "$seen_pattern" -eq 1 ] && path_is_secret "$tok" && { hit="$tok"; break; }
+    done
+    [ -z "$hit" ] && return 1
     printf '%s' "matcher-line"
     return 0
   fi

@@ -213,3 +213,18 @@ readmatcher-off  pass=184 fail=5
 
 ### Open questions
 - None.
+
+## Finalization: the acceptance walk
+
+Commit: this phase. The 24 corpus-measured false positives fixed in `secret-echo-guard.sh`, the LN wrapper sweep added to `intent-guard-test.sh`, the criteria results written into the doc, the program baton updated.
+
+### What the walk changed in the code
+- **24 false positives removed from the SECRET path rule**, every one found by replaying the rebuilt 300-command corpus rather than by reading the code: a statement with no command word at all (a bare assignment, a `for` header), a credential path appearing only as a redirect target, a credential filename quoted inside `echo` prose, `grep`'s PATTERN operand read as a file, and `[`, `source`, `:` and `tee`. The keyword strip was itself caught by the matrix: the splitter yields `then cat f` rather than `cat f`, so bailing on a leading keyword allowed the whole `if`/`for`/`while` half of the wrapper sweep.
+- **The LN rule now rides the wrapper sweep**, 18 of 18 on two quote-free fixtures. Criterion 1 asked for it and Phase 3 had not done it. The matrix goes from 131 to 167 assertions.
+
+### What the walk found and did NOT change
+- **INGEST allows in 3 of 18 wrapper spellings**: `eval "..."`, `eval '...'` and `bash -c "..."`. The rule is command-scoped by the doc's own ruling, so it matches the fully masked copy, and masking double quotes erases the payload. This is a live bypass of a shipped guard and it is Phase 4's rule scope, so it is recorded with its measurement rather than patched at the end of another phase.
+- **Criterion 3b cannot pass as written.** The rule text mandates denying `cat <credential file>` and `grep <history file>`; the corpus contains those in volume. 84 of 300 deny, and all but about 2 are the rule doing what the doc says. The criterion's premise about what the traffic looks like is what the measurement refutes.
+
+### Open questions
+- Two, both Scott's: whether to carve out the captured-into-a-variable jq form, and how to close the INGEST wrapper bypass. Neither is an author-closable fact.
