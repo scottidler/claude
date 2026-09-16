@@ -85,3 +85,23 @@ Commit: this phase. The LN rule added to `intent-guard.sh`, 18 fixtures added to
 
 ### Open questions
 - None.
+
+## Phase 4: INGEST
+
+Commit: this phase. The INGEST rule added to `intent-guard.sh`, 27 fixtures added to the matrix, `rules/interaction.md`'s scope section amended to name the hook.
+
+### Design decisions
+- Loop-keyword and `xargs` detection use word-boundary regexes, not globs. `*"while "*` needs a trailing space and misses `echo while; sb borg ingest -- https://one.url`, which the doc names explicitly as a deny, while a bare substring test fires on `platform` for `for`.
+- The heredoc extractor writes a single quote as `\047` throughout. Embedding one in a single-quoted shell string mangles the awk program, and the first version of this extractor silently matched nothing and let the founding incident straight through. It passed every non-heredoc fixture while doing so.
+- Heredoc ingests are counted separately and added to the statement count. A heredoc body is not a statement, so the per-statement loop never sees it and the counter stayed at 0, which skipped the whole command-scope block. That is exactly the incident's shape: the verb exists ONLY inside the body being written to a `.sh` file.
+
+### Deviations
+- **The counted unit is ingest TARGETS, not occurrences of the verb.** The doc's rule text says "two or more ingest occurrences" and its Phase 4 criterion says the 5-URL 2026-06-21 form denies without the door and passes with `=5`. Those cannot both hold: `sb borg ingest -- u1 u2 u3 u4 u5` is one occurrence and trips no clause at all. Counting literal URL targets and taking the larger of the two satisfies both, and it makes `<n>` mean what a reader expects when they write `=5` for five URLs. Applied in the door comparison as well, so `=1` does not admit five.
+
+### Tradeoffs
+- Command scope for the deny clauses, against the per-statement contract every other rule follows. The doc settles this and names it; `stmts` splits the incident's loop body so the statement carrying the ingest holds no loop keyword, no second URL and no redirect.
+- Reading heredoc bodies at all, bounded to a `.sh` redirect target. The bound is crude on purpose: a script written to an extensionless path and `chmod`ded afterwards is a named residual hole. The alternative round 2 proposed ("or a target the same command marks executable") asks for static analysis over a sibling statement.
+- The `.sh` bound has a self-reference cost in the other direction: this test file cannot contain the literal verb, because a fixture file carrying it makes the test script trip the rule it is testing. The verb is assembled from two string pieces in `intent-guard-test.sh` for that reason. The guard denied three of my own test-harness commands during this phase, which is the clearest evidence the rule fires that I could have asked for.
+
+### Open questions
+- None.

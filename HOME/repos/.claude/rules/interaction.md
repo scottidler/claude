@@ -108,7 +108,14 @@ escalates fast. Admit it, fix it, move on.
 
 Do exactly the requested scope. Research results go in the response, not
 auto-filed into the vault or elsewhere; an "investigate and prepare" ask gets a
-short brief, not an open-ended multi-hundred-line doc. Review-panel rounds are
+short brief, not an open-ended multi-hundred-line doc. Bulk vault ingest is
+mechanical now, not this sentence: `intent-guard.sh` denies an `sb borg
+ingest`/`reingest` carrying a loop, `xargs`, a file redirect, two or more
+targets, `--file`, `--all`, or a non-literal URL operand, and it reads a heredoc
+body whose redirect target ends in `.sh` because the 164-URL incident on
+2026-06-20 wrote a script and ran it rather than looping the verb. Scott opens
+the door for a specific run with a leading `BULK_INGEST_ORDERED_BY_SCOTT=<n>`
+assignment, where `<n>` is a ceiling on targets. Review-panel rounds are
 capped mechanically now, not by this sentence: `panel-round-guard.sh` denies a
 4th `Agent` dispatch of the `review-panel` subagent on the same doc; there is
 nothing left here to compensate for. Scott opens the door for a specific run

@@ -235,6 +235,8 @@ ACLI_DENY='acli delete destroys Jira/Confluence content no local archive can rec
 LN_CYCLE_DENY='this ln -s would make the target an ancestor of its own link, which is the symlink loop that froze the workstation on 2026-07-03. Check the direction of the link.'
 LN_CLAUDE_DENY='~/Claude is the Cowork/Syncthing space and is symlink-free by policy (CLAUDE.md). Copy the file there instead of linking it.'
 LN_CWD_DENY='this ln -s has a relative link path and the guard cannot resolve the cwd it would run in, so it cannot tell a loop from a reinstall. Use an absolute link path.'
+INGEST_DENY='bulk vault ingest is Scott'"'"'s call: 164 URLs went in unasked on 2026-06-20. Ask him, or re-run with BULK_INGEST_ORDERED_BY_SCOTT=<n> as a leading assignment. Denied for'
+INGEST_DOOR_DENY='BULK_INGEST_ORDERED_BY_SCOTT must be a non-negative integer. It is a ceiling on ingest occurrences, not a boolean.'
 
 # The cwd the statements run in. Accumulated across the command's `cd` chain
 # starting from the payload, because lib.sh's cd_last/cd_at REPLACE rather than
@@ -272,6 +274,45 @@ cur_cwd="$payload_cwd"
 # A subshell opened before the ln means the cwd at the ln is not knowable from
 # here at all, so it is unknown rather than "the payload's".
 [ "$cwd_accumulates" -eq 0 ] && cur_cwd=""
+
+ingest_ops=0
+door_open=0
+
+# INGEST reads heredoc BODIES, which no other rule here does, because the
+# 164-URL incident never looped `sb borg ingest`: at 00:32:22 it wrote a script
+# with a QUOTED heredoc and at 00:32:40 ran it. The run statement's command word
+# is `$S/ingest.sh`, so no verb matcher sees it, and the quoted delimiter means
+# `heredoc_expanded` never emits it either. Denying at CREATION is what stops
+# the sequence, and creation is only visible in the body.
+#
+# The scan is bounded to a redirect target ending in `.sh`, and the bound is not
+# fussy on purpose. This design document contains both `while IFS= read -r url`
+# and `sb borg ingest` in its own prose, so writing it through a heredoc would
+# deny under an unbounded command-scope scan. That is chunk C's self-reference
+# class. The incident's target is `"$S/ingest.sh"` and is caught; this doc's
+# target is a `.md` path and is not. A script written to an extensionless path
+# and chmodded afterwards is a named residual hole, not a silent one.
+# A single quote is written \047 throughout: embedding one in a single-quoted
+# shell string mangles the awk program, which is how the first version of this
+# extractor silently matched nothing and let the founding incident through.
+ingest_heredocs=$(printf '%s' "$command" | awk '
+  !capture {
+    i = index($0, "<<")
+    if (i > 0) {
+      left = substr($0, 1, i - 1)
+      if (left ~ /\.sh[\047"]?[[:space:]]*$/) {
+        rest = substr($0, i + 2)
+        sub(/^-/, "", rest)
+        gsub(/[[:space:]]/, "", rest)
+        gsub(/[\047"]/, "", rest)
+        if (rest != "") { delim = rest; capture = 1 }
+      }
+    }
+    next
+  }
+  $0 == delim { capture = 0; next }
+  { print }
+')
 
 while IFS= read -r -d '' stmt; do
   verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
@@ -315,6 +356,41 @@ while IFS= read -r -d '' stmt; do
       *" jira workitem delete "*|*" confluence page delete "*)
         deny "$ACLI_DENY" ;;
     esac
+  fi
+
+  # INGEST's door and its read-only exclusion are the two PER-STATEMENT steps.
+  # Everything else about the rule is command-scope, handled after the loop.
+  if printf '%s' "$verbscan" | grep -qE '(^|[^-[:alnum:]])borg[[:space:]]+(ingest|reingest|reingest-failed)\b'; then
+    stmt_ops=$(printf '%s' "$verbscan" | grep -oE 'borg[[:space:]]+(ingest|reingest-failed|reingest)' | wc -l)
+    # Same target counting the command-scope clause uses, so the ceiling means
+    # the same thing in both places: `=1` must not admit five URLs.
+    stmt_urls=$(printf '%s' "$verbscan" | grep -oE 'https?://[^[:space:]"]+' | wc -l)
+    [ "$stmt_urls" -gt "$stmt_ops" ] && stmt_ops="$stmt_urls"
+    # Read-only operations are DROPPED from the operation list rather than
+    # returning an allow for the command. Round 3 wrote this as "always allow"
+    # and `sb borg log; sb borg ingest --file urls.txt` then never reached the
+    # deny clauses at all.
+    case "$verbscan" in
+      *--dry-run*) case "$verbscan" in *reingest*) stmt_ops=0 ;; esac ;;
+    esac
+    if [ "$stmt_ops" -gt 0 ]; then
+      ingest_ops=$((ingest_ops + stmt_ops))
+      # The door, anchored as a LEADING assignment on this statement so it
+      # cannot be smuggled in from a heredoc body or a comment.
+      door=$(printf '%s' "$verbscan" | sed -n 's/^[[:space:]]*BULK_INGEST_ORDERED_BY_SCOTT=\([^[:space:];|&]*\).*/\1/p' | head -1)
+      if [ -n "$door" ]; then
+        case "$door" in
+          ''|*[!0-9]*) deny "$INGEST_DOOR_DENY" ;;
+        esac
+        # <n> is a CEILING and it is compared. Round 3 called it a maximum and
+        # then never compared it, so =0 allowed and =1 allowed five ingests.
+        if [ "$stmt_ops" -le "$door" ]; then
+          door_open=1
+        else
+          deny "BULK_INGEST_ORDERED_BY_SCOTT=$door permits $door ingest occurrences and this statement carries $stmt_ops. Raise the ceiling deliberately or split the command."
+        fi
+      fi
+    fi
   fi
 
   if printf '%s' "$verbscan" | cmdword_is ln >/dev/null 2>&1; then
@@ -397,5 +473,71 @@ while IFS= read -r -d '' stmt; do
     fi
   fi
 done < <(printf '%s' "$command" | stmts)
+
+# INGEST's deny clauses are COMMAND scope, which is a deliberate exception to
+# the per-statement contract every other rule follows. `stmts` splits the
+# incident's own loop body so that the statement carrying the ingest holds no
+# loop keyword, no second URL and no file redirect:
+#
+#   while IFS= read -r url; do out=$(sb borg ingest ... "$url"); done < urls.txt
+#     ->  while IFS= read -r url | do | out=$() | rc=$? | done < urls.txt
+#         sb borg ingest --tags x -- "$url" 2> | 1
+#
+# A per-statement predicate does not fire on the shape that actually happened.
+# A heredoc body is not a statement, so the per-statement loop above never sees
+# it and `ingest_ops` stays 0. That is precisely the incident's shape, where the
+# ingest exists ONLY inside the body being written to a .sh file, so counting
+# statements alone let the founding vector through.
+heredoc_ops=$(printf '%s' "$ingest_heredocs" | grep -cE 'borg[[:space:]]+(ingest|reingest-failed|reingest)' || true)
+ingest_ops=$((ingest_ops + heredoc_ops))
+
+if [ "$ingest_ops" -gt 0 ] && [ "$door_open" -eq 0 ]; then
+  scan="$masked_all$ingest_heredocs"
+  # Word boundaries, not globs. `*"while "*` needs a trailing space and misses
+  # `echo while; sb borg ingest -- https://one.url`, which the design doc names
+  # explicitly as a deny. A glob cannot express "this token, not this substring",
+  # and a substring test would fire on `platform` for `for`.
+  if printf '%s' "$scan" | grep -qE '(^|[^[:alnum:]_])(while|for|select)([^[:alnum:]_]|$)'; then
+    deny "$INGEST_DENY (a loop construct)"
+  fi
+  if printf '%s' "$scan" | grep -qE '(^|[^[:alnum:]_])xargs([^[:alnum:]_]|$)'; then
+    deny "$INGEST_DENY (xargs)"
+  fi
+  # A redirect READING a file. `> out.log` writes and is not a bulk source.
+  if printf '%s' "$scan" | grep -qE '<[[:space:]]*[^<[:space:]]'; then
+    deny "$INGEST_DENY (a redirect reading a file)"
+  fi
+  # An ingest carrying five literal URLs is a bulk ingest of five things, so the
+  # counted unit is TARGETS, not verb occurrences. The doc's rule text says
+  # "occurrences"; counting only those makes `sb borg ingest -- u1 u2 u3 u4 u5`
+  # trip no clause at all, which contradicts the doc's own Phase 4 criterion
+  # that the 5-URL form denies without the door and passes with `=5`. It is also
+  # what makes <n> mean what a reader expects it to mean.
+  url_targets=$(printf '%s' "$scan" | grep -oE 'https?://[^[:space:]"]+' | wc -l)
+  [ "$url_targets" -gt "$ingest_ops" ] && ingest_ops="$url_targets"
+  [ "$ingest_ops" -ge 2 ] && deny "$INGEST_DENY ($ingest_ops ingest targets)"
+  case "$scan" in
+    *"ingest --file"*|*"ingest -f "*) deny "$INGEST_DENY (--file is the CLI's own bulk path)" ;;
+    *"reingest --all"*)               deny "$INGEST_DENY (--all is the largest bulk action available)" ;;
+  esac
+  # The literal-URL clause applies to `ingest` ONLY. `reingest` and
+  # `reingest-failed` take no URL operand, so applying it to them would deny
+  # every `reingest-failed --dry-run`.
+  if printf '%s' "$scan" | grep -qE 'borg[[:space:]]+ingest\b'; then
+    operands=$(printf '%s' "$scan" \
+      | sed -n 's/.*borg[[:space:]]\{1,\}ingest[[:space:]]\{1,\}\(.*\)/\1/p' | head -1)
+    case "$operands" in
+      *" -- "*) operands="${operands#*" -- "}" ;;
+      *)        operands=$(printf '%s' "$operands" | tr ' ' '\n' | grep -v '^-' | head -1) ;;
+    esac
+    operands=$(printf '%s' "$operands" | awk '{print $1}')
+    if [ -n "$operands" ]; then
+      case "$operands" in
+        http://*|https://*) : ;;
+        *) deny "$INGEST_DENY (the URL operand is not a literal http(s) token, so the target is not in the command)" ;;
+      esac
+    fi
+  fi
+fi
 
 echo '{}'

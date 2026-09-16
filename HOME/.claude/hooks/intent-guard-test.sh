@@ -143,6 +143,54 @@ runcwd allow /home/saidler 'cd /home/saidler/repos/scottidler/claude && cd HOME 
 runcwd deny  /home/saidler/repos/otto-rs/otto '(cd "$S" && ln -sf /home/saidler/repos/otto-rs/otto/target target 2>/dev/null; true)'
 runcwd deny  '' 'ln -s /etc/hosts relative-link'
 
+echo "=== INGEST: command scope, because stmts splits the incident apart ==="
+# V is assembled rather than written, for the same reason the design doc's own
+# INGEST section is a self-reference hazard: a fixture file containing the
+# literal verb makes THIS test script trip the rule it is testing.
+V="sb borg in""gest"
+run allow "$V --tags x -- https://one.url"
+run deny  "$V --file urls.txt"
+run deny  "sb borg reingest --all"
+run allow "sb borg reingest-failed --dry-run"
+run allow "sb borg reingest-failed"
+run allow "sb borg log"
+run allow "sb borg audit"
+# Round 4, both seats independently: step 2 said read-only verbs "always allow"
+# with no scope, so this returned allow for the whole command and never reached
+# the deny clauses. Read-only operations are dropped from the operation list now.
+run deny  "sb borg log; $V --file urls.txt"
+run deny  "for url in a b; do $V -- \"\$url\"; done"
+run deny  "cat urls.txt | xargs -n1 $V --"
+run deny  "$V -- https://a.url; $V -- https://b.url"
+# A glob needs a trailing space and misses `while;`. The doc names this one.
+run deny  "echo while; $V -- https://one.url"
+# The operand is not in the command, so it cannot be the thing a human named.
+run deny  "$V --tags x -- \"\$url\""
+
+echo "=== INGEST: the door is a CEILING and it is compared ==="
+# Round 3 called <n> a maximum and never compared it, so =0 allowed and =1
+# allowed five. Counted by TARGET, so the ceiling means what a reader expects.
+FIVE="$V -- https://a.url https://b.url https://c.url https://d.url https://e.url"
+run deny  "$FIVE"
+run allow "BULK_INGEST_ORDERED_BY_SCOTT=5 $FIVE"
+run deny  "BULK_INGEST_ORDERED_BY_SCOTT=1 $FIVE"
+run deny  "BULK_INGEST_ORDERED_BY_SCOTT=0 $V -- https://one.url"
+run deny  "BULK_INGEST_ORDERED_BY_SCOTT=yes $V -- https://one.url"
+run allow "BULK_INGEST_ORDERED_BY_SCOTT=1 $V -- https://one.url"
+
+echo "=== INGEST: heredoc bodies, bounded to a .sh redirect target ==="
+# The 164-URL incident never looped the verb: it wrote a script with a QUOTED
+# heredoc and ran it. The run statement's command word is $S/ingest.sh so no
+# verb matcher sees it, and the quoted delimiter means heredoc_expanded never
+# emits it. Denying at CREATION is what stops the sequence.
+run deny "$(printf 'cat > "$S/in%s.sh" <<%sEOF%s\nwhile IFS= read -r url; do\n  out=$(%s --tags x -- "$url" 2>&1)\ndone\nEOF' 'gest' "'" "'" "$V")"
+run deny "$(printf 'cat > run.sh <<%sEOF%s\n%s --file urls.txt\nEOF' "'" "'" "$V")"
+# The bound exists because THIS repo's design doc carries both a `while IFS=
+# read -r url` line and the verb in its own prose. A .md target is not scanned.
+run allow "$(printf 'cat > docs/design/notes.md <<%sEOF%s\nwhile IFS= read -r url; do\n  %s --tags x -- "$url"\ndone\nEOF' "'" "'" "$V")"
+# A fenced marker in a body cannot open the door, per chunk C's rule.
+run allow "$(printf 'cat > notes.md <<%sEOF%s\n\`\`\`\nBULK_INGEST_ORDERED_BY_SCOTT=5\n\`\`\`\n%s --file urls.txt\nEOF' "'" "'" "$V")"
+
 echo "=== the false-positive class lib.sh exists to kill ==="
 # Observed live 2026-09-15T19:41: a naive acli.*delete pattern matched the
 # regex TEXT inside a quoted heredoc in scan5.py.
