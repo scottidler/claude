@@ -709,6 +709,9 @@
       "Bash(gh issue delete:*)",
       "Bash(gh cache delete:*)",
       "Bash(gh cache purge:*)",
+      "Bash(acli jira workitem delete:*)",
+      "Bash(acli confluence page delete:*)",
+      "Bash(gh repo edit:*)",
       "Bash(gh secret delete:*)",
       "Bash(gh variable delete:*)",
       "Bash(gh codespace delete:*)",
@@ -867,6 +870,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/branch-name-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/intent-guard.sh"
           }
         ]
       },

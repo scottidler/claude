@@ -244,6 +244,29 @@ case_flag 'an absent flag returns empty' \
 case_flag 'a flag inside a heredoc body is not the flag' \
   "$(printf 'cat <<EOF\n--title fake\nEOF\ngh pr create --title real')" --title -t 'real'
 
+echo "=== flag_value: characterization, NOT a specification ==="
+# flag_value has no per-flag arity table, so it cannot tell an ATTACHED value
+# from a value that merely begins with a dash. These five rows pin what it does
+# today so a future change to it fails here loudly.
+#
+# Chunk D's GH-WRITE rule parses the gh method ITSELF rather than using this,
+# for the two defects rows 1 and 4 record. Teaching flag_value the attached form
+# was measured and rejected: it flips rows 2 and 3 from their correct values to
+# 'esting' and 'bad/name', which are allow-to-deny flips in
+# branch-pr-title-guard.sh:145,146,154 and branch-name-guard.sh:172, and it
+# opens row 4 as a fresh bypass. The patched copy passed this whole file 135/0,
+# which is exactly why these rows exist.
+case_flag 'attached short-flag value is INVISIBLE (the -XDELETE gap)' \
+  'gh api -XDELETE repos/o/r' '' -X ''
+case_flag 'a dash-leading value is taken verbatim, not as a flag' \
+  'gh pr create --body -testing --title "feat: right"' --title -t 'feat: right'
+case_flag 'a dash-leading value does not capture the next flag either' \
+  'gh pr create --body -Hbad/name --head right' --head -H 'right'
+case_flag 'an attached form hiding behind a header operand stays invisible' \
+  'gh api -H "-XGET: x" -XDELETE repos/o/r' '' -X ''
+case_flag 'the equals form is unaffected by any of the above' \
+  'gh pr create --title=add-viewport-support' --title -t 'add-viewport-support'
+
 echo "=== cmdword_is ==="
 case_cmdword 'git in command position matches' 'git push origin main' git 0
 case_cmdword 'git inside a grep argument does not match' \

@@ -43,6 +43,8 @@ tasks:
         HOME/.claude/hooks/manifest-scope-guard-test.sh
         HOME/.claude/hooks/secret-echo-guard.sh
         HOME/.claude/hooks/secret-echo-guard-test.sh
+        HOME/.claude/hooks/intent-guard.sh
+        HOME/.claude/hooks/intent-guard-test.sh
         HOME/.claude/hooks/git-release-guard.sh
         HOME/.claude/hooks/git-release-guard-test.sh
         HOME/.claude/hooks/branch-name-guard.sh
