@@ -102,6 +102,100 @@ run deny "'printf' '%s' \$GH_TOKEN"
 run deny "'printenv' GH_TOKEN"
 run allow "echo '\$GH_TOKEN'"
 
+runread() { # runread <expect deny|allow> <path>
+  local expect="$1" path="$2" out decision
+  out=$(jq -n --arg p "$path" \
+    '{tool_name:"Read",tool_input:{file_path:$p}}' | bash "$HOOK")
+  decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"')
+  if [ "$decision" = "$expect" ]; then
+    pass=$((pass + 1))
+    printf 'PASS  [%s] Read %s\n' "$expect" "$path"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  [want %s got %s] Read %s\n' "$expect" "$decision" "$path"
+  fi
+}
+
+echo "=== aws secretsmanager: --query is not a safety predicate ==="
+# The draft's fixture baked the leak in: --query SecretString SELECTS the
+# decrypted value and is exactly what printed an xoxb- token on 06-23 and 06-25.
+run deny  'aws secretsmanager get-secret-value --secret-id prod/slack'
+run deny  'aws secretsmanager get-secret-value --secret-id prod/slack --query SecretString'
+run deny  'aws secretsmanager get-secret-value --secret-id x --query SecretBinary --output text'
+run allow 'aws secretsmanager get-secret-value --secret-id prod/slack --query ARN'
+run allow 'aws secretsmanager get-secret-value --secret-id x --query Name --output text'
+run allow 'aws secretsmanager get-secret-value --secret-id x --query=VersionId'
+run deny  'aws secretsmanager get-secret-value --secret-id x --query CreatedDate --query SecretString'
+run deny  'aws secretsmanager get-secret-value --secret-id x --query Tags'
+run allow 'aws secretsmanager list-secrets'
+run allow 'aws secretsmanager describe-secret --secret-id prod/slack'
+
+echo "=== systemctl show-environment prints every value it has ==="
+run deny  'systemctl --user show-environment'
+run deny  'systemctl show-environment'
+run allow 'systemctl --user status borg.service'
+run allow 'systemctl --user restart cortex.service'
+
+echo "=== readers that cannot project deny against a credential path ==="
+run deny 'cat /run/user/1000/borg.env'
+run deny 'cat ~/.cache/slack/token.json'
+run deny 'cat "${XDG_CACHE_HOME:-$HOME/.cache}/slack/token.json"'
+run deny 'head -5 ~/.zsh_history'
+run deny 'tail -20 ~/.bash_history'
+run deny 'strings ~/.config/marquee/tokens.json'
+run deny 'xxd ~/.cache/okta/tokens.json'
+run deny 'base64 ~/.config/eratosthenes/digest.env'
+run deny "sed -n '1,5p' ~/.cache/okta/tokens.json"
+run deny 'python3 -m json.tool ~/.cache/slack/token.json'
+
+echo "=== jq: the WHOLE filter is matched, and has() takes an expression ==="
+# The measured traffic against these paths is ~200 auth-debugging statements
+# against 4 leaks, so the safe shapes have to keep working.
+run allow 'jq .expires_at ~/.cache/slack/token.json'
+run allow 'jq -r .expires_at ~/.cache/okta/tokens.json'
+run allow "jq 'has(\"access_token\")' ~/.cache/slack/token.json"
+run allow 'jq keys ~/.cache/slack/token.json'
+run allow 'jq length ~/.config/marquee/tokens.json'
+run allow "jq --arg k x 'has(\"refresh_token\")' ~/.cache/slack/token.json"
+run deny  'jq .access_token ~/.cache/slack/token.json'
+run deny  'jq . ~/.cache/slack/token.json'
+run deny  "jq -r '.[]' ~/.cache/slack/token.json"
+run deny  'jq to_entries ~/.cache/okta/tokens.json'
+# Round 4's reproduction: the outer filter returns a boolean and the ARGUMENT
+# prints the selected value to stderr.
+run deny  "jq 'has(.access_token | debug)' ~/.cache/slack/token.json"
+run deny  "jq 'has(\"access_token\") | debug' ~/.cache/slack/token.json"
+
+echo "=== grep prints the matching LINE; a count and an exit code do not ==="
+run deny  'grep access_token ~/.cache/slack/token.json'
+run deny  'rg xoxp ~/.zsh_history'
+run allow 'grep -c access_token ~/.cache/slack/token.json'
+run allow 'grep -q access_token ~/.cache/slack/token.json'
+run allow 'rg -q xoxp ~/.zsh_history'
+
+echo "=== metadata and mutation carry no value ==="
+run allow 'stat -c %a ~/.cache/slack/token.json'
+run allow 'ls -l ~/.config/marquee/tokens.json'
+run allow 'test -f ~/.cache/okta/tokens.json'
+run allow 'wc -c ~/.cache/slack/token.json'
+run allow 'rm -f ~/.cache/okta/tokens.json'
+run allow 'chmod 600 ~/.cache/slack/token.json'
+
+echo "=== a path that is not a credential artifact is not this rule's business ==="
+run allow 'cat ~/notes.md'
+run allow 'cat ~/repos/scottidler/claude/README.md'
+run allow 'jq . ~/repos/scottidler/claude/HOME/.claude/settings.json'
+run allow 'grep -n hook ~/repos/scottidler/claude/.otto.yml'
+
+echo "=== the Read tool: the 06-16 leak never went through a shell ==="
+runread deny  "$HOME/.config/fabric/.env"
+runread deny  '/run/user/1000/borg.env'
+runread deny  "$HOME/.cache/slack/token.json"
+runread deny  "$HOME/.cache/okta/tokens.json"
+runread deny  "$HOME/.zsh_history"
+runread allow "$HOME/repos/scottidler/claude/README.md"
+runread allow "$HOME/repos/scottidler/claude/HOME/.claude/settings.json"
+
 echo "=== every leak holds in every shape bash offers ==="
 runwrapped() { # runwrapped <command>
   local w
@@ -109,6 +203,9 @@ runwrapped() { # runwrapped <command>
 }
 runwrapped 'echo $GH_TOKEN'
 runwrapped 'printenv AWS_SECRET_ACCESS_KEY'
+runwrapped 'cat /run/user/1000/borg.env'
+runwrapped 'systemctl --user show-environment'
+runwrapped 'aws secretsmanager get-secret-value --secret-id prod/slack'
 
 echo
 echo "pass=$pass fail=$fail"

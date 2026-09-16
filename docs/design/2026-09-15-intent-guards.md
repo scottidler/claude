@@ -757,7 +757,16 @@ Two of the three questions the draft asked are already answered by chunk C's own
 **Model:** opus
 - The corrected statement vectors in `secret-echo-guard.sh`; `Read` matcher registration and the measured path list
 - Gated on Phase 0's `Read`-matcher criterion; developed against a copy before the live file is written (see Blast radius)
-- **Success criteria:** each vector command is denied in all 18 `wrap_shapes` spellings; `--query SecretString` is denied and `--query ARN` is allowed; `jq .expires_at ~/.cache/slack/token.json` is allowed while `cat` of the same file is denied; the three jq-grammar assertions, `has("access_token")` allows, `.access_token` denies, and `has(.access_token | debug)` denies; the existing 39 assertions in `secret-echo-guard-test.sh` pass unchanged
+- **Success criteria:** each vector command is denied in all 18 `wrap_shapes` spellings; `--query SecretString` is denied and `--query ARN` is allowed; `jq .expires_at ~/.cache/slack/token.json` is allowed while `cat` of the same file is denied; the three jq-grammar assertions, `has("access_token")` allows, `.access_token` denies, and `has(.access_token | debug)` denies; the existing assertions in `secret-echo-guard-test.sh` pass unchanged
+
+  **Amended in Phase 6: the count is 77, not 39.** Phase 1 of this chunk added the wrapper sweep and the single-quoted-verb fixtures to that matrix, so the number this criterion was written against was already out of date when the phase started. Measured by running the committed matrix at `e2cb587` against the committed guard, then against the Phase 6 guard:
+
+  ```
+  original test against original guard   pass=77 fail=0
+  original test against the NEW guard    pass=77 fail=0
+  ```
+
+  The criterion's substance (no existing assertion regresses) holds; only its count was wrong
 
 #### Phase 7: PUBLIC-REPO
 **Model:** opus
@@ -816,7 +825,8 @@ Every criterion below was executed against `main` at 53f2904 on 2026-09-15 and t
 
 - [ ] Every rule in this doc has a deny fixture in a `*-test.sh` matrix, quote-free fixtures riding the full `wrap_shapes` sweep, and `otto ci` exits 0.
   **Observed on main:** `WRAPPER_SHAPES` holds 16 entries (`HOME/.claude/hooks/shapes.sh:21-37`) and `wrap_shapes "git tag -d v1" | wc -l` returns **18** (the 16 wrappers plus `\cmd` and `"verb" rest`). 11 `*-test.sh` matrices exist; 5 of them source `shapes.sh`. `HOME/.claude/hooks/intent-guard-test.sh`: "No such file or directory". Cannot pass before Phase 2.
-- [ ] Every incident command quoted verbatim in this doc is denied by the shipped guards.
+  **Observed on branch `intent-guards` 2026-09-15 (Phases 0-4, 7 committed; Phase 5 in the tree; Phase 6 unbuilt):** `otto ci` exits 0 ("All CI checks passed!"). Matrices green: `intent-guard-test.sh` 131/0, `slack-post-guard-test.sh` 108/0, `secret-echo-guard-test.sh` 77/0, `lib-test.sh` 140/0; `intent-guard-test.sh` sources `shapes.sh`. **Still fails** on "every rule": SECRET has no fixtures until Phase 6.
+- [ ] Every incident command quoted verbatim in this doc is denied by the shipped guards, **except the unrequested-commit incident** (`git add .gitignore HOME/Claude/writing/voice && git commit`), which item 1's 2026-09-15 ruling leaves uncovered and which must therefore stay **allowed**. Nine of ten deny; the tenth is asserted as an allow.
   **Observed on main:** all ten fed through the live nine-guard Bash chain, every one **allowed**:
 
   ```
@@ -833,14 +843,20 @@ Every criterion below was executed against `main` at 53f2904 on 2026-09-15 and t
   ```
 
   The ninth line is chunk B's open hole reproduced through the live chain, not a synthetic case.
-- [ ] The `ln -s` corpus replay denies **exactly the 3 known loop-repro probes** out of ~112 statements, and the `secret-echo-guard` path list's ~200 measured auth-debugging occurrences produce **zero** denies.
+
+  **Observed on branch `intent-guards` 2026-09-15 (Phases 0-4, 7 committed; Phase 5 in the tree; Phase 6 unbuilt):** **six of ten deny** through the live twelve-guard chain. Denied: both `gh api` protection forms, `acli jira workitem delete`, the `~/Claude` symlink, `'echo' $GH_TOKEN` (Phase 1 closed chunk B's hole), `gh repo edit --visibility public`. Allowed: `aws secretsmanager get-secret-value`, `systemctl --user show-environment`, `cat /run/user/1000/borg.env`, all three Phase 6; plus the commit line, which is the asserted allow above.
+- [ ] The `ln -s` corpus replay over the **163-statement** corpus denies only the ancestor-shaped and fail-closed statements Phase 3 enumerated (the loop-repro probes, `ln -s . 5626`, and the one unresolvable `$S` cwd), with no other deny; and the `secret-echo-guard` path list's ~200 measured auth-debugging occurrences produce **zero** denies. The earlier "exactly 3 out of ~112" form was wrong on all three counts: the ~112 came from an `rg -o` pattern capping each match at 600 characters, the replay exercises the `~/Claude` half as well as the cycle half, and `ln -s . 5626` is ancestor-shaped by inspection. Corrected 2026-09-15 from Phase 3's replay, same amendment the per-phase criterion already took.
   **Observed on main:** no guard denies any of them today. That trivially satisfies the `secret-echo-guard` half (zero denies is what it asks for) and **fails** the `ln` half, which requires exactly 3. Both become meaningful only after Phases 3 and 6. The `ln` half is deliberately not "zero denies": three of the corpus statements are the exact ancestor shape the rule exists to catch, so a zero-denies assertion would be unsatisfiable. That was round 2's finding and it reached the rule text but neither criterion until now.
+  **Observed on branch `intent-guards` 2026-09-15 (Phases 0-4, 7 committed; Phase 5 in the tree; Phase 6 unbuilt):** the `ln` half is exercised by the 18 committed Phase 3 fixtures in the matrix rather than by a hermetic test, per Phase 3's note that a replay reading `~/.claude/projects` cannot be hermetic. The `secret-echo-guard` half stays unmeasurable until Phase 6 adds the path list.
 - [ ] `hooks-preflight.sh` reports every new hook as resolving and executable at session start.
   **Observed on main:** registered at `HOME/.claude/settings.json:973`; run directly it emits no warning and exits 0. It proves registration, not behavior: it has caught zero misses since it shipped.
+  **Observed on branch `intent-guards` 2026-09-15 (Phases 0-4, 7 committed; Phase 5 in the tree; Phase 6 unbuilt):** **passes.** `hooks-preflight.sh` exits 0 with no warning, and `intent-guard.sh`, `slack-post-guard.sh` and `shapes.sh` all resolve through the live `~/.claude/hooks` symlinks.
 - [ ] `git ls-files | grep -cE 'personal/|excluded/|voice/|secrets?/|\.env$|\.age$'` returns 0 in `scottidler/claude`, and no tracked file exceeds 1 MB.
   **Observed on main:** `0` and `0`.
-- [ ] `rules/git.md:62` and `rules/interaction.md:110` each name the guard that now enforces the clause.
+  **Observed on branch `intent-guards` 2026-09-15 (Phases 0-4, 7 committed; Phase 5 in the tree; Phase 6 unbuilt):** **passes.** `0` and `0`.
+- [ ] `rules/git.md:62` and `rules/interaction.md:112` each name the guard that now enforces the clause. (Phase 4's edit landed the `intent-guard.sh` pointer at 112; the criterion's original `:110` predated it.)
   **Observed on main:** `git.md:62` is the push-rejection bullet ending "do not change repo settings (merge methods, protection, rulesets)", no hook named; `interaction.md:110` reads "auto-filed into the vault or elsewhere", no hook named.
+  **Observed on branch `intent-guards` 2026-09-15 (Phases 0-4, 7 committed; Phase 5 in the tree; Phase 6 unbuilt):** `interaction.md:112` names `intent-guard.sh`, so that half **passes** at the corrected line. `git.md` names no guard anywhere, so the GH-WRITE pointer that "Prose narrowed, not deleted" prescribes is **still owed**, and GH-WRITE being live and green satisfies its stated precondition.
 
 ## Resolved Decisions
 

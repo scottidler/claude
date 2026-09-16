@@ -900,6 +900,15 @@
         ]
       },
       {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/secret-echo-guard.sh"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__slack__chat_post_message|mcp__slack__chat_update|mcp__slack__conversations_add_message|mcp__atlassian__(addCommentToJiraIssue|createJiraIssue|editJiraIssue|createConfluencePage|updateConfluencePage|createConfluenceFooterComment|createConfluenceInlineComment)|mcp__marquee__marquee_(publish|update)",
         "hooks": [
           {

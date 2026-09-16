@@ -175,3 +175,41 @@ RESEND-off      pass=101 fail=7
 
 ### Observed, not changed
 - `HOME/repos/.claude/refs/slack.md` is stale in three places outside this phase's scope: it points at `mcp__slack__conversations_add_message` (a retired tool), at `~/repos/.claude/slack-ids.json` (the cache is `~/.cache/slack/ids.json` now), and at `~/.claude/skills/slack/slack.py` (the retired monolith, now `slack-old`). Recorded rather than fixed: unrequested scope.
+
+## Phase 6: SECRET vectors and the Read deny
+
+Commit: this phase. The four artifact vectors added to `secret-echo-guard.sh`, the hook registered on a `Read` matcher, `secret-echo-guard-test.sh` from 77 assertions to 189.
+
+### Design decisions
+- **Developed against a copy, per the Blast radius rule**, with `lib.sh` and `shapes.sh` symlinked into the scratch directory. That symlink is the whole point of the rule: without it the copy cannot source `lib.sh`, the guard fails OPEN, and a broken patch reads as a passing matrix.
+- **The artifact vectors run in the same per-statement loop as the env-var vectors, behind their own `case` pre-filter.** The existing loop `continue`s on the secret-NAME superset, and `cat /run/user/1000/borg.env` contains none of those names, so the new checks had to sit before that gate with a pre-filter of their own. A `case` costs nothing and a statement naming no credential artifact cannot deny on any of the four vectors.
+- **One jq spawn, not two.** Reading `tool_name` (needed for the Read branch) as a second jq call would have added about 23 ms to every Bash call in every session. Tool, command and file path come back from one call, with the command base64-encoded because it can carry newlines and tabs.
+- **The unrecognized shape denies.** The doc gives four bullets covering printers, projectors, matchers and metadata; it does not say what a fifth verb does. The default is `unknown-reader` -> deny, which is the same ruling the doc makes explicitly for an unrecognized jq filter, and it is what makes `python3 -m json.tool <credential file>` a deny without enumerating every interpreter.
+- **The jq filter is found by walking the tokens and skipping flag operands**, so `jq --arg k x 'has("refresh_token")' <file>` reads the filter and not the `--arg` value.
+
+### Deviations
+- **`--query` is parsed locally, not with `flag_value`.** Measured: `flag_value` returns its FIRST match, so `--query ARN --query SecretString` reads as `ARN` and executes as `SecretString`. That is the identical defect class `intent-guard.sh` documents for `gh api -X GET -X DELETE`, and it is the one shape where a bypass is a printed credential. The local walk takes the LAST occurrence and handles the `--query=V` form.
+- **The path set is wider than the doc's globs, by one entry.** The doc lists `/run/user/*/*.env`, `~/.config/*/*.env`, `**/tokens.json`, `**/token.json` and the two history files; `path_is_secret` matches any `*.env`. The doc's own evidence table calls the `.env` glob incomplete and records the 06-16 leak as `sk-ant-`, 108 characters, through the Read tool, and a directory-scoped glob cannot cover a Read of a repo-local `.env`. `rules/general.md` already forbids `.env` for env vars, so the false-positive surface is close to empty.
+- **`sed`, `awk`, `perl`, `od`, `hexdump`, `tee`, `cut`, `tr`, `nl`, `paste`, `sort` and `uniq` are in the printer set.** The doc names `cat`, `strings`, `head`, `tail`, `less`, `more`, `xxd`, `base64` for path reads and `sed` for the history row. A printer set that stops at `cat` while `awk` prints the same bytes is a hole with no argument behind it. The `unknown-reader` default would have caught them anyway; naming them makes the deny message accurate rather than generic.
+
+### Tradeoffs
+- **A mutator against a credential file allows.** `rm`, `mv`, `cp`, `chmod` and friends do not print, and a logout that removes a token file is routine. `cp <token file> /tmp/x` therefore allows, which moves a credential without printing it. Named rather than covered: this guard's subject is the value reaching the transcript.
+- **The Read deny covers `Read` only.** `Grep` and `Glob` over the same paths are uncovered and a `Grep` result can carry the matching line. The doc names this residual hole and no instance appears in the corpus.
+- **`*.env` as a suffix match will deny a read of any file so named**, including one carrying no credential. Fail-closed on a file class whose entire purpose is credentials.
+
+### Break-the-code evidence
+Each vector disabled in a scratch copy, matrix re-run against the copy:
+
+```
+baseline         pass=189 fail=0
+aws-off          pass=166 fail=23
+systemctl-off    pass=169 fail=20
+pathrule-off     pass=153 fail=36
+readmatcher-off  pass=184 fail=5
+```
+
+### Criterion amended
+- The Phase 6 criterion says "the existing 39 assertions in `secret-echo-guard-test.sh` pass unchanged". The file carries 77: Phase 1 of this chunk added the wrapper sweep and the single-quoted-verb fixtures, so the count was stale before the phase began. Measured both ways (committed matrix against committed guard, and against the new guard): 77 pass, 0 fail in both. Amended in the doc with that output; the criterion's substance holds.
+
+### Open questions
+- None.

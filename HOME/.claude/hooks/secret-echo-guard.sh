@@ -1,5 +1,5 @@
 #!/bin/bash
-# PreToolUse / Bash guard - COMPANION to the env redaction shim.
+# PreToolUse guard (Bash and Read) - COMPANION to the env redaction shim.
 #
 # Two-layer defense against leaking secret env vars into an LLM session
 # transcript (which also lands in logs):
@@ -31,11 +31,241 @@
 # bare-word masker set, and the deviation is the shell's own semantics. For the
 # same reason it takes a second input, `heredoc_expanded`: the bodies bash
 # substitutes into before running anything, which the shared masker erases.
-. "$(dirname "$0")/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }
+#
+# ARTIFACT VECTORS (added with the SECRET rule). The env-var vectors above are
+# only half of where a value comes from. The other half is a file, or a command
+# that prints one, and all four below are measured leaks rather than guesses:
+#
+#   aws secretsmanager get-secret-value   an xoxb- bot token printed twice,
+#                                         06-23 and 06-25
+#   systemctl [--user] show-environment   an Anthropic key, 110 chars, 07-30,
+#                                         in a SUBAGENT, after this guard existed
+#   a shell history file                  an xoxp- user token, 78 chars, 09-07
+#   a credential file                     sk-ant-, 108 chars, 06-16, through the
+#                                         Read tool, which is why this hook is
+#                                         registered on Read as well
+#
+# `--query` IS NOT A SAFETY PREDICATE, which is the trap in the obvious version
+# of the aws rule: `--query SecretString` selects the decrypted value and is
+# exactly what the 06-23 leak printed. Only projections that cannot carry a
+# value are allowed, and a missing or unrecognized `--query` denies.
+#
+# THE PATH RULE IS A SPLIT, NOT A BLANKET DENY, because the measured traffic
+# against these paths is about 200 auth-debugging statements against 4 leaks. A
+# blanket deny is 200 denials for 4 catches and the tree learns to route around
+# it. But "the shapes that print the whole file" is not an algorithm either:
+# `jq 'has("access_token")'` must allow and `jq .access_token` must deny, and
+# NEITHER prints the whole file. So the split is stated as a rule, and the
+# default on an unrecognized shape is deny.
+#
+# THE jq ALLOWLIST MATCHES THE WHOLE FILTER STRING. A substring or containment
+# test does not work here, because `has` takes an arbitrary expression:
+#
+#   $ printf '%s\n' '{"example":"visible"}' | jq 'has(.example | debug)'
+#   ["DEBUG:","visible"]
+#   false
+#
+# The outer filter returns a boolean and the ARGUMENT prints the selected value
+# to stderr, straight past a rule whose entire purpose is that the value never
+# prints. So the grammar is exact: a literal double-quoted string argument, no
+# embedded pipeline, no expression, nothing before or after.
+#
+# Residual holes, named rather than patched blind: `Grep` and `Glob` over a
+# credential path are not covered (a Grep result can carry the matching line),
+# and no instance of either appears in the corpus.
+
+HOOKS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+. "$HOOKS/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }
+
+deny_now() { # deny_now <reason>
+  jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+  exit 0
+}
 
 input=$(cat)
-command=$(echo "$input" | jq -r '.tool_input.command // ""')
+
+# One jq spawn, not two. Every Bash call in every session pays this hook, and a
+# second jq to read `tool_name` would cost about 23 ms of that on its own. The
+# command rides base64 because it can carry newlines and tabs.
+mapfile -t payload < <(printf '%s' "$input" | jq -r '
+  (.tool_name // ""),
+  ((.tool_input.command // "") | @base64),
+  (.tool_input.file_path // "")' 2>/dev/null)
+tool="${payload[0]:-}"
+read_path="${payload[2]:-}"
+
+# The measured credential artifacts on this machine, as patterns rather than
+# literals because 37 of the 77 statements touching the Slack token spell it
+# `${XDG_CACHE_HOME:-$HOME/.cache}/slack/token.json` rather than with a `~`. The
+# `.env` entry is wider than the design's `/run/user/*/*.env` plus
+# `~/.config/*/*.env`: the 06-16 leak was a `.env` read through the Read tool,
+# and the design's own evidence row calls that glob incomplete.
+path_is_secret() { # path_is_secret <token>
+  case "$1" in
+    *token.json|*tokens.json) return 0 ;;
+    *.env) return 0 ;;
+    *.bash_history|*.zsh_history|*.histfile) return 0 ;;
+  esac
+  return 1
+}
+
+SECRET_PATH_HELP="These files hold credential VALUES: token.json / tokens.json, /run/user/*/*.env, ~/.config/*/*.env and the shell history files. To check one WITHOUT printing a value: stat or ls -l for mode and mtime, jq 'has(\"access_token\")' for presence, jq .expires_at for expiry, grep -c or grep -q for a match count."
+
+# ------------------------------------------------------------- the Read tool ---
+#
+# The Read matcher is the half of this rule Bash cannot cover: the 06-16 leak
+# never went through a shell. Phase 0 measured both unknowns live, a
+# `"matcher": "Read"` block DOES fire and its deny DOES beat `Read(**)` sitting
+# in `permissions.allow`, so this is a seam rather than an assumption.
+if [ "$tool" = "Read" ]; then
+  if [ -n "$read_path" ] && path_is_secret "$read_path"; then
+    deny_now "Blocked (read-secret-file): $read_path holds credential values, and reading it puts them in the transcript. That is the 06-16 leak exactly: sk-ant-, 108 characters, through this tool. $SECRET_PATH_HELP"
+  fi
+  echo '{}'
+  exit 0
+fi
+
+command=$(printf '%s' "${payload[1]:-}" | base64 -d 2>/dev/null)
 [ -z "$command" ] && { echo '{}'; exit 0; }
+
+# ---------------------------------------------------- the artifact vectors ---
+
+# verb_of <statement> <verb>...  -> prints the matching verb, or nothing
+#
+# `cmdword_is` answers "is the command word X" and lib.sh has no mode that
+# PRINTS the command word, so the verb is found by asking. Each ask is a
+# subprocess, so the candidate is pre-filtered on the text first, and this runs
+# only for a statement that already named a credential artifact.
+verb_of() {
+  local stmt="$1" v
+  shift
+  for v in "$@"; do
+    case "$stmt" in *"$v"*) ;; *) continue ;; esac
+    if printf '%s' "$stmt" | cmdword_is "$v" >/dev/null 2>&1; then
+      printf '%s' "$v"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Readers that cannot project: there is no safe form of pointing one of these at
+# a credential file, so they deny outright.
+PRINTERS="cat strings head tail less more xxd base64 sed awk perl od hexdump tee cut tr nl paste sort uniq"
+# Metadata readers: mode, size, mtime, existence, byte count. No value.
+METADATA="stat ls test wc file du realpath readlink basename dirname"
+# Mutators: they move or destroy the file without printing it.
+MUTATORS="rm mv cp chmod chown touch ln mkdir install shred rkvr"
+MATCHERS="grep rg egrep fgrep ag"
+PROJECTORS="jq yq"
+
+# jq/yq flags that consume one or two following tokens, so a flag's operand is
+# never mistaken for the filter.
+JQ_FLAGS2=" --arg --argjson --slurpfile --rawfile "
+JQ_FLAGS1=" --indent -f --from-file "
+
+# jq_filter_is_safe <filter>
+#
+# The WHOLE string is matched. The dotted keys are the non-secret ones the
+# measured auth-debugging traffic actually reads.
+jq_filter_is_safe() {
+  case "$1" in
+    keys|keys_unsorted|type|length|paths) return 0 ;;
+    .expires_at|.created_at|.scope|.token_type|.account) return 0 ;;
+  esac
+  printf '%s' "$1" | grep -qE '^has\("[A-Za-z0-9_.@-]+"\)$' && return 0
+  return 1
+}
+
+# artifact_verdict <verbscan> -> prints a deny code, or nothing
+artifact_verdict() {
+  local stmt="$1" verb filter q i n k tok hit seen_verb
+  local -a toks
+  mapfile -t toks < <(printf '%s' "$stmt" | args)
+  n=${#toks[@]}
+
+  if printf '%s' "$stmt" | cmdword_is aws >/dev/null 2>&1; then
+    case "$stmt" in
+      *get-secret-value*)
+        # The projection is parsed here rather than with `flag_value`, which
+        # returns its FIRST match while the aws CLI honours the LAST: measured,
+        # `--query ARN --query SecretString` reads as ARN and executes as
+        # SecretString. Same defect class as `gh api -X GET -X DELETE`.
+        # An absent or unrecognized projection denies, because the DEFAULT
+        # output carries SecretString: "no --query" is the leak, not the safe
+        # case.
+        q=""
+        for ((k = 0; k < n; k++)); do
+          case "${toks[$k]}" in
+            --query) q="${toks[$((k + 1))]}" ;;
+            --query=*) q="${toks[$k]#*=}" ;;
+          esac
+        done
+        case "$(printf '%s' "$q" | tr 'A-Z' 'a-z')" in
+          arn|name|versionid|createddate) ;;
+          *) printf '%s' "aws-secret-value"; return 0 ;;
+        esac
+        ;;
+    esac
+  fi
+
+  if printf '%s' "$stmt" | cmdword_is systemctl >/dev/null 2>&1; then
+    case "$stmt" in
+      *show-environment*) printf '%s' "systemctl-environment"; return 0 ;;
+    esac
+  fi
+
+  # Everything below needs a credential path as an operand.
+  hit=""
+  for tok in "${toks[@]}"; do
+    if path_is_secret "$tok"; then hit="$tok"; break; fi
+  done
+  [ -z "$hit" ] && return 1
+
+  verb_of "$stmt" $METADATA $MUTATORS >/dev/null && return 1
+
+  if verb=$(verb_of "$stmt" $PROJECTORS); then
+    i=0
+    filter=""
+    seen_verb=0
+    while [ "$i" -lt "$n" ]; do
+      tok="${toks[$i]}"
+      i=$((i + 1))
+      if [ "$seen_verb" -eq 0 ]; then
+        case "$tok" in "$verb"|"\\$verb"|*/"$verb") seen_verb=1 ;; esac
+        continue
+      fi
+      if [ "${tok:0:1}" = "-" ]; then
+        case "$JQ_FLAGS2" in *" $tok "*) i=$((i + 2)); continue ;; esac
+        case "$JQ_FLAGS1" in *" $tok "*) i=$((i + 1)); continue ;; esac
+        continue
+      fi
+      filter="$tok"
+      break
+    done
+    jq_filter_is_safe "$filter" && return 1
+    printf '%s' "projector-filter"
+    return 0
+  fi
+
+  if verb_of "$stmt" $MATCHERS >/dev/null; then
+    # A match prints the matching LINE, which is the credential. A count and an
+    # exit code carry nothing.
+    case " ${toks[*]} " in
+      *" -c "*|*" -q "*|*" --count "*|*" --quiet "*) return 1 ;;
+    esac
+    printf '%s' "matcher-line"
+    return 0
+  fi
+
+  verb_of "$stmt" $PRINTERS >/dev/null && { printf '%s' "print-secret-file"; return 0; }
+
+  # An unrecognized verb against a credential path. Fail closed: the reason this
+  # rule is a split rather than a blanket deny is that the SAFE shapes are
+  # enumerable, and a shape not on the list has not been measured.
+  printf '%s' "unknown-reader"
+  return 0
+}
 
 # One masked statement per line, so the matcher's [^\n;|&]* windows cannot
 # straddle two statements and the safe-form anchors below mean "statement start".
@@ -46,6 +276,30 @@ while IFS= read -r -d '' stmt; do
   masked=$(printf '%s' "$stmt" | mask_heredoc | mask_comment | mask_squote)
   scan="$scan$masked
 "
+  verbscan=""
+
+  # The artifact pre-filter: the same shape, and for the same reason, as the
+  # secret-name superset below. A `case` costs nothing, and a statement naming
+  # none of these artifacts cannot deny on any of the four vectors.
+  case "$masked" in
+    *get-secret-value*|*show-environment*|*.env*|*token.json*|*tokens.json*|*_history*)
+      verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
+      artifact=$(artifact_verdict "$verbscan")
+      case "$artifact" in
+        aws-secret-value)
+          deny_now "Blocked (aws-secret-value): get-secret-value prints the decrypted secret, and --query SecretString SELECTS that value rather than hiding it (it is what leaked an xoxb- bot token on 06-23 and 06-25). Project something that cannot carry a value: --query ARN, Name, VersionId or CreatedDate." ;;
+        systemctl-environment)
+          deny_now "Blocked (systemctl-environment): show-environment prints every variable in the manager environment WITH its value, which leaked a 110-character Anthropic key on 07-30. For one variable's presence use \${VAR:+present}; to inspect the set use the redaction-shimmed \`env\`." ;;
+        print-secret-file|unknown-reader)
+          deny_now "Blocked (read-secret-file): this reads a file holding credential values into the transcript. $SECRET_PATH_HELP" ;;
+        projector-filter)
+          deny_now "Blocked (projector-filter): against these files only a filter that cannot emit a value is allowed, and this one is not on the list. The whole filter must be one of: has(\"key\"), keys, keys_unsorted, type, length, paths, .expires_at, .created_at, .scope, .token_type, .account. has() takes an EXPRESSION, so has(.access_token | debug) prints the value to stderr; the argument has to be a literal string." ;;
+        matcher-line)
+          deny_now "Blocked (matcher-line): a grep or rg match prints the matching LINE, which is the credential itself. Use -c for a count or -q for an exit code. $SECRET_PATH_HELP" ;;
+      esac
+      ;;
+  esac
+
   # Resolving the command word costs a subprocess per verb, so it runs only for
   # a statement that could possibly deny. This pattern is a deliberate SUPERSET
   # of the Python NAME regex below: every name that matcher fires on contains
@@ -65,7 +319,7 @@ while IFS= read -r -d '' stmt; do
   # `\becho\b` regex saw nothing in `'echo' $GH_TOKEN` and allowed it while
   # `"echo" $GH_TOKEN` denied. That was chunk B's open hole, and it is why the
   # verb test is cmdword_is here instead of a regex in the Python matcher.
-  verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
+  [ -z "$verbscan" ] && verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
   if printf '%s' "$verbscan" | cmdword_is echo >/dev/null 2>&1 \
   || printf '%s' "$verbscan" | cmdword_is printf >/dev/null 2>&1; then
     prints="$prints$masked
