@@ -483,6 +483,18 @@ The draft carried a blanket-staging deny (`git add -A` / `.` / `--all`) as item 
 
   **Amended in the rework, and the amendment is the whole rule.** As first written this was one condition, the name, over the current turn only. Replayed against 211 historical posts with their real reconstructed prompts it denied 79, and the denials were the asks: `message russ to point at valet.test.tatari.dev and enroll`, `send a message to ryan`, `ok lets send the message to Nick`, `i didnt ask for a draft. I asked you to send it`, and `slack write --help`. Two causes, both measured. **The cache cannot resolve a DM to a name at all**: its `users` map holds 120 DM ids and the ones in the real traffic are absent from it (`D01TL0BDQ4T`, `D0AH0DP9RJ5`, `D0B8FU6DLKU`, `D01VB7QMKJ7`), so the rule collapsed into "the prompt must carry the raw id", which is the shape this section already prices at 72% of legitimate posts blocked. And **a posting task runs across turns**: the turn that names the target is followed by `do it`, `yes`, `WAY TOO WORDY`, `did you fucking fix your mess?`, never by a restatement of the target.
 
+  **The window is 3 and it is measured, not chosen.** Two ways. Where the authorizing turn actually sits, over 181 historical posts: distance 1 is 53.6%, distance 2 takes it to 71.3%, distance 3 to 72.9%, then a thin scattered tail out to 11 and 22 posts with no posting ask anywhere in the session prefix. A sharp cliff after 2, so 3 has margin without reaching. And the window's effect on the denies, replayed:
+
+```
+window  3    7 real denies
+window  5    7 real denies, the identical set
+window  8    3, and the 4 it gives up include "force push the branches"
+             and the /cli-shakedown turns, which ARE the incident classes
+window 12    0. The rule is inert.
+```
+
+  So 3 and 5 are the same answer and anything past 5 disarms the rule. This is the reason the constant carries that table as a comment: a later reader who widens it to be helpful turns the guard off.
+
   With both conditions and the 3-turn window: **9 denies of 216**, every one a post no recent turn asked for (`force push the branches`, a `/cli-shakedown` burst, `loos like 4 .json files?`), and the 2026-07-10 shakedown posts still among them. What it gives up is "the right ask to the wrong channel", which is not an incident class here: all three incidents are an unasked post, a duplicate, or a test post.
 - **TEST-TEXT**: deny when the first line IS a test marker (short enough to be one, or opening with the word) and the target is not one of the two exempt ids. Narrowed in the rework from "matches test/testing/verify/verifying" anywhere in the first line, which denied two real posts whose first line was a 180-character sentence mentioning a test environment ("live on test and prod, bypasses the broker", "only the test one is"). This is the 2026-07-10 class: five live posts and an MCP write test into a coworker DM during a shakedown whose prompt was "merged #10, tag v0.2.0 and run the shakedown". The rule is purely textual on purpose: the audit's phrasing of it ("no live posts during a `/cli-shakedown`") is not implementable, see Non-Goals.
 - **RESEND**: deny a repost of the same body to the same target. This is the 2026-06-09 class: "having you spam multiple versions of shit into our DMs is NOT what I asked you to do", one post asked, two sent.

@@ -115,9 +115,24 @@ ENTRY_TTL=3600
 CACHE_TTL=86400
 CACHE_SCHEMA=2
 TAIL_CAP=4000000
-# How many typed turns back a posting task stays live. 3 is what the doc's
-# commit-guard evidence used, and measured over 211 posts it is what separates
-# "force push the branches" from "message russ ... " three turns earlier.
+# How many typed turns back a posting task stays live. DO NOT WIDEN THIS. The
+# number is measured twice over, and past 5 the rule starts eating the
+# incidents it exists to catch.
+#
+# Where the authorizing turn actually sits, over 181 historical posts:
+#
+#   distance 1:  53.6%      distance 3:  72.9% cumulative
+#   distance 2:  71.3%      then a thin scattered tail to 11, and 22 posts
+#                           with no posting ask anywhere in the session
+#
+# A sharp cliff after 2, so 3 has margin without reaching. And the window's
+# effect on the real denies, replayed against the corpus:
+#
+#   window  3    7 real denies
+#   window  5    7 real denies, identical set
+#   window  8    3, and the 4 it gives up include "force push the branches"
+#                and the /cli-shakedown turns, which ARE the incident classes
+#   window 12    0. The rule is inert.
 PROMPT_WINDOW=3
 REFRESH_CMD="slack cache refresh"
 
