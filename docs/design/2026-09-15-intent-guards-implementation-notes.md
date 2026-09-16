@@ -105,3 +105,24 @@ Commit: this phase. The INGEST rule added to `intent-guard.sh`, 27 fixtures adde
 
 ### Open questions
 - None.
+
+## Phase 7: PUBLIC-REPO
+
+Commit: this phase. The PUBLIC-REPO rule added to `intent-guard.sh`, 10 fixtures added to the matrix against a real scratch repo.
+
+### Design decisions
+- The matrix builds a **real git repo** rather than asserting on strings, because none of this rule is textual: the commit half reads the index, the push half runs `ls-remote`, `rev-list` and `cat-file`. The scratch repo has to live under `~/repos/scottidler/` because that path IS the scope test, and it is archived with `rkvr rmrf` on exit rather than plain `rm` (`rules/safety.md`): it is not build output, even though the test made it seconds earlier.
+- `git add` operands are collected across the **whole command**, not per statement, which is what makes the founding incident catchable at all. Verified in the matrix with an empty index: `git diff --cached --name-only` returns nothing at hook time and the rule still denies.
+- The merge walk was verified against a repo whose merge **resolution alone** added `.env`, reproducing the doc's measurement: the plain walk reports `docs/b.md docs/x.md docs/y.md` and `--diff-merges=first-parent` reports those plus `.env`.
+- All three push destination outcomes are exercised, including the third one round 2's text fell through. Building it needed a second clone to advance the remote so the local repo had never seen the object the destination ref points at: `ls-remote` resolves, `git cat-file -e` returns non-zero, `rev-list` cannot run, deny.
+
+### Deviations
+- **A non-empty source ref is not a resolvable one.** The doc says the rule "fails closed when it cannot resolve" the source ref. Implemented as an emptiness test, `git push origin nosuchref:main` sailed through: the string is perfectly good-looking, the range built from it makes `git log` fail silently into an empty path set, and an empty path set ALLOWS. The check is `git rev-parse --verify --quiet` now. This is a strengthening of the doc's clause rather than a departure from it, recorded because the failure mode (silent empty result reads as clean) is the one worth remembering.
+
+### Tradeoffs
+- Visibility is cached a week and unknown reads as public, so the guard is on rather than off when it cannot answer. The stale-`private` case is handled on the deny-candidate path only: a commit with no sensitive path never pays a `gh` call, which is every commit in this repo today.
+- A cached `private` whose revalidation cannot run **denies**, per the doc. Measured in a scratch repo with no GitHub remote: `gh repo view` cannot answer, so a sensitive path denies even though the cache says private. That is the specified fail-closed behavior and it is asserted as such, but it means a `gh` outage turns every sensitive-path commit in a private repo into a deny.
+- Blob size is measured over the range with `rev-list --objects` into `cat-file --batch-check`, only when the repo is public. On a large range that is the most expensive thing this hook does, and it runs on `git push` only.
+
+### Open questions
+- None.

@@ -191,6 +191,77 @@ run allow "$(printf 'cat > docs/design/notes.md <<%sEOF%s\nwhile IFS= read -r ur
 # A fenced marker in a body cannot open the door, per chunk C's rule.
 run allow "$(printf 'cat > notes.md <<%sEOF%s\n\`\`\`\nBULK_INGEST_ORDERED_BY_SCOTT=5\n\`\`\`\n%s --file urls.txt\nEOF' "'" "'" "$V")"
 
+echo "=== PUBLIC-REPO: against real repos, because none of it is textual ==="
+# The scratch repo has to live under ~/repos/scottidler/ because that IS the
+# rule's scope test. It is created here and archived with `rkvr rmrf` at the end
+# (rules/safety.md): it is not build output, so it does not get a plain rm even
+# though this test made it thirty seconds ago.
+PR_ROOT="$HOME/repos/scottidler/.intent-guard-test-$$"
+PR_BARE="${TMPDIR:-/tmp}/intent-guard-test-$$.git"
+PR_VIS="$HOME/.cache/intent-guard/visibility"
+
+pr_cleanup() {
+  [ -d "$PR_ROOT" ] && rkvr rmrf "$PR_ROOT" >/dev/null 2>&1
+  [ -d "$PR_BARE" ] && rkvr rmrf "$PR_BARE" >/dev/null 2>&1
+  [ -n "$PR_KEY" ] && rm -f "$PR_VIS/$PR_KEY" 2>/dev/null
+  return 0
+}
+trap pr_cleanup EXIT
+
+runrepo() { # runrepo <expect> <label> <command>
+  local expect="$1" label="$2" cmd="$3" out decision
+  out=$(jq -n --arg c "$cmd" --arg d "$PR_ROOT" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' | bash "$HOOK")
+  decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"')
+  if [ "$decision" = "$expect" ]; then
+    pass=$((pass + 1)); printf 'PASS  [%s] %s\n' "$expect" "$label"
+  else
+    fail=$((fail + 1)); printf 'FAIL  [want %s got %s] %s\n' "$expect" "$decision" "$label"
+  fi
+}
+
+mkdir -p "$PR_ROOT" && git init -q -b main "$PR_ROOT" && git init -q --bare "$PR_BARE"
+git -C "$PR_ROOT" config user.email t@t
+git -C "$PR_ROOT" config user.name t
+mkdir -p "$PR_ROOT/docs" "$PR_ROOT/voice" "$PR_ROOT/secrets"
+echo base > "$PR_ROOT/README.md"; echo v > "$PR_ROOT/voice/VOICE.md"
+echo s > "$PR_ROOT/secrets/new.txt"; echo d > "$PR_ROOT/docs/a.md"
+git -C "$PR_ROOT" add README.md docs/a.md >/dev/null 2>&1
+git -C "$PR_ROOT" commit -qm init >/dev/null 2>&1
+git -C "$PR_ROOT" remote add origin "$PR_BARE"
+git -C "$PR_ROOT" push -q origin main >/dev/null 2>&1
+PR_KEY=$(printf '%s' "$PR_ROOT" | sha256sum | awk '{print $1}')
+mkdir -p "$PR_VIS"
+printf 'visibility=public\nepoch=%s\n' "$(date +%s)" > "$PR_VIS/$PR_KEY"
+
+# The index is EMPTY at hook time. PreToolUse fires before the whole Bash call,
+# so `git diff --cached` cannot see the command's own `git add`, and the draft's
+# version would have allowed the leak the rule is named after.
+runrepo deny  'the founding incident: add voice/ && commit, empty index' \
+  'git add voice/VOICE.md && git commit -m "add voice corpus"'
+runrepo deny  'git add x && git commit -am (round 3 fixed this row)' \
+  'git add secrets/new.txt && git commit -am update'
+runrepo deny  'git add x && git commit --include (round 4 found this one)' \
+  'git add secrets/new.txt && git commit --include README.md -m update'
+runrepo allow 'a docs-only add and commit' \
+  'git add docs/a.md && git commit -m docs'
+runrepo allow 'commit --only README.md does not union the index' \
+  'git commit --only README.md -m x'
+runrepo deny  'git add . is expanded by asking git, not by globbing' \
+  'git add . && git commit -m all'
+
+git -C "$PR_ROOT" checkout -q -b feat
+git -C "$PR_ROOT" add secrets/new.txt >/dev/null 2>&1
+git -C "$PR_ROOT" commit -qm "add secret" >/dev/null 2>&1
+runrepo deny  'push feat:newbranch, destination absent so the whole history is the range' \
+  'git push origin feat:newbranch'
+runrepo deny  "push feat:main, this chunk's own landing refspec shape" \
+  'git push origin feat:main'
+runrepo deny  'a push source ref that does not resolve fails closed' \
+  'git push origin nosuchref:main'
+git -C "$PR_ROOT" checkout -q main
+runrepo allow 'push main, only docs in range' 'git push origin main'
+
 echo "=== the false-positive class lib.sh exists to kill ==="
 # Observed live 2026-09-15T19:41: a naive acli.*delete pattern matched the
 # regex TEXT inside a quoted heredoc in scan5.py.

@@ -277,6 +277,79 @@ cur_cwd="$payload_cwd"
 
 ingest_ops=0
 door_open=0
+git_add_args=""
+
+SENSITIVE_RE='(^|/)(personal|excluded|voice|secret|secrets)/|\.env$|\.age$'
+BLOB_MAX=1048576
+PUBLIC_DENY='this would publish a sensitive path (or a blob over 1 MB) to a PUBLIC remote. 119 of 136 personal repos are public, including this one. Move it to scottidler/keep, or confirm with Scott.'
+
+# repo_root <cwd> -- empty when the cwd is not a git work tree
+repo_root() {
+  [ -n "$1" ] || return 1
+  git -C "$1" rev-parse --show-toplevel 2>/dev/null
+}
+
+# in_scope <repo root> -- ~/repos/scottidler/* only. No repo outside it has an
+# origin remote Scott owns, third-party clones are not pushable, and tatari-tv
+# is a different threat model.
+in_scope() {
+  case "$1" in "$HOME"/repos/scottidler/*) return 0 ;; esac
+  return 1
+}
+
+# repo_visibility <repo root> -- public|private, cached a week under ~/.cache.
+# UNKNOWN, MISSING OR UNREADABLE READS AS PUBLIC, so the guard is on rather than
+# off when it has no answer. A `gh` call on every commit is not acceptable
+# against the existing hook latency.
+repo_visibility() {
+  local root="$1" dir="$HOME/.cache/intent-guard/visibility" key entry vis epoch now
+  key=$(printf '%s' "$root" | sha256sum | awk '{print $1}')
+  entry="$dir/$key"
+  now=$(date +%s)
+  if [ -r "$entry" ]; then
+    vis=$(sed -n 's/^visibility=//p' "$entry" | head -1)
+    epoch=$(sed -n 's/^epoch=//p' "$entry" | head -1)
+    case "$epoch" in ''|*[!0-9]*) epoch=0 ;; esac
+    if [ $((now - epoch)) -lt 604800 ] && [ -n "$vis" ]; then
+      printf '%s' "$vis"; return 0
+    fi
+  fi
+  vis=$(cd "$root" && gh repo view --json visibility -q .visibility 2>/dev/null | tr '[:upper:]' '[:lower:]')
+  case "$vis" in
+    public|private|internal) ;;
+    *) printf 'public'; return 0 ;;
+  esac
+  if mkdir -p "$dir" 2>/dev/null; then
+    printf 'visibility=%s\nepoch=%s\n' "$vis" "$now" > "$entry" 2>/dev/null
+  fi
+  printf '%s' "$vis"
+}
+
+# revalidate_private <repo root> -- a cached `private` that has since gone
+# public is the case unknown-reads-as-public does nothing for: a stale entry
+# stays private for the rest of its week. So a cached private is rechecked with
+# gh BEFORE a sensitive path is allowed, and only then. This is the
+# deny-candidate path, never the hot path. If the recheck cannot run, deny.
+revalidate_private() {
+  local root="$1" vis
+  vis=$(cd "$root" && gh repo view --json visibility -q .visibility 2>/dev/null | tr '[:upper:]' '[:lower:]')
+  case "$vis" in
+    private|internal) return 1 ;;
+    public)           return 0 ;;
+    *)                return 0 ;;
+  esac
+}
+
+# expand_operand <repo root> <operand> -- ask GIT what a directory operand
+# covers, never the filesystem. A glob walks ignored files and would deny on a
+# gitignored .env that git is never going to stage.
+expand_operand() {
+  git -C "$1" ls-files -co --exclude-standard -- "$2" 2>/dev/null
+}
+
+paths_are_sensitive() { # stdin: one path per line
+  grep -qE "$SENSITIVE_RE"
+}
 
 # INGEST reads heredoc BODIES, which no other rule here does, because the
 # 164-URL incident never looped `sb borg ingest`: at 00:32:22 it wrote a script
@@ -391,6 +464,22 @@ while IFS= read -r -d '' stmt; do
         fi
       fi
     fi
+  fi
+
+  if printf '%s' "$verbscan" | cmdword_is git >/dev/null 2>&1; then
+    gtoks=" $(printf '%s' "$verbscan" | args | tr '\n' ' ') "
+    case "$gtoks" in
+      *" add "*)
+        # Collected across the WHOLE command. PreToolUse fires before the Bash
+        # call, so `git diff --cached` sees the index BEFORE this command's own
+        # `git add` runs. The founding incident is exactly that shape and the
+        # index holds none of its paths at hook time.
+        git_add_args="$git_add_args $(printf '%s' "$verbscan" | args | sed -n '/^add$/,$p' | tail -n +2 | grep -v '^-' | tr '\n' ' ')" ;;
+    esac
+    case "$gtoks" in
+      *" commit "*) git_commit_stmt="$verbscan" ;;
+      *" push "*)   git_push_stmt="$verbscan" ;;
+    esac
   fi
 
   if printf '%s' "$verbscan" | cmdword_is ln >/dev/null 2>&1; then
@@ -536,6 +625,117 @@ if [ "$ingest_ops" -gt 0 ] && [ "$door_open" -eq 0 ]; then
         http://*|https://*) : ;;
         *) deny "$INGEST_DENY (the URL operand is not a literal http(s) token, so the target is not in the command)" ;;
       esac
+    fi
+  fi
+fi
+
+# PUBLIC-REPO. Runs once per command, after the statement walk, because the
+# commit half needs every `git add` in the whole command and not only the one in
+# its own statement.
+if [ -n "${git_commit_stmt:-}${git_push_stmt:-}" ]; then
+  gr=$(repo_root "${cur_cwd:-$payload_cwd}") || gr=""
+  if [ -n "$gr" ] && in_scope "$gr"; then
+    vis=$(repo_visibility "$gr")
+    candidate=""
+
+    if [ -n "${git_commit_stmt:-}" ]; then
+      # `-m msg` and friends take operands that are not paths.
+      cpaths=$(printf '%s' "$git_commit_stmt" | args | sed -n '/^commit$/,$p' | tail -n +2 | awk '
+        /^-m$|^--message$|^--author$|^--date$|^-c$|^-C$|^--fixup$|^--squash$/ { skip = 1; next }
+        skip { skip = 0; next }
+        /^-/ { next }
+        { print }')
+      copts=$(printf '%s' "$git_commit_stmt" | args | sed -n '/^commit$/,$p' | tail -n +2 | grep '^-')
+      only=0; include=0; all=0
+      for o in $copts; do
+        case "$o" in
+          --only|-o)    only=1 ;;
+          --include|-i) include=1 ;;
+          --all)        all=1 ;;
+          --*)          : ;;
+          -*a*)         all=1 ;;
+          -*i*)         include=1 ;;
+        esac
+      done
+      # Per commit form, never one blanket union: unioning the whole index into
+      # `--only <paths>` produces false denies.
+      if [ "$only" -eq 1 ] && [ -n "$cpaths" ]; then
+        candidate="$cpaths"
+      elif [ -n "$cpaths" ] && [ "$include" -eq 0 ] && [ "$all" -eq 0 ] && [ -z "${git_add_args// /}" ]; then
+        candidate="$cpaths"
+      else
+        for a in $git_add_args; do
+          candidate="$candidate
+$(expand_operand "$gr" "$a")"
+        done
+        [ -n "$cpaths" ] && candidate="$candidate
+$cpaths"
+        candidate="$candidate
+$(git -C "$gr" diff --cached --name-only 2>/dev/null)"
+        # -a reaches TRACKED files only, which bounds its severity.
+        [ "$all" -eq 1 ] && candidate="$candidate
+$(git -C "$gr" diff --name-only 2>/dev/null)"
+      fi
+    fi
+
+    if [ -n "${git_push_stmt:-}" ]; then
+      ptoks=$(printf '%s' "$git_push_stmt" | args | sed -n '/^push$/,$p' | tail -n +2 | grep -v '^-')
+      remote=$(printf '%s' "$ptoks" | sed -n '1p')
+      refspec=$(printf '%s' "$ptoks" | sed -n '2p')
+      [ -n "$remote" ] || remote="origin"
+      if [ -z "$refspec" ]; then
+        src=$(git -C "$gr" symbolic-ref --short HEAD 2>/dev/null)
+        dst="$src"
+      else
+        src="${refspec%%:*}"
+        dst="${refspec#*:}"
+        [ "$dst" = "$refspec" ] && dst="$src"
+      fi
+      src="${src#+}"
+      # `@{u}..HEAD` describes HEAD, not the ref being pushed, and it errors on
+      # a fresh branch, which is this repo's normal landing flow. The
+      # destination is read from the REMOTE: a push is already a network
+      # operation, so one ls-remote is not the hot path.
+      # Non-empty is not resolvable. `git push origin nosuchref:main` has a
+      # perfectly good-looking source string, and the range built from it makes
+      # `git log` fail silently into an empty path set, which ALLOWS. The ref
+      # has to actually resolve.
+      if [ -z "$src" ] || ! git -C "$gr" rev-parse --verify --quiet "$src" >/dev/null 2>&1; then
+        deny "$PUBLIC_DENY (the push source ref does not resolve, so the range cannot be computed)"
+      fi
+      remote_sha=$(git -C "$gr" ls-remote "$remote" "$dst" 2>/dev/null | awk 'NR==1{print $1}')
+      if [ -z "$remote_sha" ]; then
+        range="$src"
+      elif git -C "$gr" cat-file -e "$remote_sha" 2>/dev/null; then
+        range="$remote_sha..$src"
+      else
+        # Resolves on the remote, object absent locally, so rev-list cannot run.
+        # Round 2's text fell straight through this row.
+        deny "$PUBLIC_DENY (the push destination resolves remotely but its object is absent locally, so the range cannot be computed)"
+      fi
+      # --diff-merges=first-parent, because `git log --name-only` shows NO diff
+      # for a merge commit, so bytes published through a merge RESOLUTION are
+      # invisible to a plain walk. Measured on a synthetic repo whose merge
+      # resolution alone added .env.
+      candidate="$candidate
+$(git -C "$gr" log --format= --name-only --diff-merges=first-parent "$range" 2>/dev/null)"
+      # A filename cannot tell a currently-small file from a 4 MB blob earlier
+      # in the pushed history, so size is measured over the RANGE.
+      if [ "$vis" = "public" ]; then
+        big=$(git -C "$gr" rev-list --objects "$range" 2>/dev/null \
+          | git -C "$gr" cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' 2>/dev/null \
+          | awk -v m="$BLOB_MAX" '$1=="blob" && $2+0 > m+0 {print $3; exit}')
+        [ -n "$big" ] && deny "$PUBLIC_DENY (a blob over 1 MB: $big)"
+      fi
+    fi
+
+    if printf '%s' "$candidate" | grep -v '^$' | paths_are_sensitive; then
+      hit=$(printf '%s' "$candidate" | grep -E "$SENSITIVE_RE" | head -1)
+      if [ "$vis" = "public" ]; then
+        deny "$PUBLIC_DENY (path: $hit)"
+      elif revalidate_private "$gr"; then
+        deny "$PUBLIC_DENY (path: $hit; the cached 'private' did not survive revalidation)"
+      fi
     fi
   fi
 fi
