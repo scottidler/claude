@@ -6,16 +6,42 @@
 #
 # THREE RULES, and the first deny wins:
 #
-#   TARGET     every recipient outside the two exempt ids must be named in the
-#              turn's typed prompt. Scott names targets by person or `#name`
-#              for 86 of 120 posts in the measured window, so the match is on
-#              names resolved through ~/.cache/slack/ids.json, not on a literal
-#              channel id.
-#   TEST-TEXT  a first line reading test/testing/verify/verifying is denied to
-#              any non-exempt recipient. The 2026-07-10 class: five live posts
-#              and an MCP write test into a coworker DM during a shakedown.
+#   TARGET     a post to a non-exempt recipient needs EITHER that recipient
+#              named in the last 3 typed turns, OR a recent typed turn that
+#              asks for a Slack post at all. Failing both denies.
+#   TEST-TEXT  a first line that IS a test marker (short, or opening with
+#              test/verify) is denied to any non-exempt recipient. The
+#              2026-07-10 class: five live posts and an MCP write test into a
+#              coworker DM during a shakedown.
 #   RESEND     the same body to the same target twice is denied. The 2026-06-09
 #              class: one post asked, two sent.
+#
+# TARGET HAS TWO SUFFICIENT CONDITIONS BECAUSE ONE WAS NOT ENOUGH, AND THE
+# EVIDENCE IS THE CORPUS. The first cut required the recipient to be named in
+# the current turn. Replayed against 211 historical posts with their real typed
+# prompts it denied 79 of them, 37%, including:
+#
+#   "message russ to point at valet.test.tatari.dev and enroll"   -> DENIED
+#   "send a message to ryan. codeblock with the json change"      -> DENIED
+#   "ok lets send the message to Nick"                            -> DENIED
+#   "i didnt ask for a draft. I asked you to send it"             -> DENIED
+#   `slack write --help`                                          -> DENIED
+#
+# Two root causes. The id cache CANNOT resolve a DM to a name: its `users` map
+# holds 120 DM ids and the ones in real traffic are absent (D01TL0BDQ4T,
+# D0AH0DP9RJ5, D0B8FU6DLKU), so the rule collapsed into "the prompt must carry
+# the raw id", which this design measured as blocking 72% of legitimate posts.
+# And a posting task runs across turns: the turn that names the target is
+# followed by "do it", "yes", "WAY TOO WORDY", not by a restatement.
+#
+# With the window and the second condition: 9 real denies of 214, and every one
+# of them is a post no recent turn asked for ("force push the branches", a
+# shakedown burst, "loos like 4 .json files?"). The 2026-07-10 shakedown posts
+# still deny, which is the recall this rule exists for.
+#
+# What that gives up: "the right ask to the wrong channel" now passes when the
+# channel is not the one named. No incident in the corpus is that shape; every
+# one is an unasked post, a duplicate, or a test post.
 #
 # THE EXEMPT PAIR is `#clipboard` (C0ANJQAJC7N) and Scott's own DM
 # (D01G4Q7AWLV), hardcoded as literals rather than resolved. `#clipboard` is a
@@ -41,10 +67,12 @@
 # not available: a 200K tail reaches the turn's prompt record on 51.7% of tool
 # calls, 4 MB on 99.9%.
 #
-# FAIL CLOSED, because this is an authorization gate and not a linter. An
-# unreadable `lib.sh`, an unreadable transcript, a cache that cannot resolve a
-# recipient, a command this script cannot parse: every one of them denies, and
-# the exempt pair still passes because it needs none of them.
+# FAIL CLOSED ON WHAT IT CANNOT READ, NOT ON WHAT IT CANNOT RESOLVE. An
+# unreadable `lib.sh`, an unreadable transcript, a command this script cannot
+# parse: those deny, and the exempt pair still passes because it needs none of
+# them. A recipient the CACHE cannot resolve does not deny, and that
+# distinction is the fix: denying on "I do not know whose DM this is" is how
+# the first cut blocked "message russ".
 #
 # RESEND'S STATE IS A DIRECTORY OF ENTRY FILES AND THE MUTUAL EXCLUSION IS THE
 # FILESYSTEM'S. A PreToolUse process exits before the tool runs, so a lock it
@@ -62,9 +90,8 @@
 # EXPIRY IS RECLAIMED UNDER ITS OWN O_EXCL LOCK, NOT BY A RENAME. See
 # reclaim_entry below: the doc prescribed renaming a fresh temp entry OVER the
 # expired path, which is atomic but is not a compare-and-swap, so two racers
-# that both observe the same expired entry both rename and both proceed. The rename runs in the other direction
-# instead: the expired path is renamed AWAY to a unique name, which exactly one
-# racer can do because the loser's source no longer exists.
+# that both observe the same expired entry both rename and both proceed.
+# Reclamation takes a separate O_EXCL lock and never moves the entry.
 #
 # Emits a PreToolUse "deny" decision (with a reason Claude sees), or '{}'.
 
@@ -88,6 +115,10 @@ ENTRY_TTL=3600
 CACHE_TTL=86400
 CACHE_SCHEMA=2
 TAIL_CAP=4000000
+# How many typed turns back a posting task stays live. 3 is what the doc's
+# commit-guard evidence used, and measured over 211 posts it is what separates
+# "force push the branches" from "message russ ... " three turns earlier.
+PROMPT_WINDOW=3
 REFRESH_CMD="slack cache refresh"
 
 allow() { echo '{}'; exit 0; }
@@ -168,7 +199,29 @@ body_hash() { printf '%s' "$1" | sha256sum | cut -c1-32; }
 # /cli-shakedown") is not implementable from a hook: nothing in the payload
 # says a shakedown is running.
 first_line_is_test() {
-  printf '%s' "$1" | head -1 | grep -qiE '(^|[^[:alnum:]])(test|testing|verify|verifying)([^[:alnum:]]|$)'
+  local first
+  first=$(printf '%s' "$1" | head -1)
+  # A test MARKER, not prose that happens to mention a test. Matching the word
+  # anywhere in the first line denied two real posts in the historical replay:
+  # "marquee DID already ship its own MCP-auth path: live on test and prod, ..."
+  # and "the host the cli defaults to (`valet.internal.tatari.dev`) just isnt
+  # deployed yet, only the test one is." Both are ordinary English about test
+  # environments in a 180-character sentence.
+  #
+  # The incident is `**MCP write test**`: a short line that IS the marker. So
+  # the word counts when the whole first line is short enough to be a marker,
+  # or when it opens the line.
+  case "$first" in
+    *[Tt][Ee][Ss][Tt]*|*[Vv][Ee][Rr][Ii][Ff][Yy]*) ;;
+    *) return 1 ;;
+  esac
+  if [ "${#first}" -le 60 ] \
+     && printf '%s' "$first" | grep -qiE '(^|[^[:alnum:]])(test|testing|verify|verifying)([^[:alnum:]]|$)'; then
+    return 0
+  fi
+  printf '%s' "$first" \
+    | grep -qiE '^[^[:alnum:]]*(test|testing|verify|verifying)([^[:alnum:]]|$)' && return 0
+  return 1
 }
 
 # read_body_file <path> -> the text that will be sent
@@ -256,27 +309,36 @@ resolve_names() {
   ' "$IDS" 2>/dev/null
 }
 
+# Scott's own DM and #clipboard, in every spelling the corpus uses. The ids are
+# literals so the pair needs no cache and no prompt; the handles are here
+# because `slack write '@scott.idler' --at ... ` is how he actually addresses
+# his own DM, and the guard denied it.
 is_exempt_spelling() {
   case "$1" in
-    "$EXEMPT_CLIPBOARD"|"$EXEMPT_DM"|clipboard|\#clipboard) return 0 ;;
+    "$EXEMPT_CLIPBOARD"|"$EXEMPT_DM") return 0 ;;
+    clipboard|\#clipboard) return 0 ;;
+    scott.idler|@scott.idler|scott|@scott|escote|@escote) return 0 ;;
   esac
   return 1
 }
 
 # ------------------------------------------------------------ the prompt ---
 
-# typed_prompt -> the turn's typed human text, or empty
+# typed_prompt -> the last PROMPT_WINDOW typed human turns, newest last
+#
+# A WINDOW, not the current turn, and that is the whole difference between a
+# guard that catches the unasked post and one that blocks the asked one.
+# Measured over 211 historical posts: reading only the current turn denied 37%
+# of them, because a posting task runs across turns. "message russ to point at
+# valet.test.tatari.dev and enroll" establishes it, and the turns that follow
+# are "do it", "yes", "WAY TOO WORDY", "did you fucking fix your mess?", not a
+# restatement of the target. Nineteen of the denies were exactly that shape.
 #
 # Criterion 8 measured two defects in the extractor this tree already ships
 # (prose.sh:131-153) over 1,237 turns: it reads a teammate relay as Scott's own
 # instruction on 22.0% of turns, and it discards every slash-command turn. Both
 # are fixed here rather than inherited. The corrected extractor scored 0 relay
 # and 0 wrapper false authorizations with a 0.57% miss rate.
-#
-# prompt_id is the exact staleness key: Phase 0's live dump showed it identical
-# across every tool call in a turn. When it matches, every record carrying it is
-# this turn's typed text; when it does not, the fallback is the last qualifying
-# record, which is what criterion 8 actually measured.
 typed_prompt() {
   local tp="$1" pid="$2"
   [ -r "$tp" ] || return 1
@@ -285,7 +347,7 @@ typed_prompt() {
   # transcript SMALLER than the cap, which is most of them. `fromjson? // empty`
   # already discards the partial line and keeps every intact one.
   tail -c "$TAIL_CAP" "$tp" | jq -R 'fromjson? // empty' 2>/dev/null \
-    | jq -s -r --arg pid "$pid" '
+    | jq -s -r --arg pid "$pid" --arg w "$PROMPT_WINDOW" '
       def relay: startswith("Another Claude session sent a message:");
       def cmdwrap: test("^<command-(message|name|args)");
       def wrap: startswith("<");
@@ -298,10 +360,26 @@ typed_prompt() {
         | select((.c | cmdwrap) or ((.c | wrap) | not))
       ] as $u
       | [ $u[] | select($pid != "" and .p == $pid) ] as $exact
-      | if ($exact | length) > 0 then ([$exact[].c] | join("\n"))
-        elif ($u | length) > 0 then ($u[-1].c)
-        else "" end
+      | ( [ $u[-($w | tonumber):][]?.c ] ) as $window
+      | ( if ($exact | length) > 0 then [$exact[].c] else [] end ) as $now
+      | ( $window + $now | unique_by(.) ) as $all
+      | if ($all | length) > 0 then ($all | join("\n")) else "" end
     ' 2>/dev/null
+}
+
+# posting_intent <text> -> 0 when a recent typed turn asks for a Slack post
+#
+# The second sufficient condition for TARGET, and the one that makes the rule
+# match its intent. The incidents are an unasked post, a duplicate post and a
+# test post: none of them is "the right ask to the wrong channel". So a post
+# that a live posting task covers is allowed even when the target is not named
+# in so many words, and what the guard still denies is a post no recent turn
+# asked for at all ("force push the branches", "yes, clear the stale requests
+# and rebase onto main", "loos like 4 .json files?").
+#
+# The word set is taken from the 211 historical posts, not invented.
+posting_intent() {
+  printf '%s' "$1" | grep -qiE '(^|[^[:alnum:]])(post|posts|posted|posting|send|sends|sent|sending|share|shares|shared|sharing|announce|announced|announcement|message|messages|messaged|msg|dm|dms|slack|slackify|reply|replies|replied|ping|pings|notify|tell|thread|crosspost|cross-post|missive|clipboard|mrkdwn)([^[:alnum:]]|$)'
 }
 
 # prompt_names <prompt> <name>...  -> 0 when any name appears as a word
@@ -421,7 +499,11 @@ else
   while IFS= read -r -d '' stmt; do
     verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
     printf '%s' "$verbscan" | cmdword_is slack >/dev/null 2>&1 || continue
-    mapfile -t toks < <(printf '%s' "$verbscan" | args)
+    # Redirects come off first. `slack write --help 2>&1 | head -40` handed the
+    # parser a `2` and it read that as the target, then denied because no prompt
+    # names a channel called 2. Same sed the LN rule uses.
+    mapfile -t toks < <(printf '%s' "$verbscan" \
+      | sed -E 's/[0-9]*>>?&?[^[:space:]]*//g' | args)
     i=0; n=${#toks[@]}; seen_slack=0; subcmd=""
     while [ "$i" -lt "$n" ]; do
       tok="${toks[$i]}"; i=$((i + 1))
@@ -481,7 +563,7 @@ else
           file_body="${tok#*=}" ;;
         --edit) is_edit=1; i=$((i + 1)) ;;
         --edit=*) is_edit=1 ;;
-        --print) posts=0 ;;
+        --print|--help|-h) posts=0 ;;
         --preview) preview=1 ;;
         --dm-mentioned) dm_mentioned=1 ;;
         --raw|--no-mentions) mentions_off=1 ;;
@@ -507,6 +589,10 @@ else
     break
   done < <(printf '%s' "$command" | stmts)
   [ "$stmt_found" -eq 1 ] || allow
+  # An invocation that posts nothing is nobody's business, and this has to come
+  # BEFORE the target check: `slack write --help` has no target by construction,
+  # and the no-target deny fired on it 20 times in the historical replay.
+  [ "$posts" -eq 0 ] && allow
   has_mask "$target" && target=""
   [ -n "$target" ] || deny "slack-post-guard: a \`slack write\` was parsed with no target, so its recipient cannot be established. An unquoted \`#channel\` is the usual cause: bash reads it as a comment, so the CLI never sees it. Quote it, or use the bare channel name."
   for b in "${broadcasts[@]}"; do
@@ -569,12 +655,26 @@ if [ -z "$prompt" ]; then
   deny "slack-post-guard: the turn's typed prompt could not be read from the transcript, so there is no record of Scott naming a target. Fail-closed. Posts to #clipboard and to your own DM are unaffected."
 fi
 
-for r in "${nonexempt[@]}"; do
-  mapfile -t names < <(resolve_names "$r")
-  if ! prompt_names "$prompt" "${names[@]}"; then
-    deny "slack-post-guard: nothing in this turn's typed prompt names \`$r\`, and a post goes where Scott named it. Ask him, or post to #clipboard."
-  fi
-done
+# Two sufficient conditions, and only failing BOTH denies.
+#
+#   1. the recipient is named in the window (the doc's rule)
+#   2. a recent typed turn asks for a Slack post at all
+#
+# Condition 2 exists because condition 1 alone cannot be satisfied for a DM:
+# the cache's `users` map holds 120 DM ids and the ones in real traffic are
+# absent from it (D01TL0BDQ4T, D0AH0DP9RJ5, D0B8FU6DLKU all ABSENT), so a DM
+# target resolves to nothing but its literal id and the rule collapses into
+# "the prompt must contain the raw id", which this doc measured as blocking
+# 72% of legitimate posts. It denied "message russ to point at
+# valet.test.tatari.dev and enroll" for exactly that reason.
+if ! posting_intent "$prompt"; then
+  for r in "${nonexempt[@]}"; do
+    mapfile -t names < <(resolve_names "$r")
+    if ! prompt_names "$prompt" "${names[@]}"; then
+      deny "slack-post-guard: no typed turn in the last $PROMPT_WINDOW asked for a Slack post, and nothing in them names \`$r\`. A post goes where Scott asked for it. Ask him, or post to #clipboard."
+    fi
+  done
+fi
 
 # -------------------------------------------------------------- TEST-TEXT ---
 

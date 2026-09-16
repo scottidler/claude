@@ -217,8 +217,11 @@ runb deny  'slack write nosuch here are the notes' "$TX_NONE"
 reset_ledger
 runb allow 'slack write engineering --dm-mentioned ping @russ.smith about the notes' "$TX_RUSS"
 runb deny  'slack write engineering --dm-mentioned ping @russ.smith about the notes' "$TX_ENG"
-# A usergroup expands, and the handle Scott typed is what authorizes it.
-runb deny  'slack write engineering --dm-mentioned heads up @nerds' "$TX_ENG"
+# A usergroup expands past the named channel. With a posting task live this is
+# allowed: no incident in the corpus is a fan-out, and denying it is the
+# annoyance class. The residual is named in the doc.
+reset_ledger
+runb allow 'slack write engineering --dm-mentioned heads up @nerds' "$TX_ENG"
 
 echo "=== TARGET: what does NOT count as Scott naming a target ==="
 runb deny  'slack write engineering here are the notes' "$TX_RELAY"
@@ -263,6 +266,70 @@ check allow 'the word test on the SECOND line is not a test post' \
     '{"channel":"C0L0DJU56","text":"release notes\nthe test suite is green"}' "$TX_ENG")"
 reset_ledger
 runb deny 'slack write engineering verifying the release notes land here' "$TX_ENG"
+
+echo "=== the posts Scott asked for, which the first cut denied ==="
+# Every fixture here is a real turn from the 211-post replay that the
+# target-name-only rule denied. They are the reason the rule has a second
+# sufficient condition.
+TX_RUSS_DM=$(transcript russdm 'message russ to point at valet.test.tatari.dev and enroll')
+TX_RYAN=$(transcript ryan 'send a message to ryan. codeblock with the json change')
+TX_NICK=$(transcript nick 'ok lets send the message to Nick and mention that we updated the doc too')
+TX_MIKE=$(transcript mike 'drop the quick missive to Mike in that thread')
+TX_POSTIT=$(transcript postit 'post it')
+TX_SENDIT=$(transcript sendit 'i didnt ask for a draft. I asked you to send it')
+# A DM id the cache cannot resolve, which is every DM id in the real traffic:
+# the users map holds 120 and D01TL0BDQ4T, D0AH0DP9RJ5 and D0B8FU6DLKU are all
+# absent from it.
+reset_ledger
+check allow 'message russ, to a DM id the cache cannot resolve' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"D01TL0BDQ4T","text":"hey russ, the host the cli defaults to just isnt deployed yet"}' "$TX_RUSS_DM")"
+reset_ledger
+check allow 'send a message to ryan' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"D0AH0DP9RJ5","text":"here is the json change"}' "$TX_RYAN")"
+reset_ledger
+check allow 'send the message to Nick' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"D0B8FU6DLKU","text":"we updated the doc too"}' "$TX_NICK")"
+reset_ledger
+check allow 'a missive to Mike in a channel the prompt does not name' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"C0AA8UBU5MX","text":"quick note on the spec"}' "$TX_MIKE")"
+reset_ledger
+check allow 'post it, where the target was named an earlier turn' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"C09PCEA4T8F","text":"the summary"}' "$TX_POSTIT")"
+reset_ledger
+check allow 'I asked you to send it' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"C0ACWPXHLPK","text":"the summary"}' "$TX_SENDIT")"
+# His own DM, addressed by handle rather than by id.
+reset_ledger
+runb allow "slack write '@scott.idler' --at 2026-08-13T15:00:00Z Finish the thing" "$TX_NONE"
+# --help posts nothing, and the no-target deny fired on it 20 times.
+runb allow 'slack write --help' "$TX_NONE"
+runb allow 'slack write --help 2>&1 | head -40' "$TX_NONE"
+
+echo "=== the posts nobody asked for, which still deny ==="
+TX_PUSH=$(transcript push 'force push the branches')
+TX_SHAKE=$(transcript shake 'ok PR, /babysit, merge, finish bump, install, and test')
+TX_FILES=$(transcript files 'loos like 4 .json files?')
+reset_ledger
+check deny 'force push the branches, and a post goes to a work channel' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"C0ACWPXHLPK","text":"the summary"}' "$TX_PUSH")"
+reset_ledger
+check deny 'a shakedown turn, which is the 2026-07-10 class' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"C0L0DJU56","text":"the summary"}' "$TX_SHAKE")"
+reset_ledger
+check deny 'loos like 4 .json files?' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"C089C6Y41ND","text":"the summary"}' "$TX_FILES")"
+
+echo "=== TEST-TEXT is a marker line, not prose about a test environment ==="
+# Both of these are real bodies the first cut denied, with a posting ask live.
+reset_ledger
+check allow 'prose mentioning test and prod in a long first line' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"C01FXF7P3ST","text":"marquee DID already ship its own MCP-auth path: live on test and prod, bypasses the broker and auth-svc entirely, and there is no work left"}' "$TX_SENDIT")"
+reset_ledger
+check allow 'prose mentioning the test host in a long first line' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"D01TL0BDQ4T","text":"hey russ, the host the cli defaults to (valet.internal.tatari.dev) just isnt deployed yet, only the test one is. two steps:"}' "$TX_RUSS_DM")"
+reset_ledger
+check deny 'the marker line itself' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"D02020W2872","text":"**MCP write test**\nignore this"}' "$TX_BRUCE")"
 
 echo "=== RESEND: one post was asked for, so one post goes out ==="
 reset_ledger
@@ -373,11 +440,15 @@ runb deny  "slack write --markdown-to-mrkdwn $BODY engineering" "$TX_ENG"
 reset_ledger
 runb allow 'slack write --thread 1719835300.000500 engineering here are the notes' "$TX_ENG"
 reset_ledger
-runb deny  'slack write --thread 1719835300.000500 general here are the notes' "$TX_ENG"
+# A different channel than the one named, with a posting task live: allowed.
+# "right ask, wrong channel" is not an incident class in the corpus, and the
+# rule that denied it also denied "message russ".
+runb allow 'slack write --thread 1719835300.000500 general here are the notes' "$TX_ENG"
 # repost carries its body in Slack, so the destination is what gets checked.
 reset_ledger
 runb allow 'slack repost general:1719835300.000500 engineering' "$TX_ENG"
-runb deny  'slack repost engineering:1719835300.000500 general' "$TX_ENG"
+reset_ledger
+runb allow 'slack repost engineering:1719835300.000500 general' "$TX_ENG"
 
 echo "=== every deny holds in all 18 spellings bash offers ==="
 runwrapped 'slack write engineering here are the release notes' "$TX_NONE"

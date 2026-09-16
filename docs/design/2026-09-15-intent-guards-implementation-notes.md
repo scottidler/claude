@@ -228,3 +228,40 @@ Commit: this phase. The 24 corpus-measured false positives fixed in `secret-echo
 
 ### Open questions
 - Two, both Scott's: whether to carve out the captured-into-a-variable jq form, and how to close the INGEST wrapper bypass. Neither is an author-closable fact.
+
+## SLACK rework: matching the intent instead of the rule text
+
+Commit: this phase. `slack-post-guard.sh` TARGET rebuilt on two sufficient conditions over a 3-turn window, TEST-TEXT narrowed to a marker line, three parse fixes. Matrix 108 to 123 assertions.
+
+Scott, after reading the acceptance walk: "it sounds like you built something that would annoy the fuck out of me. dont do that. match the intent of this work."
+
+### What the first cut got wrong
+The rule text says resolve the target and require it named. I implemented that faithfully and it was the wrong thing, because the rule text rests on an assumption the cache does not support. Replayed against 216 historical posts with their real prompts: **79 denies, and they were the asks.** `message russ to point at valet.test.tatari.dev and enroll` denied. `send a message to ryan` denied. `i didnt ask for a draft. I asked you to send it` denied. `slack write --help` denied.
+
+Two causes, both measurable and neither visible from reading the code:
+- **A DM cannot be resolved to a name.** `~/.cache/slack/ids.json`'s `users` map holds 120 DM ids, and `D01TL0BDQ4T`, `D0AH0DP9RJ5`, `D0B8FU6DLKU` and `D01VB7QMKJ7` are all absent from it. So for a DM the rule degenerates into "the prompt must contain the raw `D0...` id", which is precisely the shape the doc priced at 72% of legitimate posts blocked and wrote name matching to avoid. I built the thing the doc warned about and the matrix passed 108 assertions over it, because every fixture used a DM id I had put in the fixture cache myself.
+- **A posting task spans turns.** The turn that names the target is followed by `do it`, `yes`, `WAY TOO WORDY`, `did you fucking fix your mess?`. Reading only the current turn throws the authorization away one turn after it is given.
+
+### The fix
+- **Two sufficient conditions, either one allows**: the recipient named in the last 3 typed turns (the doc's rule, kept wherever it can actually be evaluated), or a recent typed turn that asks for a Slack post at all. Only failing both denies.
+- **A 3-turn window** rather than the current turn, which is what the doc's commit-guard evidence used.
+- The word set for "asks for a post" is taken from the 211 posts' own prompts, not invented.
+
+Measured alternative, rejected: require the name when the target IS resolvable and fall back to the posting ask only when it is not. That keeps the wrong-channel protection and costs too much, 19 real denies instead of 9, and the denials it adds include `i didnt ask for a draft. I asked you to send it` and `send the announcement to #engineering` crossposting to a second channel. Name matching survives only as the fast path.
+
+### What this gives up, stated plainly
+"The right ask to the wrong channel" now passes. A live posting task authorizes a post to a channel the window does not name, and a `dm_mentioned` fan-out past the named channel. No incident in the corpus is that shape: all three are an unasked post, a duplicate, or a test post. The three matrix fixtures that asserted the old behavior were flipped to allow, with the reason written at each one.
+
+### Three parse bugs the replay found
+- `slack write --help` denied 20 times: the no-target check ran before the posts-nothing check. Reordered.
+- `slack write --help 2>&1 | head -40` read the `2` of `2>&1` as the target. Redirects are stripped before tokenizing now, the same `sed` the LN rule uses.
+- `slack write '@scott.idler'` denied: Scott's own DM by handle was not an exempt spelling. The exempt set now carries the handle spellings alongside the two literal ids.
+
+### TEST-TEXT narrowed
+Matching test/verify anywhere in the first line denied two real posts whose first line was a 180-character sentence about a test environment: "marquee DID already ship its own MCP-auth path: live on test and prod" and "the host the cli defaults to just isnt deployed yet, only the test one is". The incident is `**MCP write test**`, a short line that IS the marker, so the word now counts when the first line is short enough to be a marker or when it opens the line.
+
+### The lesson worth keeping
+A guard's matrix cannot tell you whether the guard matches its intent, because the fixtures are written by the same hand and the same assumptions as the rule. 108 assertions passed over a rule that denied a third of Scott's real posts. The replay against the actual corpus is the test that bites, and it belongs in the acceptance criteria for every rule whose intent includes "do not get in the way", not just for the one where the doc happened to price it.
+
+### Open questions
+- None from this rework. The two open items are unchanged: the INGEST wrapper bypass, and whether the SECRET jq allowlist gets a captured-into-a-variable carve-out.
