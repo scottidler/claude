@@ -62,3 +62,26 @@ Commit: this phase. New `intent-guard.sh` and `intent-guard-test.sh`, five chara
 
 ### Open questions
 - None.
+
+## Phase 3: LN and the `~/Claude` policy
+
+Commit: this phase. The LN rule added to `intent-guard.sh`, 18 fixtures added to the matrix, the Phase 3 success criterion amended in the design doc with its evidence.
+
+### Design decisions
+- The link entry is computed with a lexical `norm_path`, never `realpath`. The doc requires the basename not to be dereferenced; using a lexical resolver for the whole path gets that for free and makes the answer depend on the path string rather than on what happens to exist on disk.
+- The existing-directory test runs on the **resolved** link path. Testing the operand as written asks about the hook process's cwd, which is never the cwd the command would run in.
+- An operand still carrying a `$` after masking is skipped as a **pair** (source plus link path), after the destination has been chosen. Dropping such tokens from the operand list instead shifts which token becomes the link path.
+- Redirects are stripped from the statement before `args` sees it. `args` drops the `>` and emits `2` and `/dev/null` as bare tokens, so `ln -s a b 2>/dev/null` otherwise takes `/dev/null` as the link path.
+- `/` needs its own equality branch: with `tgt=/` the ancestor glob is `//*`, which matches nothing, so `ln -s .. parent_dir` from `/tmp` resolved its target to `/` and allowed. That is the 2026-07-03 shape, so it is the rule rather than an edge.
+
+### Deviations
+- **The paren stop is positional, and the doc's fallback is not used.** The doc says accumulation "stops at a structural paren and falls back to the payload's `cwd`". Implemented globally, that discarded the `cd` chain whenever a `$( )` appeared anywhere, including in an `echo` that runs after the `ln`, and the fallback then resolved a relative link path against a cwd a `cd` had already left. The corpus replay caught two false denies this way. The stop is now positional (a paren *before* the `ln`), and when it fires the cwd is treated as **unknown** rather than falling back. A fallback cwd is worse than no cwd: it produces a confident wrong answer instead of a conservative one, and the doc's own fail-closed branch already handles unknown correctly.
+- **The Phase 3 success criterion was amended**, with the reasoning and the replay output, in the design doc. It pinned "exactly the 3 known loop-repro probes and nothing else, out of 51 corpus commands". All three parts were wrong independent of this implementation: the corpus is 163 statements (the 51 and 112 counts came from a `rg -o` pattern that caps each match at 600 characters and drops long commands), the criterion counted the cycle rule while the replay exercises the `~/Claude` half too, and `ln -s . 5626` is ancestor-shaped by inspection. Amending it is the doc-defect branch of `/how-to-execute-a-plan`'s rule, not a criterion bent to match code.
+
+### Tradeoffs
+- `ln -s . 5626` denies. It was deliberate and it is also an unbounded self-reference. Denying it and letting Scott re-run with `!` matches how GH-WRITE treats his own protection changes, and the alternative (carving out `ln -s .`) would carve out the exact shape the rule exists to catch.
+- The `(cd "$S" && ln ... target)` corpus command denies fail-closed. `$S` is unresolvable, so no cwd can be derived and the link path is relative. This is the documented fail-closed case, and it is one statement out of 163.
+- Corpus replay as a measurement, not a committed test: the replay reads `~/.claude/projects`, so it cannot be hermetic. The decisive cases are baked into the matrix as fixtures and the full replay numbers are recorded in the doc.
+
+### Open questions
+- None.

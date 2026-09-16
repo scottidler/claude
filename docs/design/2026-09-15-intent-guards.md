@@ -714,7 +714,21 @@ Two of the three questions the draft asked are already answered by chunk C's own
 **Model:** opus
 - Prospective-link-entry predicate (`dirname` resolved, basename never dereferenced); `~/Claude` link-path deny; the four operand forms (directory destination, `-t DIR`, relative target, `-n`/`-T`)
 - **Corpus replay**: all ~112 `ln -s` statements from the window replayed with their recorded cwd
-- **Success criteria:** the 2026-07-03 command is denied verbatim; `ln -sf <repo>/HOME/.claude/hooks/x.sh ~/.claude/hooks/x.sh` over an existing link is allowed; the corpus replay denies **exactly the 3 known loop-repro probes and nothing else** out of the 51 corpus commands, which requires masking: 8 carry a paren and only 3 carry a structural `$(`; the `for b in ... ln -sf $(command -v $b) .` command is asserted as an **allow**; a relative link path whose cwd cannot be resolved at all denies
+- **Success criteria, amended 2026-09-15 after the replay ran.** The 2026-07-03 command is denied verbatim; `ln -sf <repo>/HOME/.claude/hooks/x.sh ~/.claude/hooks/x.sh` over an existing link is allowed; the `for b in ... ln -sf $(command -v $b) .` command is asserted as an **allow**; a relative link path whose cwd cannot be resolved at all denies. The corpus replay over **163** `ln -s` statements with their recorded cwd denies **exactly 9**, and every one is accounted for:
+
+  | count | rule | what they are |
+  |---|---|---|
+  | 3 | cycle | the known loop-repro probes (`/tmp/loopprobe`, `/tmp/lp2`, `/tmp/manifest-repro`) |
+  | 3 | `~/Claude` policy | the voice-corpus links into `~/Claude/writing/voice` |
+  | 1 | cycle | `ln -s . 5626` |
+  | 1 | fail-closed | `(cd "$S" && ln -sf .../otto/target target)`, a subshell before a relative link path |
+  | 154 | allow | everything else |
+
+  **Why the old criterion ("exactly the 3 known loop-repro probes and nothing else, out of 51") was a doc defect, independent of the implementation.** Three reasons, each checkable without running the guard:
+
+  - **The corpus is 163 statements, not 51 or 112.** Those counts came from `rg -o '"command":"[^"]{0,600}ln -s[^"]{0,600}"'`, which caps each match at 600 characters and so drops every long command. Walking the transcript JSON properly yields 163 unique (command, cwd) pairs, all with a recorded cwd.
+  - **The criterion counted one rule and the replay exercises two.** The `~/Claude` policy is the LN rule's second half and it correctly denies 3 corpus commands. "Nothing else" could never have been true while that half shipped.
+  - **`ln -s . 5626` is ancestor-shaped by inspection.** It yields `5626/5626/5626` without bound, which is the class the rule exists to catch. It was deliberate (a URL prefix), and a deny is still the correct outcome: Scott re-runs it with `!`, the same disposition GH-WRITE takes for his own protection changes.
 
 #### Phase 4: INGEST
 **Model:** opus

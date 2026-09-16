@@ -91,6 +91,58 @@ run allow 'acli jira workitem view --key SEC-2997'
 # This asserts the hook's half only; the combined result is recorded in the
 # design doc as a fixture rather than an assumption.
 
+echo "=== LN: the cycle is target-ancestor-of-link ==="
+runcwd() { # runcwd <expect> <cwd> <command>
+  local expect="$1" cwd="$2" cmd="$3" out decision
+  out=$(jq -n --arg c "$cmd" --arg d "$cwd" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' | bash "$HOOK")
+  decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"')
+  if [ "$decision" = "$expect" ]; then
+    pass=$((pass + 1)); printf 'PASS  [%s] (cwd=%s) %s\n' "$expect" "$cwd" "$cmd"
+  else
+    fail=$((fail + 1)); printf 'FAIL  [want %s got %s] (cwd=%s) %s\n' "$expect" "$decision" "$cwd" "$cmd"
+  fi
+}
+runcwd deny  /tmp 'ln -s /tmp /tmp/loop'
+runcwd deny  /tmp 'ln -s .. parent_dir'
+runcwd deny  /tmp 'ln -s / /rootlink'
+runcwd deny  /home/saidler 'ln -s /tmp/loopprobe/looped /tmp/loopprobe/looped/a/self'
+runcwd deny  /home/saidler 'ln -s /tmp/lp2/loop /tmp/lp2/loop/d1/self'
+# `ln -s . 5626` publishes a URL prefix and was deliberate, but it is the
+# ancestor shape without qualification: it yields 5626/5626/5626 without bound.
+# A deny is correct and Scott re-runs it with `!`, the same disposition
+# GH-WRITE takes for his own protection changes.
+runcwd deny  /home/saidler/repos/milwaukie-youth-football/5626/public 'ln -s . 5626'
+
+echo "=== LN: the reinstall shape must survive, which realpath -m breaks ==="
+# realpath -m FOLLOWS an existing link, so link and target resolve identically
+# on every `ln -sf` reinstall and an equality test fires on the single most
+# common legitimate shape in the corpus. The basename is never dereferenced.
+runcwd allow /home/saidler 'ln -sf /home/saidler/repos/scottidler/claude/HOME/.claude/hooks/x.sh /home/saidler/.claude/hooks/x.sh'
+runcwd allow /home/saidler 'ln -sfn /home/saidler/repos/scottidler/claude/HOME/.claude/hooks/lib.sh /home/saidler/.claude/hooks/lib.sh'
+runcwd allow /tmp 'ln -s /etc/hosts /tmp/hosts-link'
+runcwd allow /tmp 'ln -s ../elsewhere/file link-name'
+
+echo "=== LN: ~/Claude is symlink-free by policy ==="
+runcwd deny  /home/saidler 'ln -s /etc/hosts /home/saidler/Claude/hosts'
+runcwd deny  /home/saidler 'ln -s /etc/hosts Claude/hosts'
+
+echo "=== LN: cwd resolution, and where it fails closed ==="
+# An unexpanded operand is not knowable here, so the PAIR is skipped. Dropping
+# such tokens from the operand list instead shifts which token becomes the link
+# path, which turned this corpus command into a self-link and denied it.
+runcwd allow /tmp/otto-p1/nopy 'mkdir -p /tmp/otto-p1/nopy && cd /tmp/otto-p1/nopy && for b in bash sh echo cat env ln rm mkdir; do ln -sf $(command -v $b) . 2>/dev/null; done'
+runcwd allow /home/saidler 'ln -sf plain-token.age "$SP/.secrets/alias-token.age"'
+# The paren stop is positional. A `$( )` AFTER the ln must not discard the cd
+# chain before it: this exact corpus command lost its `cd /tmp/wt-385b`, fell
+# back to the payload cwd, and the relative link path landed on the target.
+runcwd allow /home/saidler/repos/tatari-tv/platform-templates 'cd /tmp/wt-385b && ln -s /home/saidler/repos/tatari-tv/platform-templates/node_modules node_modules && echo "head=$(git rev-parse --short HEAD)"'
+runcwd allow /home/saidler 'cd /home/saidler/repos/scottidler/claude && cd HOME && ln -s .claude/hooks/x.sh /tmp/x.sh'
+# A subshell opened BEFORE the ln, with a relative link path: the cwd is not
+# knowable and a fallback would be a confident wrong answer, so this denies.
+runcwd deny  /home/saidler/repos/otto-rs/otto '(cd "$S" && ln -sf /home/saidler/repos/otto-rs/otto/target target 2>/dev/null; true)'
+runcwd deny  '' 'ln -s /etc/hosts relative-link'
+
 echo "=== the false-positive class lib.sh exists to kill ==="
 # Observed live 2026-09-15T19:41: a naive acli.*delete pattern matched the
 # regex TEXT inside a quoted heredoc in scan5.py.

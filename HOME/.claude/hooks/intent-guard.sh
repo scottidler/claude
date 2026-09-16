@@ -171,11 +171,118 @@ is_write_method() {
   return 1
 }
 
+# norm_path <absolute path> -- lexical only: `.` and empty segments drop, `..`
+# pops. Deliberately NOT realpath: the answer must depend on the path string and
+# not on what happens to exist, and it must never dereference anything.
+norm_path() {
+  printf '%s' "$1" | awk -F/ '{
+    n = 0
+    for (i = 1; i <= NF; i++) {
+      p = $i
+      if (p == "" || p == ".") continue
+      if (p == "..") { if (n > 0) n--; continue }
+      st[++n] = p
+    }
+    out = ""
+    for (i = 1; i <= n; i++) out = out "/" st[i]
+    if (out == "") out = "/"
+    printf "%s", out
+  }'
+}
+
+# abs_path <path> <base> -- absolute, tilde expanded, lexically normalized.
+# Empty when the path is relative and the base is unknown, which is the
+# fail-closed case the LN rule denies on.
+abs_path() {
+  local p="$1" base="$2"
+  case "$p" in
+    "~")   p="$HOME" ;;
+    "~/"*) p="$HOME/${p#\~/}" ;;
+  esac
+  case "$p" in
+    /*) ;;
+    *)  [ -n "$base" ] || return 1
+        p="$base/$p" ;;
+  esac
+  norm_path "$p"
+}
+
+# ln_link_entry <target> <linkpath> <base> -- the entry the link will OCCUPY.
+#
+# The basename is never resolved. `realpath -m` FOLLOWS an existing link, so on
+# any `ln -sf` reinstall of a live symlink the link and its target resolve to
+# the same file and an equality test fires on the single most common legitimate
+# shape in the corpus. Verified 2026-09-15: realpath -m ~/.claude/hooks/lib.sh
+# and realpath -m of its target print identical paths. So: resolve the PARENT,
+# append the basename untouched.
+ln_link_entry() {
+  local target="$1" linkpath="$2" base="$3" abs
+  # abs_path is lexical (norm_path), so this resolves the link path WITHOUT
+  # dereferencing its final component, which is the whole point of the rule.
+  abs=$(abs_path "$linkpath" "$base") || return 1
+  # A destination that is an existing directory takes the target's basename,
+  # which is `ln`'s own behaviour and the reason -n/-T exist to suppress it.
+  # Tested on the RESOLVED path: testing the operand as written asks about the
+  # hook process's cwd, which is never the cwd the command would run in.
+  if [ -d "$abs" ] && [ "$LN_NO_DEREF" -eq 0 ]; then
+    abs="${abs%/}/$(basename -- "$target")"
+  fi
+  printf '%s' "$abs"
+}
+
 GH_DENY='repo/org settings are Scott'"'"'s to change (rules/git.md). Report the blocker; do not change the setting.'
 ACLI_DENY='acli delete destroys Jira/Confluence content no local archive can recover. Ask Scott; do not delete it.'
+LN_CYCLE_DENY='this ln -s would make the target an ancestor of its own link, which is the symlink loop that froze the workstation on 2026-07-03. Check the direction of the link.'
+LN_CLAUDE_DENY='~/Claude is the Cowork/Syncthing space and is symlink-free by policy (CLAUDE.md). Copy the file there instead of linking it.'
+LN_CWD_DENY='this ln -s has a relative link path and the guard cannot resolve the cwd it would run in, so it cannot tell a loop from a reinstall. Use an absolute link path.'
+
+# The cwd the statements run in. Accumulated across the command's `cd` chain
+# starting from the payload, because lib.sh's cd_last/cd_at REPLACE rather than
+# accumulate, so `cd ~/repos/scottidler/claude && cd HOME && ln -s ...` yields
+# the relative `HOME` from them. 97 of the 100 measured absolute-pair corpus
+# statements use relative paths, so this matters for nearly all of them.
+#
+# Accumulation stops at a structural paren, because a `cd` inside a subshell
+# does not escape it and `stmts` cannot see that it was one:
+#
+#   printf '(cd /tmp); pwd' | stmts   ->   cd /tmp | pwd
+#
+# The test is on the MASKED command. On the raw string it fires on a paren in a
+# comment or a quoted string, which is 5 of the 8 corpus `ln -s` commands that
+# contain a paren against only 3 that contain a structural `$(`. lib.sh:68
+# classifies a command-substitution body as class P, "which no masker may
+# erase", so masking separates the two at no cost.
+# The stop is POSITIONAL, at the paren, not global. Testing the whole command
+# for a paren discards the cd chain because of a `$( )` anywhere at all,
+# including a trailing echo that runs after the ln. The corpus replay caught
+# exactly that: `cd /tmp/wt-385b && ln -s .../node_modules node_modules && ...
+# echo "$(git rev-parse HEAD)"` lost its cd, fell back to the payload cwd, and
+# the relative link path then resolved onto the target itself and denied.
+#
+# A fallback cwd is worse than no cwd here. When a `cd` has already moved and
+# the guard cannot follow it, resolving against the payload produces a
+# CONFIDENT wrong answer rather than a conservative one, so that case is
+# treated as unknown and the fail-closed branch below handles it.
+payload_cwd=$(printf '%s' "$input" | jq -r '.cwd // ""' 2>/dev/null)
+masked_all=$(printf '%s' "$command" | mask_heredoc | mask_comment | mask_squote | mask_dquote)
+ln_prefix="${masked_all%%ln *}"
+cwd_accumulates=1
+case "$ln_prefix" in *"("*) cwd_accumulates=0 ;; esac
+cur_cwd="$payload_cwd"
+# A subshell opened before the ln means the cwd at the ln is not knowable from
+# here at all, so it is unknown rather than "the payload's".
+[ "$cwd_accumulates" -eq 0 ] && cur_cwd=""
 
 while IFS= read -r -d '' stmt; do
   verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
+
+  if [ "$cwd_accumulates" -eq 1 ] && printf '%s' "$verbscan" | cmdword_is cd >/dev/null 2>&1; then
+    cd_op=$(printf '%s' "$verbscan" | args | sed -n '2p')
+    case "$cd_op" in
+      ""|-*) : ;;
+      *) cur_cwd=$(abs_path "$cd_op" "$cur_cwd") || cur_cwd="" ;;
+    esac
+  fi
 
   if printf '%s' "$verbscan" | cmdword_is gh >/dev/null 2>&1; then
     # `gh repo edit` changes the same settings surface through a different door.
@@ -208,6 +315,86 @@ while IFS= read -r -d '' stmt; do
       *" jira workitem delete "*|*" confluence page delete "*)
         deny "$ACLI_DENY" ;;
     esac
+  fi
+
+  if printf '%s' "$verbscan" | cmdword_is ln >/dev/null 2>&1; then
+    LN_NO_DEREF=0
+    ln_symbolic=0
+    ln_tdir=""
+    ln_srcs=()
+    skip=0
+    seen_ln=0
+    while IFS= read -r tok; do
+      if [ "$seen_ln" -eq 0 ]; then
+        case "$tok" in ln|\\ln) seen_ln=1 ;; esac
+        continue
+      fi
+      if [ "$skip" -eq 1 ]; then skip=0; ln_tdir="$tok"; continue; fi
+      case "$tok" in
+        --symbolic)          ln_symbolic=1 ;;
+        --no-target-directory|--no-dereference) LN_NO_DEREF=1 ;;
+        --target-directory=*) ln_tdir="${tok#*=}" ;;
+        --target-directory) skip=1 ;;
+        -t)                 skip=1 ;;
+        -t?*)               ln_tdir="${tok#-t}" ;;
+        --*)                : ;;
+        -*)
+          # Combined short flags: -sfn is -s -f -n. Each letter is its own flag.
+          case "$tok" in *s*) ln_symbolic=1 ;; esac
+          case "$tok" in *[nT]*) LN_NO_DEREF=1 ;; esac
+          ;;
+        "") : ;;
+        *) ln_srcs+=("$tok") ;;
+      esac
+      # A redirect is not an operand. `args` drops the `>` and emits its two
+      # halves as bare tokens, so `ln -s a b 2>/dev/null` would otherwise take
+      # `/dev/null` as the link path. Stripped from the statement text above,
+      # before args ever sees it.
+    done < <(printf '%s' "$verbscan" | sed -E 's/[0-9]*>>?&?[^[:space:]]*//g' | args)
+
+    if [ "$ln_symbolic" -eq 1 ] && [ "${#ln_srcs[@]}" -gt 0 ]; then
+      # Operand shapes, all from the installed `ln --help`:
+      #   -t DIR a b     every operand is a source, DIR is the destination
+      #   a b            one source, one link path
+      #   a              one source, link name is basename(a) in the cwd
+      #   a b c dir      many sources into a directory destination
+      ln_dest=""
+      if [ -n "$ln_tdir" ]; then
+        ln_dest="$ln_tdir"
+      elif [ "${#ln_srcs[@]}" -ge 2 ]; then
+        ln_dest="${ln_srcs[-1]}"
+        unset 'ln_srcs[-1]'
+      fi
+      for src in "${ln_srcs[@]}"; do
+        linkpath="${ln_dest:-$(basename -- "$src")}"
+        # An operand still carrying a `$` after masking is an unexpanded
+        # variable or a command substitution, so its value is not knowable
+        # here and comparing the literal text yields a verdict about a path
+        # that will never exist. Skipped as a PAIR, after the destination has
+        # been chosen: dropping such tokens from the operand list instead
+        # shifts which token becomes the link path, which turned
+        # `ln -sf plain-token.age "$SP/.secrets/alias-token.age"` into a
+        # self-link and denied it. Found by the corpus replay.
+        case "$src$linkpath" in *'$'*) continue ;; esac
+        entry=$(ln_link_entry "$src" "$linkpath" "$cur_cwd") || deny "$LN_CWD_DENY"
+        case "$entry" in
+          "$HOME"/Claude/*) deny "$LN_CLAUDE_DENY" ;;
+        esac
+        # A relative target resolves against the LINK's parent, not the cwd,
+        # which is what the symlink itself will do when it is followed.
+        tgt=$(abs_path "$src" "${entry%/*}") || continue
+        [ -z "$tgt" ] && continue
+        if [ "$tgt" = "$entry" ]; then deny "$LN_CYCLE_DENY"; fi
+        # `/` is an ancestor of everything, and the glob below cannot say so:
+        # with tgt=/ the pattern is `//*`, which matches nothing. `ln -s .. x`
+        # from /tmp resolves its target to / and is exactly the 2026-07-03
+        # shape, so this case is the rule, not an edge.
+        if [ "$tgt" = "/" ]; then deny "$LN_CYCLE_DENY"; fi
+        case "$entry" in
+          "$tgt"/*) deny "$LN_CYCLE_DENY" ;;
+        esac
+      done
+    fi
   fi
 done < <(printf '%s' "$command" | stmts)
 
