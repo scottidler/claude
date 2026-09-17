@@ -340,3 +340,81 @@ append-only.
 - None. Next gate is human: one CODEOWNER approval on
   https://github.com/tatari-tv/slack-cli/pull/51, then `cargo install` and a restart of every
   resident `slack mcp serve` before Phase 3 starts.
+
+## Phase 5: the inline-token matcher, standalone
+
+### Design decisions
+- `matches(context, offset, token) -> bool` is the one scoring primitive (`inline/matcher.py:matches`),
+  and it scores exactly one occurrence per the scoring protocol: `offset` is the index of the `/`,
+  the token starts at `offset+1`, and the function raises rather than guesses if the two disagree
+  with what it was handed. This is the guard against silently reverting to the per-window reading
+  the phase explicitly forbids.
+- The leading-neighbor rule is inverted at the position the offset contract already guarantees
+  (`context[offset] == "/"`), so there is nothing left to check there; the boundary check moves
+  one character further back, to `context[offset-1]`, per round 2's finding (`inline/matcher.py:matches`).
+- Quote, bracket/angle and code-fence span exclusion is real span-tracking, not a lexical
+  heuristic (`_quote_spans`, `_bracket_spans`, `_code_spans` in `inline/matcher.py`). An
+  unclosed delimiter (fence, quote, or bracket) inside the 100-char fixture window is treated
+  as extending to the end (or, for a lone unpaired code fence marker, the whole window) rather
+  than assumed absent: the fixtures.json README documents 375 of 832 `code-span` records with
+  odd backtick parity for exactly this reason, and the doc's own zero-false-positive criterion
+  makes the conservative reading the only one that clears it.
+- `find_matches(text)` added as a thin convenience wrapper around `matches`, scanning a whole
+  string for `/token` candidates (`inline/matcher.py:find_matches`). Not requested by the phase
+  body, but Phase 7 wires a hook that scans a whole prompt, and `matches` alone gives it no
+  entry point to do that with; this is the extensible seam, one concrete case, per
+  `rules/taste.md`.
+- Package is `inline/matcher.py`, not a single `inline_token_matcher.py`: `rules/general.md`'s
+  source-file rule says a compound name decomposes into a directory (first word) plus a
+  single-word file. `token` was rejected as the directory name because it shadows the Python
+  stdlib `token` module, which `tokenize.py` imports internally, and nothing here needs that
+  name in particular.
+- Test file is `inline/tests.py` (stdlib `unittest`), invoked by
+  `HOME/.claude/hooks/inline-token-matcher-test.sh`, the latter hyphenated because it is
+  exec'd directly by `otto ci`'s `test` task, never imported, matching
+  `rewrite-cd-read.py`/`-test.sh`'s existing split. No `.otto.yml` edit was needed: the `test`
+  task already globs `HOME/.claude/hooks/*-test.sh`, so the new file is picked up by name alone.
+
+### Deviations
+- **Function-level debug logging (`rules/logging.md`) is split across two levels, not one.**
+  `find_matches` (called once per prompt) logs entry/exit at DEBUG; `matches` (called once per
+  candidate inside that scan, dozens of times per prompt) logs its decision at a custom TRACE
+  level (`logging.addLevelName(5, "TRACE")`), since Python's stdlib has no built-in TRACE and
+  the rule demotes tight-loop logging rather than dropping it.
+- **No `.otto.yml` change**, though the task said to say explicitly how Python tests are
+  hooked in: they are not hooked in by editing the runner, only by naming the new file to match
+  the glob the `test` task already runs (`HOME/.claude/hooks/*-test.sh`). Confirmed by the CI
+  run itself: `=== HOME/.claude/hooks/inline-token-matcher-test.sh ===` appears in the log
+  unprompted.
+- **The design doc's own round-2 measurement table (561/195 -> 560/7 -> 554/571/2) does not
+  reproduce against the pinned `fixtures.json` at the numbers it states**, and this phase's
+  reported numbers (556/583 survivors, 0/1421 false positives) are measured against the
+  committed, pinned fixtures directly rather than reconciled against that table. The doc itself
+  says the corpus drifted between measurements (236 -> 240 posts "in one afternoon" for the
+  sibling Phase 3 corpus) and names `fixtures.json` as the sole pinned artifact for this phase;
+  this implementation trusts the file over the narrative table built while it was still moving.
+
+### Tradeoffs
+- Bracket-span exclusion (parens/brackets/braces/angles) suppresses matches inside ANY
+  parenthetical, including ones that only coincidentally wrap a `/token`, e.g. `(/status,
+  /deployed, /version)`, rather than trying to distinguish "shielding aside" from "the user
+  meant this parenthetical as the instruction." The phase's own success criterion requires
+  exactly this parenthetical to score zero matches, so the coarser rule was kept over a
+  narrower one that would need the deny-list vocabulary Phase 6 owns, not this phase.
+  Consequence: an opening-delimiter character is listed as a valid "boundary" per the design
+  doc's literal wording (`_is_boundary` includes `([{<"'`), but in this implementation a slash
+  immediately after one is always also inside a span that same character opens, so that arm of
+  the boundary check is effectively unreachable. Kept for fidelity to the stated rule rather
+  than removed as dead code, and covered by
+  `BoundaryTest.test_slash_after_opening_paren_is_suppressed_by_the_bracket_span`, which
+  documents the interaction rather than assuming it away.
+- `unittest` over `pytest` for the checked-in suite, even though `python.md` names `pytest` as
+  the house test runner and it is installed on this machine (`uv run pytest
+  HOME/.claude/hooks/inline/tests.py` passes the identical file, verified). The hooks directory
+  carries no `pyproject.toml`/`uv.lock` and the repo's one prior Python hook has no test
+  dependency either; adding one for a single module seemed like the wrong precedent to set
+  standalone, so the CI-invoked suite stays dependency-free and pytest-compatible rather than
+  pytest-required.
+
+### Open questions
+- None.
