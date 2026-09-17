@@ -77,6 +77,37 @@ and could never be replayed: the guard would be handed a different body. Posts a
 by `(session, tool_name, tool_input)` because `rglob` order is filesystem order, which is
 what makes the byte-comparison above possible.
 
+## 0 (environment): the write fence is Bash-only, and it was re-measured here
+
+Not one of the four spikes, but it governs which phases can run from a session at all, and it
+was mis-stated once during this run before being corrected.
+
+`touch` probes via **Bash**, from this session:
+
+```
+HOME/.claude/skills           Read-only file system   (exit 1)
+HOME/.claude/settings.json    read-only file system   (exit 1)
+HOME/.claude/hooks            exit 0
+HOME/.claude/bin              exit 0
+```
+
+That matches chunk D's fence exactly (`2026-09-15-intent-guards.md:801`). **But the Bash fence
+is not the tool fence.** A `Write` of `HOME/.claude/skills/.probe-edit-fence` **succeeded**,
+and the harness rescanned and registered the skills tree as a side effect. Chunk D had already
+proven the same thing twice by commit: `f257ddb` registered `panel-round-guard` in
+`settings.json` and `ca3bfe8` edited `HOME/.claude/agents/review-panel.md`.
+
+**So no phase in this doc is blocked by the fence.** Phases 7 and 8's `settings.json` and
+`SKILL.md` writes, Phase 10's edit of `how-to-execute-a-plan/SKILL.md` and Phase 11's edit of
+`release-driver.md` all go through Edit/Write. What is forbidden is a Bash redirect or heredoc
+into the denied set, which is the shape a phase agent will reach for first, so each of those
+phases should say "via Edit" out loud.
+
+One consequence worth stating because it cost a cleanup: `rkvr rmrf` **archives** the file and
+then fails to unlink it (`Read-only file system (os error 30)`, `src/main.rs:509`), because the
+unlink is Bash. Removing a file written into the denied set needs the sandbox off for that one
+command.
+
 ## 0b: the `UserPromptSubmit` hook, six probes
 
 Claude Code **2.1.274** (chunk C measured 2.1.272, chunk A 2.1.270). Method is chunk C's
@@ -294,3 +325,79 @@ It falsifies an **availability** claim, not the decision.
 
 So the decision stands and the evidence under it is corrected. The design doc's Alternative 4
 and its item 8 Resolved Decision are amended to rest on the seam argument alone.
+
+## 0d: what wakes the parent, and whether a worker can be reaped
+
+Measured on a **real `phase-implementer`**, not a proxy: the Phase 1 dispatch itself
+(`Phase1`, agent ref `[8ea2f4]`, implementing Phase 1 in `tatari-tv/slack-cli`). The doc's
+existing data point was "a `shutdown_request` to an idle review-panel worker", explicitly
+discounted as "one data point on a different agent type, not the gate." This is the gate.
+
+**Verdict: PASS on both. Both answers confirm the shipped design; nothing is reopened.**
+
+### Fact 1: nothing wakes the parent mid-phase. Only the report
+
+`Phase1` was dispatched with `run_in_background: true` and ran ~12 minutes. Across that
+window the parent did roughly a dozen tool rounds of unrelated work (the write-fence probe,
+the 0c writeup, the doc amendment, a full `otto ci`). **Zero wakes arrived from `Phase1`
+during the phase.** The single delivery was its completion notification,
+`{"type":"idle_notification","from":"Phase1","idleReason":"available","result":...}` carrying
+the whole report.
+
+**0d's gate:** "if nothing wakes the parent mid-phase, Phase 10's heartbeat covers report
+boundaries only and the residual silence is stated as a limit, not promised away." That is the
+outcome. Phase 10's heartbeat is per-report-wake, and mid-phase silence stays an accepted
+limit written down rather than designed away. This is also the leg the item 8 decision now
+rests on entirely, after 0c withdrew the availability argument: a blocked parent has no seam
+for mid-wait output, and an unblocked one gets no mid-phase wake either.
+
+### Fact 2: a `shutdown_request` DOES clear a completed worker from the roster
+
+The assertion is the **effect**, as 0d demanded, not that a message was sent.
+
+Before, with the worker finished and idle:
+
+```
+Teammates (1):
+  Phase1 [8ea2f4]  ·  phase-implementer  ·  idle  ·  started 12m ago
+```
+
+A completed worker therefore **lingers in the roster**, which is the condition Phase 10's
+reaping bullet exists to clean up. Then:
+
+```
+{"type": "shutdown_request", "reason": "..."}
+-> {"success":true,"request_id":"shutdown-1789667726041@Phase1","target":"Phase1"}
+```
+
+After:
+
+```
+Peer sessions (9):
+  ...
+```
+
+**The `Teammates` section is gone entirely.** `Phase1` is absent from `ListAgents`.
+
+**0d's gate:** "if a `shutdown_request` does not clear a completed worker from the roster,
+Phase 10 drops the reaping bullet rather than shipping an instruction that does nothing." It
+clears it, so **Phase 10 keeps the reaping bullet**, and it is now backed by an effect
+observed on the agent type Phase 10 actually dispatches.
+
+One procedural note, since `SendMessage`'s own guidance says "Don't originate
+`shutdown_request` unless asked": this doc's Phase 0d asks for it by name, and Phase 10's
+design rests on the answer. That is the standing ask.
+
+## Phase 0: summary
+
+| spike | verdict | effect on the plan |
+|---|---|---|
+| 0a | PASS | Phase 3's baseline is **TARGET=8** on pinned `rows-0a.json` (md5 `4c70205d...`), replayable via `--from-rows` |
+| 0b | PASS (gate), 4 of 6 probes executed | Mechanism A alive AND obeyed; no discriminator field, written in as accepted cost; 0b-4/0b-5 to an interactive session |
+| 0c | PASS | Synchronous dispatch IS available; availability claim withdrawn, decision unchanged; `tool_input.name` present, so the named guard is possible |
+| 0d | PASS | No mid-phase wake, so the heartbeat is per-report and the silence is a stated limit; reaping confirmed, so Phase 10 keeps that bullet |
+| env | re-measured | The write fence is Bash-only; Edit/Write reaches `settings.json` and `skills/`, so no phase is blocked |
+
+**Nothing in Phase 0 sends the doc back to the A/B/C table, and nothing blocks Phases 1
+through 11.** One claim was falsified (0c) and corrected in the doc without touching the
+decision it sat under.

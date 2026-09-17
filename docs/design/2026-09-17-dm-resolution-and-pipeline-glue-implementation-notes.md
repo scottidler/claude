@@ -181,3 +181,39 @@ Commit: `873e417` on `dms-cache-and-fill` (`tatari-tv/slack-cli`), one commit, `
 - **`IdCache`'s doc comment (`src/slack/cache.rs:55-57`) still lies about the on-disk shape**,
   omitting `subteams`, `profiles` and `dms`. Left untouched as out of Phase 1's scope. Fold it into
   Phase 2 (which already edits this area) or leave it: Scott's call.
+
+## Phase 0d and the environment re-measurement
+
+Appended after Phase 1's section on purpose, and the file is append-only: 0d was **measured on
+Phase 1's own dispatch**, so it genuinely finished later than Phase 1 did.
+
+### Design decisions
+- **0d ran against the real Phase 1 dispatch rather than a synthetic probe.** The doc discounts
+  its own prior observation because it was "one data point on a different agent type, not the
+  gate", so a `general-purpose` stand-in would have reproduced exactly that weakness. Measuring
+  on the actual `phase-implementer` dispatch costs nothing extra and answers the gate.
+- **Fact 1 is reported as an absence over a bounded window**, not as a proof of impossibility:
+  zero wakes across ~12 minutes and roughly a dozen parent tool rounds. That is what the gate
+  needs (the heartbeat covers report boundaries only), and it is the honest shape of the claim.
+- **Fact 2 asserts the roster, not the send.** The doc says "assert the EFFECT (the worker is
+  gone from `ListAgents`), not that a message was sent", and the before/after listings are
+  recorded rather than the `success: true` response.
+
+### Deviations
+- **Recorded a Phase 0 environment section that is not one of the four spikes.** The write fence
+  governs whether Phases 7, 8, 10 and 11 can run from a session at all, and it was
+  mis-stated once during this run (reported as blocking, from Bash `touch` probes alone) before
+  being corrected by a `Write` that reached `HOME/.claude/skills`. Chunk D had already proven it
+  twice by commit. It is in the evidence because the next agent to hit it should not re-derive it.
+
+### Tradeoffs
+- Chose to resolve Phase 1's open question (the stale `IdCache` shape comment at
+  `cache.rs:55-57`) by **folding it into Phase 2** rather than leaving it or opening a phase for
+  it. It is the same class of defect the doc already ordered fixed for `merge_and_save`, `dms` is
+  what made it wronger, and Phase 2 edits that file anyway. Recorded here as a disclosed
+  deviation so the audit does not find it unattributed.
+
+### Open questions
+- None for Phase 0. The two carried forward are already written down: 0b-4/0b-5 need an
+  interactive session, and Phase 7's hook wording must corroborate itself against the visible
+  prompt (0b-3a).
