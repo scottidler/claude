@@ -117,3 +117,35 @@ S1 absolute path for the backstop (`/usr/bin/slack` is the Slack desktop app). S
 ### Open Questions after round 2
 
 None.
+
+## Round 3, 2026-09-17, Mode 1 design review of the round-2 fold. THE CAP.
+
+**One seat.** Architect rc=0 on attempt 2. **Staff-engineer FAILED both attempts** (rc=124, its own 10m wall clock, no review produced); traces preserved. Not retried a third time per the 2-strike rule, and Step 3.5's substitution does not apply to a timeout. The architect is read-only and could execute nothing: it wrote a Python port of the matcher and asked the synthesis lead to run it. Treat this round as one seat plus the lead's measurements.
+
+**Verdict: 4 must-fix, all foldable without a fourth round. All folded.**
+
+### The round-2 rule held, mostly
+
+Four of six round-2 folds were verified by execution and hold: M1 (replay driver), M3 (AC6), M4 (Stop-hook), M6 (rollout). M2's numbers reproduce exactly. It failed for the stale-baseline fold, which landed in 4 places and left 7 stale.
+
+### Round 3 must-fix
+
+**M-1. The stale-baseline fold contradicted itself two lines apart and missed 7 sites.** `:268` said 0a reproduces 26/9/17; `:270` said it will NOT be 26/9/17. Stale also at `:306`, `:311`, `:471`, `:503`, `:547` and in `slackrecall.py:75`'s own header. **And AC3 was unsatisfiable by the SHIPPED guard:** measured `posts=236 allow=202 deny=34`, splitting 17 artifacts / 8 TARGET / 9 multi-statement, so "non-artifact denies <= 9" fails at 17 before any variant is tried. The escape hatch did not fire because it keyed on TARGET while the rule keyed on all non-artifact denies. AC3 and the decision rule now scope to TARGET only, with the multi-statement rule named as orthogonal.
+
+**M-2. `variantA.sh` and `variantB.sh` denied 100% of inputs from the directory they are committed to.** Both `. "$HOOKS/lib.sh"` at `:142` with `HOOKS` = their own directory, and the harvest dropped the `lib.sh` symlink the original directory had. Measured: 237 posts, 0 allow, 237 deny, every one "lib.sh is unreadable". Phase 3 names `variantB` as its starting point. Symlink restored and verified: `posts=240 allow=204 deny=36`, now producing the per-recipient deny class.
+
+**M-3. Phase 0a named no artifact and the driver has no replay-from-file mode**, so it always re-walks the live tree and 0a inherits the drift one level up, across a whole cross-repo ship. Drift measured on one afternoon: 236, 237, 239, 240 posts. 0a's deliverable is now an artifact, not a number: a `--from-rows` mode, a committed snapshot, and a count taken against it.
+
+**M-4. `bin/release`'s gh calls run as the WRONG GitHub account.** `release` is a bash script, so the `.zshenv` `gh()` persona function does not exist in it and the rails `tool.call` hook does not rewrite a subprocess. Measured from inside a bash script in `~/repos/scottidler/claude`: `GH_PERSONA` unset, `gh api user --jq .login` returns `escote-tatari`. So the caller would create the PR as home and `release` verify it as work. This repo is public so it passes here; four personal repos are private and it would not. Every `gh` call in `release` now sets `GH_PERSONA` explicitly. The architect called this safe because `gh pr view` is read-only and PreToolUse does not gate reads: true, and the wrong axis.
+
+### Should-fix, folded
+
+**S-1 is the one that mattered:** the doc's matcher numbers reproduce exactly, but ONLY if each record is scored at its own occurrence (`context[offset+1]`). Score per-window, which is the obvious reading of "run the matcher on fixtures.json", and a faithful port gives 6/583 and 77/1421 instead of 0 and 0, because 435 of 2,004 records hold more than one `/token` in their window (428 of them false positives). Nothing stated the protocol. Now stated in both the phase and the README.
+
+### Verified and holding, do not re-fold
+
+The guard's only `$HOME` uses are the three claimed (`:112`, `:113`, `:248`). The live ledger is byte-identical with the same mtime before and after a full 236-row run, and no remaining path writes or deletes it. The `~/` expansion at `:248` shifts nothing: ZERO of the 162 slack-write commands in the corpus use a tilde-prefixed `--body-file`. AC4, AC5's string half, AC6 and AC8 (`pass=129 fail=0`) reproduce verbatim, and AC6 correctly fails against a hollow `{"hooks":{"UserPromptSubmit":[]}}`. `slack-cli`'s gates re-checked live and unchanged. Every spot-checked file:line citation is correct.
+
+### Open Questions after round 3
+
+None.

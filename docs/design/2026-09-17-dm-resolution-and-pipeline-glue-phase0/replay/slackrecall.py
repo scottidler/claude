@@ -72,7 +72,8 @@ def typed_prompt(records, upto):
 # Note for whoever reads a count: the `~/` expansion at :248 moves with HOME, so a
 # body-file path spelled `~/...` resolves differently under replay. The 17 known
 # artifact rows are $S/$TMPDIR//tmp paths and are excluded from the TARGET count
-# anyway; Phase 0a confirms the baseline still reproduces at 26 / 9 / 17.
+# anyway. Phase 0a does NOT try to reproduce chunk D's 26 / 9 / 17: that baseline predates
+# the guard's multi-statement rule and is a record, not a target.
 
 REPLAY_HOME = pathlib.Path(tempfile.mkdtemp(prefix="replay-home-"))
 (REPLAY_HOME / ".cache/slack").mkdir(parents=True, exist_ok=True)

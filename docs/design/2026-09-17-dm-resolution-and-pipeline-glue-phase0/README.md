@@ -12,9 +12,10 @@ Chunk D's Slack replay harness. Addendum A recorded it as "lived in a session sc
 | `slackrecall.py` | the replay driver. `python3 slackrecall.py <rows-out.json> [/path/to/guard.sh]` |
 | `variantA.sh` | the two-condition rule as of the harvest. `PROMPT_WINDOW=3`, recipient loop wrapped in `if ! posting_intent`. **NOT the shipped guard, see the third trap** |
 | `variantB.sh` | the per-recipient prototype, loop UNWRAPPED at `:621-630`. The starting point for both Phase 3 variants |
+| `lib.sh` | symlink to the repo's `HOME/.claude/hooks/lib.sh`. **Both variants source `$HOOKS/lib.sh` at `:142` and deny 100% of inputs without it** (measured: 237 posts, 0 allow, 237 deny, every one "lib.sh is unreadable"). The original harvest directory had this symlink and the first harvest dropped it |
 | `windowdist.py` | the `PROMPT_WINDOW` distance study |
 
-**Three traps, all load-bearing. The third was found by panel round 1.**
+**Four traps, all load-bearing. Trap 3 came from panel round 1, trap 4 from running the harness during round 2.**
 
 1. **`slackrecall.py` on disk carries `WINDOW = 12`. `rowsFinal.json` was produced at `WINDOW = 3`.** Set it to 3 or the baseline does not reproduce. Verified by counting `" || "`-joined turns per row: `rowsFinal.json` max is 3.
 2. **It reads the LIVE `~/.claude/projects` tree**, so a re-run today yields more than 216 rows. Compare against `rowsFinal.json`, do not regenerate it.
@@ -68,6 +69,10 @@ survivor         583
 
 **The scripts are provenance, not runnable as committed:** `scan.py` and `m2.py` read `$TMPDIR/prompts.json`, which is not here. `fixtures.json` is the self-contained artifact.
 
+**Scoring protocol, and it is not optional.** Score each record at ITS OWN occurrence: the token starts at `context[offset + 1]`, and `offset` points at the `/`. Do NOT run the matcher across the window and count hits. 435 of the 2,004 records carry more than one `/token` in their window, 428 of them false positives, so the per-window reading returns entirely different numbers (a faithful `dSt` port scores 6/583 and 77/1421 instead of 0 and 0) and makes the doc's criterion unreachable.
+
 ## Still to be produced by Phase 0
 
-`evidence.md`, carrying the answers to the three spikes: 0a (baseline reproduction), 0b (the six `UserPromptSubmit` / `prompt.submit` probes), 0c (the six dispatch cells). Every answer is an observed log line or tool result, never an inference from the bundle.
+`evidence.md`, carrying the answers to the four spikes: 0a (a committed rows snapshot plus a `--from-rows` replay mode), 0b (the `UserPromptSubmit` / `prompt.submit` probes), 0c (the six dispatch cells), 0d (mid-phase wake and worker reaping). Every answer is an observed log line or tool result, never an inference from the bundle.
+
+0a also commits its rows file here. Until it exists, every count in this directory drifts: measured on one afternoon, the live tree gave 236 posts, then 237, then 239, then 240.
