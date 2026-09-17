@@ -153,6 +153,20 @@ else
   bad "payload with no prompt key: rc=$rc out=${out:-empty}"
 fi
 
+# ---- fail open on every malformed payload shape, not just the parse ---------
+# `{"prompt":42}` exited 1 before its guard landed, while every other malformed
+# shape exited 0. A non-zero exit from a UserPromptSubmit hook is a prompt that
+# will not submit, and this hook runs on every prompt of every session.
+for payload in '{"prompt":42}' '{"prompt":[]}' '{"prompt":{"a":1}}' '{"prompt":true}' '{"prompt":null}'; do
+  out=$(printf '%s' "$payload" | "$HOOK" 2>/dev/null)
+  rc=$?
+  if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+    ok "fail open: $payload exits 0 and emits nothing"
+  else
+    bad "fail open: $payload rc=$rc out=${out:-empty}"
+  fi
+done
+
 # ---- the output shape -------------------------------------------------------
 out=$(run 'merge, pull main, /bump, install')
 if [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName')" = "UserPromptSubmit" ]; then

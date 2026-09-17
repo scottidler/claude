@@ -149,7 +149,15 @@ def main() -> None:
         log("BAIL", f"unreadable-payload:{type(exc).__name__}", "")
         return
 
-    prompt = payload.get("prompt") or ""
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str):
+        # Same fail-open reasoning as the parse above, and the same reason it is
+        # worth a branch rather than a cast: `prompt` is a string at 2.1.274, but
+        # this hook runs on EVERY prompt of every session, and an AttributeError
+        # here is a prompt that will not submit. Measured: `{"prompt":42}` exited
+        # 1 before this guard, while every other malformed shape exited 0.
+        log("BAIL", f"prompt-not-a-string:{type(prompt).__name__}", "")
+        return
     if not prompt.strip():
         log("BAIL", "empty-prompt", prompt)
         return

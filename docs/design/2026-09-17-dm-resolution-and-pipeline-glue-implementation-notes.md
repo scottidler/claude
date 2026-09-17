@@ -628,3 +628,40 @@ files joined the em-dash lint list).
   "merge" has a target is what closes it.
 - **Phase 5's and Phase 6's `inline/*.py` are still outside `.otto.yml`'s em-dash lint list.**
   Left alone deliberately: not this phase's files. Worth a one-line fix in a later phase.
+
+## Audit fix: the hook must fail open on every payload shape
+
+Found by the orchestrator probing the hook directly after Phase 7 landed, because this one is
+registered live and fires on every prompt of every future session.
+
+### Design decisions
+- **Guarded the `prompt` type in `inline-skill-tokens.py`.** Measured before the fix:
+  `{"prompt":42}` exited **1** with `AttributeError: 'int' object has no attribute 'strip'`,
+  while an empty stdin, malformed JSON, a missing `prompt` key and a null `prompt` all exited 0.
+  A non-zero exit from a `UserPromptSubmit` hook is a prompt that will not submit, so the one
+  shape that crashed is the one that matters. The hook's own comment already argued the
+  fail-open case for the parse; this extends it to the type.
+- **Added five fail-open cases to the matrix** (`42`, `[]`, `{}`, `true`, `null`), so the class
+  is covered rather than the one instance that was found.
+- **Latency measured, since every prompt pays it: 63ms** for a two-token prompt. Recorded so a
+  later phase that adds work to this path has a baseline to regress against.
+
+### Deviations
+- **Widened `.otto.yml`'s em-dash lint list to Phase 5's and Phase 6's `inline/*.py` and their
+  two wrappers.** Phase 7 flagged the gap and left it as out of scope, correctly for a phase.
+  Leaving it is not an option at the program level: `rules/safety.md` says in as many words that
+  "a lint narrower than the rule is a hole the tree drifts back through where CI cannot see it",
+  and that list is the only thing enforcing the rule. CI is green with the wider list, so
+  nothing was hiding in those files.
+
+### Tradeoffs
+- Fixed this directly rather than re-dispatching Phase 7. It is a one-branch guard plus test
+  cases on a hook that is already live in `settings.json`, and the phase commit stands untouched.
+
+### Open questions
+- **Phase 7's criterion 1 is NOT met and is not mine to close.** The hook fires and names both
+  tokens (`INJECT count=2 ... bump,cli-shakedown`), and the discriminator run produced a real
+  `Skill` call, so the mechanism works. On `merge, pull main, /bump, install, /cli-shakedown` the
+  nested session stopped on the first clause and asked which repo `merge` meant, which is a
+  second prompt, which is what the criterion forbids. It needs one interactive prompt in a
+  session where `merge` has a target. Scott's to run.
