@@ -58,3 +58,62 @@ Neither seat raised the combined-doc override, which was out of scope by instruc
 ### Open questions after round 1
 
 None. Every finding is folded; nothing is deferred.
+
+## Round 2, 2026-09-17, Mode 1 design review of the round-1 fold
+
+Same run dir. Architect rc=0 on its THIRD attempt (attempt 1 died on the Bash sandbox network filter reaching Gemini's API host, attempt 2 hit the seat script's 10m wall clock mid-verification, attempt 3 succeeded with the host allowlisted); staff-engineer rc=0. Drift vs round 1: 154 lines, which is the fold under review.
+
+**Verdict: not ready to build. 6 must-fix, 8 should-fix, 2 nits. Three of round 1's must-fix folds did not fix their finding and a fourth was half-applied.**
+
+### The lesson from this round
+
+Round 1's folds were made by editing prose without executing what the prose described. Three of them were wrong in ways one command would have exposed. The rule this doc now follows: **a fold that describes behavior gets run before it is committed.** Every round-2 fold below was measured here first.
+
+### Round-1 fold accounting
+
+| R1 finding | fold verdict | why |
+|---|---|---|
+| MF-1 unreachable resolver | fixed | `slack cache resolve` added |
+| MF-2 `dSt` inversion | **NOT fixed** | see M2 |
+| MF-3 `source` discriminator | fixed | claim removed, gate added |
+| MF-4 stale `variantA.sh` | fixed, and generalized further while folding round 2 | the whole baseline is stale, not just variant A |
+| MF-5 replay driver | **NOT fixed, made worse** | see M1 |
+| MF-6 AC6 falsifiability | **NOT fixed** | see M3 |
+| MF-7 Stop-hook backstop | half-applied | see M4 |
+
+### Round 2 must-fix
+
+**M1. The MF-5 fold broke the driver four ways and never isolated it.** (a) `{}` IS the guard's allow (`:139`), and the patched parser raised on it, so the driver died on the first of 190 allows. (b) The guard hard-codes `LEDGER` at `:113` and reads no `REPLAY_LEDGER`, so the guard kept writing 216 reservations into the LIVE ledger while the per-row reset stopped touching it. (c) `REPLAY_LEDGER=` empty resolves to `Path('')` = `.`, an `rmtree` of the working directory. (d) The equality check was lexical, bypassable by `..` or a symlinked parent.
+
+Rewritten to isolate through `HOME`, which is the seam the guard already has. **Tested this time:** live ledger 10 entries before and after a full run; the driver completes at 236 posts / 202 allow / 34 deny instead of dying on row 1.
+
+**M2. The inverted matcher spec scored 195 false positives of 1,421 against a criterion of 0.** Requiring `/` before the token while checking nothing before the slash accepts `~/repos/scottidler/bump`, `category/risk/status`, `bump/shipit/babysit`. Independently ported and measured here, reproducing the panel lead exactly (the architect seat's 573/205 did not reproduce and is not cited):
+
+```
+faithful    survivors   0/583   false-positives    0/1421
+doc spec    survivors 561/583   false-positives  195/1421
++ boundary  survivors 560/583   false-positives    7/1421
++ deny list survivors 554/571   false-positives      2
+```
+
+All 7 residuals are window-clipping artifacts (6 odd backtick parity, 1 unbalanced quote; 375 of 832 `code-span` records have odd parity in-window). Phase 6's generic-word deny list removes 5. Criterion 7 restated to enumerate the 2 rather than move the denominator.
+
+**M3. AC6 still passed with the feature absent.** `rg -c 'UserPromptSubmit'` returns 1 against `{"hooks":{"UserPromptSubmit":[]}}`. Now asserts the executable path is registered under the event and resolves.
+
+**M4. The MF-7 fold contradicted itself**, `:206` ("converts a silent 22-minute gap into a heartbeat") against `:213` ("the 22-minute case has NO mechanism today"), and the risk table still cited the Stop-hook fallback the fold had retracted. `:206` deleted, risk row rewritten, and the deleted prose-saturation evidence restored so the doc still carries the reason prose alone is untrusted here.
+
+**M5. Phase 9 specified the bypass its own protocol rejected.** `:350` said `release` calls `pr-open`; a subprocess call leaves `gh` invisible to PreToolUse exactly as `--fill` does. Rewritten to the stop-and-hand-back protocol, with the three transitions named, `release-driver.md:74-80` given the new result as a consumer, and the human-at-a-terminal path stated.
+
+**M6. The rollout condition was not achievable by installing a binary, and old writers ERASE `dms`.** `IdCache` is not `deny_unknown_fields` (`cache.rs:62-67`), `save()` serializes wholesale (`:591`), and `cache/tests.rs:103` already asserts the erasure. `slack mcp serve` is long-running (`main.rs:84`) and reaches `save` through `users_search`, so replacing the binary does not replace resident code. Condition now names restarting persistent MCP writers and verifying a post-install MCP operation preserves `dms`.
+
+### Should-fix, all folded
+
+S1 absolute path for the backstop (`/usr/bin/slack` is the Slack desktop app). S2 the ordering-hazard failure mode is PATH-dependent, not uniformly fail-closed. S3 stale `slackrecall.py` citations. S4 0d asserts the reaping effect, not the send. S5 Phase 0 has four spikes, ordered. S6 the acceptance-evidence summary miscounted what was run. S7 "running it against the live hooks" now means feeding the hook its payload on stdin. S8 `channel_display_name`'s fill had become optional and is now required.
+
+### Found while folding, by neither round
+
+**`rowsFinal.json` does not reproduce against today's guard:** `216/26/9 TARGET/0 multi-stmt` pinned versus `236/34/8/9` today. The corpus grew AND the guard gained a multi-statement rule after the baseline was made. Phase 0a now re-pins rather than diffing against it. This generalizes round 1's MF-4 from one variant file to the whole baseline.
+
+### Open Questions after round 2
+
+None.

@@ -3,7 +3,7 @@
 **Author:** Scott Idler
 **Date:** 2026-09-17
 **Status:** Draft
-**Review Passes Completed:** 5/5, then panel round 1 as a design review. All 7 must-fix, 5 should-fix and 1 nit folded in; every one re-verified against the code before folding. Round-2 not yet run.
+**Review Passes Completed:** 5/5, then panel rounds 1 and 2 as design reviews. Round 1: 7 must-fix, 5 should-fix, 1 nit, all folded. Round 2: 6 must-fix, 8 should-fix, all folded, and it found that three of round 1's folds did not fix their finding. Every round-2 finding was re-measured here before folding, and the re-measurement surfaced one thing neither round caught (the pinned baseline is stale against today's guard). Round cap is 3; two are spent.
 
 ## Summary
 
@@ -188,6 +188,16 @@ That argument only holds if the injected line leaves room to decline, and the fe
 - Measured by porting the function and running it: `dSt("please /bump next","bump") -> []`, `dSt("merge, pull main, /bump, install","bump") -> []`, `dSt("please bump next","bump") -> match`.
 - **What to take:** the quote/bracket/angle/code span exclusion, the apostrophe-vs-quote rule, the trailing-neighbor rules (`/`, `\`, `-`, `?`, and `.` followed by alphanumeric), and `if(e.startsWith("/")) return []`.
 - **What to invert:** the leading-neighbor rule. A `/` before the token is REQUIRED, not disqualifying. `\` and `-` before it still disqualify.
+- **And the character before THAT slash must be a boundary**: start-of-string, whitespace, or an opening delimiter. Without it the matcher accepts every slash-separated word list in ordinary prose. Measured against the pinned fixtures (round 2):
+
+| variant | survivors | false positives |
+|---|---|---|
+| faithful `dSt` port | 0 / 583 | 0 / 1,421 |
+| require `/` before, check nothing before it | 561 / 583 | **195 / 1,421** |
+| + boundary-before-slash | 560 / 583 | 7 / 1,421 |
+| + Phase 6's generic-word deny list | **554 / 571** | **2** |
+
+  The 195 are real prose: `~/repos/scottidler/bump main [!] is v0.3.0` fires `/bump`, `category/risk/status are spec enums` fires `/status`, `bump/shipit/babysit` fires `/babysit`. One rule takes them to 7 at a cost of one survivor, and Phase 6's deny list takes the rest.
 
 **Name resolution drops what must not match.**
 
@@ -203,14 +213,16 @@ That argument only holds if the injected line leaves room to decline, and the fe
 
 - The dispatching turn exists and is proven: the main thread is woken by the final phase's teammate-message, carries tool-use capability, and fires without a user prompt. Three transcripts show it, one of them dispatching the next phase.
 - `:456` ("Then **wait for the user**. They may run it, skip it, or defer it") is deleted. The audit is dispatched, not offered.
-- Each wake emits a one-line beat: phase, elapsed, what it waits on. That converts a silent 22-minute gap into a heartbeat using the mechanism that already exists. This is the half that keeps the fix from recreating the June failure.
+- Each wake emits a one-line beat: phase, elapsed, what it waits on. That makes the boundaries between phases visible using the mechanism that already exists. It does NOT fill a silent mid-phase gap, which has no mechanism today (see below).
 - After accepting a phase report the orchestrator sends `{"type":"shutdown_request"}` to that worker. One line, and it closes the "three workers sitting idle" complaint.
 - Step 5's `git push && git push --tags` at `:496` and `:533` is replaced with the `rules/git.md` sequence. The skill stops instructing a step its own hook denies.
 
 **The Stop-hook backstop does NOT cover the dispatch boundary, and the doc no longer claims it does.** The 2.1.274 bundle: `[end-turn] Stop hook block discarded (turn ended by tool result ... no model re-invoke)`. An Agent dispatch ends the parent turn BY TOOL RESULT, so a Stop-hook block at that boundary is discarded. `prose.sh` proves ordinary Stop blocking, not this one.
 
 - What a Stop hook CAN still catch is a turn that ends normally with phases outstanding, which is a different and narrower case. It stays available as a fallback for that case only.
-- **The heartbeat rests on the wake that exists, and nothing else.** The parent is woken by each teammate report and can act in that turn, proven in three transcripts. A beat is emitted on each such wake. A genuinely silent mid-phase gap, the 22-minute case, has NO mechanism today: no intermediate notification arrives, so nothing wakes the parent to speak. The design does not pretend otherwise, and the residual silence is named as an accepted limit rather than designed away.
+- **The heartbeat rests on the wake that exists, and nothing else.** The parent is woken by each teammate report and can act in that turn, proven in three transcripts. A beat is emitted on each such wake, so the boundaries between phases become visible.
+- **It does NOT fix the 22-minute case.** A genuinely silent mid-phase gap has no mechanism today: no intermediate notification arrives, so nothing wakes the parent to speak. That residual silence is an accepted limit, stated rather than designed away.
+- **Prose is the only thing enforcing the beat, and prose in this file has already failed once.** `how-to-execute-a-plan/SKILL.md` carries four "DO NOT STOP" statements at `:275-280` and `:363-364` and the stopping behavior persisted. Phase 10's criterion asserts the beat in a transcript for exactly that reason: it is the only part of this that is checkable.
 
 **`release-driver` gains the back half of the chain.** It stops today at "tag verified, install reported the new version" (`:96-102`). It gains `sdv probe` until live for a deployed service, or installed-binary version plus acceptance commands for a CLI, then the shakedown. It also gains an entry path for "the PR already merged, finish the bump", which its step 2 has no route for today.
 
@@ -243,19 +255,20 @@ match policy.dms {
 
 ## Implementation Plan
 
-Twelve phases. Phase 0 is three independent zero-code spikes and its answers can change Phases 6 through 11.
+Twelve phases. Phase 0 is four independent zero-code spikes (0a, 0b, 0c, 0d) and its answers can change Phases 5 through 11.
 
 ### Phase 0: prove the three environmental assumptions
 **Model:** opus
 **Repo:** `scottidler/claude`
 
-- **0a (D2).** Reproduce the criterion 3c baseline from the harvested harness. `slackrecall.py` on disk carries `WINDOW = 12`; `rowsFinal.json` was produced at `WINDOW = 3`. Set it to 3 and confirm the split. The harness reads the LIVE `~/.claude/projects` tree, so a re-run yields more than 216 rows: `rowsFinal.json` is pinned as the denominator.
+- **0a (D2). Re-pin the baseline; do NOT diff against `rowsFinal.json`.** Running the repaired driver against today's guard during round 2 showed the pinned baseline is stale: `pinned rows=216 deny=26 TARGET=9 multi-stmt=0` versus `today rows=236 deny=34 TARGET=8 multi-stmt=9`. Two causes, both real: the corpus grew (the documented drift), and the guard gained a multi-statement rule after `rowsFinal.json` was made. So `rowsFinal.json` is EVIDENCE of what chunk D measured, not a comparison arm for a post-fix variant. 0a freezes a corpus snapshot, measures today's shipped guard against it, and that becomes Phase 3's baseline. `slackrecall.py` needs `WINDOW = 3` (it ships `WINDOW = 12`).
 - **0b (E7).** Six probes: a `UserPromptSubmit` hook's `additionalContext` reaches the model; **whether ANY field discriminates a typed prompt from an injected one** (chunk C measured the payload keys at 2.1.272 with no `source`, so the probe asks whether one exists, it does not presuppose one); whether it fires for prompts that start with `/`; that a `prompt.submit` hook returning text beginning with `/` is NOT expanded; that `$.command.run` is refused from `prompt.submit` and succeeds from `turn.complete`; whether a `skillOverrides: "off"` skill is still resolvable.
-- **0d (E8, added in round 1).** Two assumptions no other spike covers. Does anything wake the parent DURING a phase, or only on the teammate report? And does a `shutdown_request` to a completed phase worker actually clear it from the roster? Both are what Phase 10's heartbeat and reaping rest on.
+- **0d (E8, added in round 1).** Two assumptions no other spike covers. Does anything wake the parent DURING a phase, or only on the teammate report? And does a `shutdown_request` to a completed `phase-implementer` clear it from the roster? Both are what Phase 10's heartbeat and reaping rest on. The reaping half asserts the EFFECT (the worker is gone from `ListAgents`), not that a message was sent.
 - **0c (E8).** Six cells over `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` x `name` x `run_in_background`, using the scratch-hook method from `2026-09-14-panel-round-cap-phase0/evidence.md:6-8`. Also capture whether the PreToolUse `Agent` payload carries `tool_input.name`: a guard on the named form is impossible if it does not.
 - **Success criteria:** every answer is an observed log line or tool result pasted into `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md`, never an inference from the bundle; 0a reproduces 26 denies splitting 9 TARGET / 17 artifacts; 0c states whether any cell yields a synchronous dispatch.
 - **Gates, one per spike.**
-  - 0a: if the baseline does not reproduce at 26/9/17, Phase 3 stops and the corpus is re-derived before any variant is measured.
+  - 0a: the freshly measured baseline is recorded with its corpus snapshot id. It will NOT be 26/9/17, and that is expected, not a failure. If the TARGET count against today's guard exceeds 9, Phase 3's decision rule re-anchors on the new number and says so.
+  - 0d: if a `shutdown_request` does not clear a completed worker from the roster, Phase 10 drops the reaping bullet rather than shipping an instruction that does nothing. One observation already exists in this doc's own drafting session: a `shutdown_request` to an idle review-panel worker returned `shutdown_approved` and the worker terminated. That is one data point on a different agent type, not the gate.
   - 0b: if no field discriminates a typed prompt, the hook fires on every prompt and that is written into Phase 7 as an accepted cost. If `additionalContext` does not reach the model at all, mechanism A is dead and the doc returns to the A/B/C table before Phase 5 starts.
   - 0c: if no cell is synchronous, Phases 10 and 11 build the legible-wait design and the synchronous option is closed in writing. If one is, the doc is amended before Phase 10 starts.
   - 0d: if nothing wakes the parent mid-phase, Phase 10's heartbeat covers report boundaries only and the residual silence is stated as a limit, not promised away.
@@ -278,7 +291,7 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 - **`sync_dms` PAGINATES.** `users_conversations` returns `Page<Channel>` with a `next_cursor` (`api.rs:902-916`), and `sync_channels` loops it (`mention.rs:463-473`). Addendum A's "one `users.conversations` listing" is one PAGE, which contradicts this phase's own "N ims yields N entries" criterion. Copy `sync_channels`'s cursor loop exactly.
 - Wire `sync_dms` into `CacheLookup::refresh` (`mention.rs:1060`), `RefreshSummary` (`mention.rs:162`) and the count string (`command/cache.rs:130`). All three. **Plus the two output projections that would otherwise omit `dms` silently:** `run_refresh`'s JSON object (`command/cache.rs:136`) and `render()`'s text form (`command/cache.rs:160`).
 - **`slack cache resolve <id>`, a new `CacheAction` variant.** `CacheAction` is `List | Add | Refresh` today (`cli.rs:563-580`) and `Add` warms a CHANNEL, so `resolve_dm_user` would ship with no caller Bash can reach and Phase 4's cold-miss backstop would have no implementation. This is the narrowest chokepoint that makes it reachable, and the guard shells out to it.
-- **`channel_display_name` needs a signature change or it cannot fill anything.** It is `fn channel_display_name(api, channel_id) -> Option<String>` (`read.rs:525-533`) and takes no `cache_path`, so the opportunistic fill Addendum A describes is impossible without threading a path through both callers (`read.rs:150`, `:202`). Do the signature change, or drop the opportunistic fill and rely on `sync_dms` plus the explicit resolve. Either is fine; silently skipping it is not.
+- **`channel_display_name` takes the signature change. Not optional.** It is `fn channel_display_name(api, channel_id) -> Option<String>` (`read.rs:525-533`) with no `cache_path`, so the opportunistic fill Addendum A specifies is impossible without threading a path through both callers (`read.rs:150`, `:202`). Thread it. Addendum A asked for the fill, Scott ruled for eager-plus-lazy, and an earlier draft of this phase left the choice open, which is how a specified behavior quietly becomes unbuilt.
 - `CHANNEL_TYPES` (`read.rs:48`) does not change, and `read/tests.rs:772` stays true.
 - Function-level debug logging per `rules/logging.md`: entry with the dm id, exit with hit | miss | not-an-im.
 - **Success criteria:** a cold `D…` costs exactly one `conversations_info` and a warm one costs zero, asserted on a fake API's call count; a non-`im` channel writes nothing; an `im` whose `user` is absent writes nothing rather than an empty string; `sync_dms` over N ims yields N entries and leaves `channels` unchanged; no source file exceeds 1500 lines.
@@ -289,7 +302,7 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 
 - Prerequisite: Phase 2 merged, bumped, tagged and **installed**. The guard reads a cache only the installed binary writes.
 - **Re-derive variant A from the guard on disk. Do NOT use the harvested `variantA.sh` as the baseline arm.** It is not functionally identical: `variantA.sh:354-356` greps the raw prompt, while the shipped guard pipes through `sed 's/<[^>]*>/ /g'` first (`slack-post-guard.sh:396-405`) to strip harness tags. The shipped comment quantifies the gap at 58 of 400 sampled transcripts carrying the `<command-message>` wrapper. Comparing a post-fix variant against a pre-fix baseline invalidates the whole measurement.
-- **Fix the replay driver before running it.** `slackrecall.py` as harvested does `shutil.rmtree` on `~/.cache/slack/sent-ledger` once per row (`:52,59-60`). That is the LIVE ledger (`slack-post-guard.sh:113`), the only thing ruling out duplicate posts, so a 216-row replay destroys duplicate-post protection 216 times. Point `LEDGER` at a scratch directory. Separately, `:65-66` catches a parse failure and returns `allow`, so a crashed or malformed guard is scored as a pass; make it a hard error.
+- **The replay driver is already repaired, tested, and committed.** It isolates through `HOME`, which is the seam the guard already has: `IDS` (`:112`), `LEDGER` (`:113`) and a `~/` body-file expansion (`:248`) are its only `$HOME` uses, so a scratch `HOME` holding a copy of the ids cache redirects the ledger without touching the guard or inventing an env var the guard does not read. Verified: live ledger 10 entries before the run and 10 after. Do not reintroduce a `REPLAY_LEDGER` variable; the driver's header records why that shape failed.
 - Replay the pinned 216-row corpus against three variants: the re-derived shipped rule, name-mandatory for non-exempt DMs only, and name-mandatory for every non-exempt recipient (`variantB.sh` is the starting point, its loop already unwrapped at `:621-630`).
 - The first-cut guard survives in no file, so the "79 denies in 216" number cannot be re-derived and is not restated as a live measurement.
 - **Decision rule, all three outcomes specified:** the variant that ships is the strictest whose deny count does not exceed 9, artifacts excluded.
@@ -305,8 +318,12 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 - `resolve_names` gains its `dms` clause in BOTH jq programs; the `.users` DM branch is removed. `U…` resolution is unaffected: it runs through `$uits` over `.handles` at `:294`, a separate branch.
 - The recipient loop stops being wrapped in `if ! posting_intent` (`:705`). Phase 3's result decides whether the weak condition remains as a per-recipient fallback for channels or disappears.
 - Cold-miss backstop: a `D…` absent from `dms` is resolved by shelling out to `slack cache resolve <id>` (Phase 2's new variant) before authorization, with a timeout, and a failure DENIES, consistent with this guard's existing missing-cache behavior.
+- **It invokes an ABSOLUTE path, never a bare `slack`.** `which -a slack` on this machine returns `~/.cargo/bin/slack` plus `/usr/bin/slack` and `/bin/slack`, which are the Slack DESKTOP app. The guard does no PATH handling today (zero hits for `PATH=`, `command -v` or a `cargo/bin` reference), so a bare `slack` in an authorization gate is a coin flip between the CLI and a GUI launcher. Resolve `$HOME/.cargo/bin/slack` explicitly and deny if it is missing or does not answer `cache resolve`.
 - **The 18 legacy `D…` keys under `.users` break here, and that is stated rather than discovered.** `$dmits` (`slack-post-guard.sh:292`) is their only reader and this phase removes it. They resolve today and stop resolving after this phase, which is correct (they are a retired tool's artifact) but it is a behavior change, not a no-op.
-- **Ordering hazard, and it is the reason this phase ships last.** Any cache written by a process without Phase 2 has no `dms`. Phase 4 against such a cache resolves no DM at all and fails closed on EVERY DM post. So Phase 4 does not ship until every writer on this machine is a Phase 2 binary: `~/.cargo/bin/slack` installed AND no older copy on PATH.
+- **Ordering hazard, and it is the reason this phase ships last. It is worse than "the cache lacks `dms`": an old writer ERASES it.** `IdCache` is deliberately not `deny_unknown_fields` (`cache.rs:62-67`) and `save()` serializes the struct wholesale (`cache.rs:591`), so an old binary loads a `dms`-bearing cache, drops the field it does not know, and writes it back without it. The repo already asserts that behavior: `cache/tests.rs:103 resave_of_pre_change_cache_drops_the_groups_key`. `Merge::Extend` cannot help, because the old binary has no field to extend.
+- **Installing the binary is not sufficient, because a resident process is a writer.** `slack mcp serve` is a long-running stdio server (`main.rs:84`) whose `users_search` path reaches `mcp/helpers.rs:912` -> `ensure_users_fresh` -> `fill_users` -> `upsert_full_user_sync` -> `save`. Replacing `~/.cargo/bin/slack` does not replace code already resident in that process, and this machine runs a live slack MCP server.
+- **So the rollout condition is:** install the new binary, **restart or reconnect every persistent MCP writer**, confirm no older copy resolves on PATH, and verify a post-install MCP operation leaves `dms` intact. Only then does Phase 4 ship.
+- **The failure mode if that is skipped depends on PATH, and is not uniformly "deny everything":** a current binary's cold-miss backstop recovers a `dms`-less cache, so the guard degrades rather than failing closed. An absent or stale binary is the fail-closed case. Pin the PATH (below) so the outcome is not a coin flip.
 - The 3-turn window is unchanged.
 - **Success criteria:** a post to a peer's DM whose prompt names the person by handle, display name, real name or first name allows; the same post naming nobody denies, and the deny text names the person rather than the `D…` id; the replay's deny count matches Phase 3's measurement for the selected variant; the cold-miss path is exercised against a `D…` deliberately removed from `dms`.
 
@@ -348,8 +365,11 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 
 - `HOME/.claude/bin/pr-open`, symlinked per the `manifest.yml:68` precedent, shaped on `bin/release`.
 - Branch-derived title, explicit `--release` argument, literal `--body-file` path under `$TMPDIR`.
-- `bin/release` stops using `--fill` and calls `pr-open`, so the gates see the command instead of being bypassed. **Two sites, not one:** the live call at `:334` and the dry-run echo at `:342`. Fixing only the first leaves the dry-run lying about what the driver does.
-- **Success criteria:** `pr-open` on a branch with a version delta emits a command the title guard and Gate D both allow, proven by running it against the live hooks; the same on a branch with no version delta and `--release rides` is DENIED by Gate D `:566`; `rg -n 'gh pr create --fill' HOME/.claude/bin/release` returns zero lines.
+- **`bin/release` stops creating the PR at all.** It does NOT call `pr-open` internally: a subprocess call from inside `release` leaves `gh` invisible to PreToolUse exactly as `--fill` does, and a phase agent implementing "release calls pr-open" reimplements the bug. `release` returns `PR creation required` carrying the literal command; the caller runs it as its own Bash tool call. **Two sites:** the live call at `:334` and the dry-run echo at `:342`.
+- **`release-driver.md:74-80` gains the new result as a consumer.** It recognizes only done, paused and failure today, so `PR creation required` would fall through unhandled.
+- **The three transitions, named rather than implied:** a DENIED `gh pr create` returns to the caller with the denial text and no PR recorded; a FAILED creation (network, auth) is retried once then reported; RESUME re-enters `release` with the PR url, and `release` verifies the PR exists before advancing rather than trusting the caller.
+- **The human path changes too.** When Scott runs `release` at a terminal there is no PreToolUse and no agent, so the stop-and-hand-back prints the command for him to run. Say so in the helper's output rather than leaving a terminal user staring at a stopped driver.
+- **Success criteria:** on a scratch branch with a version delta, the command `pr-open` emits is piped to `git-release-guard.sh` and `branch-pr-title-guard.sh` as a PreToolUse payload and both return an empty decision (allow); the same command on a branch with no version delta and `--release rides` returns a deny from Gate D `:566`, with the deny text recorded. "Running it against the live hooks" means exactly that: feed the hook its payload on stdin and read the JSON, do not open a PR to find out. `rg -n 'gh pr create --fill' HOME/.claude/bin/release` returns zero lines, and `release-driver.md` handles `PR creation required`.
 
 ### Phase 10: `how-to-execute-a-plan` runs the plan
 **Model:** opus
@@ -359,7 +379,7 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 - Per-wake heartbeat: phase, elapsed, what it waits on.
 - `shutdown_request` to each phase worker after its report is accepted.
 - Step 5's `git push --tags` at `:496` and `:533` replaced with the `rules/git.md` sequence, routed through `pr-open` where a PR is involved. Both sites: fixing only the live one leaves the summary box lying.
-- **Success criteria:** `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` returns zero lines; the audit-offering sentence at `:456` is gone; a multi-phase run dispatches review-panel with no user prompt between the last phase and the dispatch; **the transcript of that run shows one beat per teammate wake, naming the phase and elapsed time** (without this assertion the phase can pass with the heartbeat unbuilt); each completed worker receives a `shutdown_request`.
+- **Success criteria:** `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` returns zero lines; the audit-offering sentence at `:456` is gone; a multi-phase run dispatches review-panel with no user prompt between the last phase and the dispatch; **the transcript of that run shows one beat per teammate wake, naming the phase and elapsed time** (without this assertion the phase can pass with the heartbeat unbuilt); **after the run, `ListAgents` shows no phase worker** (the effect, not the send).
 
 ### Phase 11: `release-driver` owns the back half
 **Model:** opus
@@ -436,7 +456,11 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 
 ## Acceptance Criteria
 
-Every criterion names a literal command. Per the ready-to-build gate, each was run against current `main` on 2026-09-17 and its output recorded beneath it, EXCEPT where the criterion's subject does not exist yet: those say so, name the phase, and record what was run in its place. Five were executed as written (1, 2, 4, 5, 8); three record a substitute (3 a pin, 6 a registration probe, 7 a fixture build).
+Every criterion names a literal command. Per the ready-to-build gate, each was run against current `main` on 2026-09-17 and its output recorded beneath it, EXCEPT where the criterion's subject does not exist yet: those say so, name the phase, and record what was run in its place.
+
+- **Executed as written, full criterion:** 1, 4, 8.
+- **Executed in part** (the half that exists today): 2 (the `bloat` stanza standalone, not full `otto ci`), 5 (the string check, not the allow/deny pair), 6 (the `jq` probe).
+- **Substitute recorded, criterion not runnable yet:** 3 (baseline pinned, and round 2 showed the pin is stale against today's guard), 7 (fixtures built and all three matcher variants measured).
 
 - [ ] **1. The cache answers the DM question.** `jq -r 'has("dms")' ~/.cache/slack/ids.json` returns `true` and `jq -r '.dms|length'` returns a count greater than zero.
   - `Observed on main: false`. Correctly failing: `dms` does not exist yet. Ships in Phase 2, and the count requires the INSTALLED binary, not a merged PR.
@@ -455,11 +479,14 @@ Every criterion names a literal command. Per the ready-to-build gate, each was r
   - The string check alone measures a deletion, not the behavior; round 1 flagged that. The allow/deny pair is what bites.
   - `Observed on main:` the string check returns two lines, `:334` (the live call) and `:342` (the dry-run echo). Correctly failing. Ships in Phase 9.
 
-- [ ] **6. The new hook is registered and resolves.** `rg -c 'UserPromptSubmit' HOME/.claude/settings.json` returns at least 1, AND `hooks-preflight.sh` emits no `unresolved hook(s)` string naming it.
-  - **Rewritten after round 1: the original ("`hooks-preflight.sh` exits 0") was not falsifiable.** Every path in that script exits 0: `:22` and `:24` bail 0, and the unresolved-hooks branch at `:40-46` emits a warning then falls through to `exit 0` at `:48`. It is true with the hook absent, with `settings.json` unreadable, and with every hook unresolvable.
-  - `Observed on main:` `rg -c 'UserPromptSubmit' HOME/.claude/settings.json` exits 1 with zero matches. Correctly failing. Ships in Phase 7.
+- [ ] **6. The new hook is registered and resolves.** `jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' HOME/.claude/settings.json` lists the hook's executable path, AND that path exists and is executable.
+  - **Rewritten twice.** Round 1 killed "`hooks-preflight.sh` exits 0": every path in that script exits 0, including the unresolved-hooks branch at `:40-48`. Round 2 killed the replacement too: `rg -c 'UserPromptSubmit'` returns 1 against `{"hooks":{"UserPromptSubmit":[]}}`, so it passed with zero hooks installed, and "preflight emits no warning naming it" is vacuously true when the hook does not exist. The criterion now asserts the executable, not the event-name string.
+  - `Observed on main:` the `jq` returns empty; no `UserPromptSubmit` key exists. Correctly failing. Ships in Phase 7.
 
-- [ ] **7. The matcher separates the classes.** Against `phase0/inline-token/fixtures.json`, zero of the 1,421 `label != "survivor"` records match, and at least 554 of the 583 `label == "survivor"` records match (95%).
+- [ ] **7. The matcher separates the classes.** Against `phase0/inline-token/fixtures.json`, with Phase 6's deny list applied: at least 554 of the 571 remaining survivors match, and the ONLY false positives are the two enumerated clipped-window records below.
+  - **The 0-false-positive form was unachievable and is restated rather than moved.** `fixtures.json` stores a 100-char window by design, so a delimiter that opened outside the window is clipped away and the span logic is asked to close something it cannot see. 375 of the 832 `code-span` records have odd backtick parity in their window.
+  - The two permitted residuals, both `/handoff`, both with an unbalanced delimiter in-window: `'he \`last-prompt\` record carries the human-readable form (\`\\"/handoff to the next agent...'` and `'-args>\`; the \`last-prompt\` record carries the human form (\`"/handoff to the next agent...'`. Any third false positive fails the criterion.
+  - The denominator does not move: same pinned file, same 2,004 records.
   - Substitute run, since no matcher exists: the fixtures were materialized and verified at `total 2004 survivors 583 false-positives 1421`, class split `code-span 832, path-glued 544, url 36, path-continues 8, filename-ext 1`. The criterion itself ships in Phase 5.
   - **Round 1 added the case that matters:** a faithful `dSt` port scores 0 of 583, because `dSt` excludes a match preceded by `/`. The criterion is unchanged; the trap is now named in Phase 5.
 
@@ -479,6 +506,13 @@ Every criterion names a literal command. Per the ready-to-build gate, each was r
 - **2026-09-17 (round 1): mechanism A does not rest on a `source` discriminator**, because none exists on the payload and the hook fires on injected prompts too. This repo's own chunk C evidence had measured that three chunks ago.
 - **2026-09-17 (round 1): the Stop-hook backstop is withdrawn at the dispatch boundary.** A block there is discarded because the turn ended by tool result. The heartbeat rests on the teammate-report wake, and mid-phase silence is named as an accepted limit rather than designed away.
 - **2026-09-17 (round 1): the 82%-silent figure is not load-bearing and is stated qualitatively.** It did not reproduce under an exact worker-name join. The item 8 decision rests on `652/0`, which is exact.
+- **2026-09-17 (round 2): the matcher requires a boundary before the slash.** Requiring `/` alone accepts every slash-separated word list in prose: 195 false positives of 1,421. Measured at 561/195, 560/7 with the boundary rule, 554/571 survivors and 2 false positives once Phase 6's deny list applies.
+- **2026-09-17 (round 2): criterion 7's zero-false-positive form was unachievable and is restated, not moved.** The fixtures store a 100-char window, so 375 of 832 `code-span` records have a clipped delimiter. The two permitted residuals are enumerated; a third fails.
+- **2026-09-17 (round 2): `release` does not call `pr-open` internally.** A subprocess call leaves `gh` invisible to PreToolUse exactly as `--fill` does. `release` stops and hands the literal command back; the caller runs it.
+- **2026-09-17 (round 2): the rollout condition names resident MCP writers, not just the installed binary.** An old writer ERASES `dms` (not `deny_unknown_fields`, wholesale `save()`, and the repo already tests the erasure), and `slack mcp serve` is long-running, so replacing the binary does not replace resident code.
+- **2026-09-17 (round 2): the cold-miss backstop invokes an absolute path.** `/usr/bin/slack` and `/bin/slack` on this machine are the Slack desktop app.
+- **2026-09-17 (round 2): `channel_display_name` takes the signature change.** An earlier draft left it optional, which is how a specified behavior quietly becomes unbuilt.
+- **2026-09-17 (measured while folding round 2): `rowsFinal.json` is evidence, not a comparison arm.** Today's guard scores the same corpus differently (`216/26/9/0` pinned vs `236/34/8/9` today), because the guard gained a multi-statement rule after the baseline was made. Phase 0a re-pins.
 - **2026-09-16 and earlier:** every Addendum A decision stands unchanged. The fill is eager with a lazy backstop; `dms` is a new map; no `CURRENT_SCHEMA` bump; no watermark, Extend only; `CHANNEL_TYPES` unchanged; the 18 legacy keys are left alone.
 
 ## Alternatives Considered
@@ -507,7 +541,7 @@ Every criterion names a literal command. Per the ready-to-build gate, each was r
 |---|---|---|---|
 | The `dms` merge arm is omitted and every write is silently dropped | Med | High | Phase 1's survives-upsert test, written to fail against a build without the arm and PROVEN to fail |
 | Phase 4 tightens against an empty `dms` and denies every DM post | Med | High | Phase 3 gates on an INSTALLED binary, not a merged PR; the cold-miss backstop covers the residue |
-| Phase 0c finds no synchronous cell and Phase 10 has no mechanism | Med | Med | The legible-wait design needs no synchrony; the Stop-hook backstop is the fallback and `prose.sh` proves the seam |
+| Phase 0c finds no synchronous cell and Phase 10 has no mechanism | Med | Med | The legible-wait design needs no synchrony, so 0c's answer does not block it. **There is no Stop-hook fallback at the dispatch boundary**: that block is discarded (`:210`). The heartbeat is prose, asserted in a transcript by Phase 10's criterion, and mid-phase silence stays an accepted limit |
 | The inline-token hook fires on discussion and wastes a turn | High | Low | Mechanism A's output is ignorable context; measured at 34% of survivors and accepted in writing |
 | `pr-open` satisfies the gates in test and drifts later | Low | Med | Phase 9 tests against the LIVE hooks in both directions, allow and deny |
 | The harvested harness is edited and the denominator moves | Low | Med | `rowsFinal.json` is pinned and committed; Phase 0a records its md5 |

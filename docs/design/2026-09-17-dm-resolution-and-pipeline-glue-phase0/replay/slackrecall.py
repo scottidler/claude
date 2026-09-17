@@ -13,6 +13,7 @@ extractor, writes a one-record transcript carrying it, and asks the guard.
 """
 import json, os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,7 @@ WRITE_TOOLS = {
 RELAY = "Another Claude session sent a message:"
 
 
-WINDOW = 12
+WINDOW = 3
 
 
 def typed_prompt(records, upto):
@@ -49,30 +50,57 @@ def typed_prompt(records, upto):
     return best[-WINDOW:]
 
 
-# PATCHED 2026-09-17 (panel round 1, MF-5). The harvested original pointed at
-# $HOME/.cache/slack/sent-ledger, which is the LIVE ledger the shipped guard uses
-# (slack-post-guard.sh:113) and the only thing ruling out duplicate posts. A 216-row
-# replay rmtree'd it once per row, destroying live duplicate-post protection 216 times.
-# It now defaults to a scratch dir and REFUSES to run against the live path.
-LEDGER = pathlib.Path(os.environ.get("REPLAY_LEDGER", "/tmp/replay-sent-ledger"))
-if LEDGER == pathlib.Path.home() / ".cache/slack/sent-ledger":
-    raise SystemExit("refusing to replay against the LIVE sent-ledger; unset REPLAY_LEDGER")
+# PATCHED 2026-09-17, REWRITTEN after panel round 2 (M1). The round-1 patch was
+# wrong four ways and is not the shape to return to. History, so nobody re-derives it:
+#
+#   original    rmtree'd $HOME/.cache/slack/sent-ledger once per row. That is the LIVE
+#               ledger (slack-post-guard.sh:113), so a 216-row replay destroyed live
+#               duplicate-post protection 216 times.
+#   round-1 fix pointed a REPLAY_LEDGER env var at a scratch path. USELESS: the guard
+#               hard-codes LEDGER at :113 and reads no such variable, so the guard kept
+#               writing 216 reservations into the LIVE ledger while the per-row reset
+#               stopped touching the ledger the guard actually used. It also turned
+#               `REPLAY_LEDGER=` (set, empty) into rmtree('.'), and its lexical
+#               equality check was bypassed by `..` or a symlinked parent.
+#
+# The guard touches $HOME in exactly three places: IDS (:112), LEDGER (:113) and a `~/`
+# body-file expansion (:248). So HOME is the isolation seam the guard already has, and
+# no env var it does not read, and no edit to the guard, is required. We hand the
+# subprocess a scratch HOME holding a COPY of the ids cache. The ledger then lives and
+# dies inside the scratch dir, and the live one is never opened.
+#
+# Note for whoever reads a count: the `~/` expansion at :248 moves with HOME, so a
+# body-file path spelled `~/...` resolves differently under replay. The 17 known
+# artifact rows are $S/$TMPDIR//tmp paths and are excluded from the TARGET count
+# anyway; Phase 0a confirms the baseline still reproduces at 26 / 9 / 17.
+
+REPLAY_HOME = pathlib.Path(tempfile.mkdtemp(prefix="replay-home-"))
+(REPLAY_HOME / ".cache/slack").mkdir(parents=True, exist_ok=True)
+_live_ids = pathlib.Path.home() / ".cache/slack/ids.json"
+if _live_ids.exists():
+    shutil.copy2(_live_ids, REPLAY_HOME / ".cache/slack/ids.json")
+LEDGER = REPLAY_HOME / ".cache/slack/sent-ledger"
+assert LEDGER != pathlib.Path.home() / ".cache/slack/sent-ledger"
 
 
 def verdict(payload):
     # A fresh ledger per post. Replaying a year of traffic in one minute makes
     # every repeated body look like a resend, which it was not: those posts were
     # hours or weeks apart and the entries expire in an hour.
-    import shutil
     shutil.rmtree(LEDGER, ignore_errors=True)
+    env = dict(os.environ, HOME=str(REPLAY_HOME))
     out = subprocess.run(["bash", GUARD], input=json.dumps(payload),
-                         capture_output=True, text=True).stdout
+                         capture_output=True, text=True, env=env).stdout
+    # `{}` IS the guard's allow (slack-post-guard.sh:139 `allow() { echo '{}'; exit 0; }`),
+    # so an absent hookSpecificOutput is a PASS, not a parse failure. The round-1 patch
+    # raised on it and died on the first of the baseline's 190 allows.
     try:
-        d = json.loads(out)["hookSpecificOutput"]
+        parsed = json.loads(out)
     except Exception:
-        # PATCHED 2026-09-17 (panel round 1, MF-5). The original scored a crashed or
-        # malformed guard as an ALLOW, so a broken variant measured as permissive.
         raise SystemExit(f"guard produced unparseable output: {out!r}")
+    d = parsed.get("hookSpecificOutput")
+    if d is None:
+        return "allow", ""
     if d.get("permissionDecision") != "deny":
         return "allow", ""
     return "deny", d.get("permissionDecisionReason", "")
