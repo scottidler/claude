@@ -199,5 +199,46 @@ class LiveStateTest(unittest.TestCase):
         self.assertNotIn("platform:argocd-ops", skills)
 
 
+class AcceptanceCriterionSevenTest(unittest.TestCase):
+    """The doc's acceptance criterion 7, which spans Phases 5 and 6.
+
+    Neither phase owned it, so neither tested it, and the first cut failed it
+    at 551/571 while both phases reported their own criteria green. It is
+    scored here because the criterion is stated "with Phase 6's deny list
+    applied". Per-record at its own occurrence, never across the window.
+    """
+
+    FIXTURES = (
+        Path(__file__).resolve().parents[4]
+        / "docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/inline-token/fixtures.json"
+    )
+
+    def _score(self) -> tuple[int, int, int]:
+        from inline.matcher import matches
+
+        with open(self.FIXTURES, encoding="utf-8") as f:
+            records = json.load(f)
+        kept = hit = false_positives = 0
+        for record in records:
+            if not resolve(record["token"]):
+                continue
+            matched = matches(record["context"], record["offset"], record["token"])
+            if record["label"] == "survivor":
+                kept += 1
+                hit += bool(matched)
+            elif matched:
+                false_positives += 1
+        return hit, kept, false_positives
+
+    def test_survivors_clear_the_floor(self) -> None:
+        hit, kept, _ = self._score()
+        self.assertEqual(kept, 571, "the deny list must leave the doc's 571 survivors")
+        self.assertGreaterEqual(hit, 554, f"criterion 7 floor is 554, got {hit}/{kept}")
+
+    def test_at_most_the_two_permitted_false_positives(self) -> None:
+        _, _, false_positives = self._score()
+        self.assertLessEqual(false_positives, 2, "criterion 7 permits only the two clipped-window records")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 """Inline `/token` matcher: the standalone scoring primitive for E7.
 
-Ports the shipped `dSt` function's span and trailing-neighbor rules (quote,
+Ports the shipped `dSt` function's span and trailing-neighbor rules (url,
 bracket, angle and code-span exclusion; the `/`, `\\`, `-`, `?` and
 `.`+alphanumeric trailing disqualifiers) and INVERTS its leading-neighbor
 rule: `dSt` was built to match a BARE keyword and exclude a slash-prefixed
@@ -70,38 +70,6 @@ def _url_spans(text: str) -> list[tuple[int, int]]:
     return [m.span() for m in _URL.finditer(text)]
 
 
-def _is_apostrophe(text: str, i: int) -> bool:
-    """True for the `'` in "isn't", false for a real quote delimiter."""
-    prev = text[i - 1] if i > 0 else ""
-    nxt = text[i + 1] if i + 1 < len(text) else ""
-    return prev.isalnum() and nxt.isalnum()
-
-
-def _quote_spans(text: str) -> list[tuple[int, int]]:
-    spans: list[tuple[int, int]] = []
-    double_open = None
-    single_open = None
-    for i, ch in enumerate(text):
-        if ch == '"':
-            if double_open is None:
-                double_open = i
-            else:
-                spans.append((double_open, i + 1))
-                double_open = None
-        elif ch == "'" and not _is_apostrophe(text, i):
-            if single_open is None:
-                single_open = i
-            else:
-                spans.append((single_open, i + 1))
-                single_open = None
-    # An opening quote with no close in the window is clipped, not absent.
-    if double_open is not None:
-        spans.append((double_open, len(text)))
-    if single_open is not None:
-        spans.append((single_open, len(text)))
-    return spans
-
-
 def _bracket_spans(text: str) -> list[tuple[int, int]]:
     stack: list[tuple[str, int]] = []
     spans: list[tuple[int, int]] = []
@@ -155,7 +123,13 @@ def matches(context: str, offset: int, token: str) -> bool:
     if context[offset + 1 : end] != token:
         raise ValueError(f"token {token!r} does not start at offset+1 in {context!r}")
 
-    spans = _url_spans(context) + _code_spans(context) + _quote_spans(context) + _bracket_spans(context)
+    # No quote-span exclusion, deliberately. Suppressing a token inside quoted
+    # prose IS the lexical suppressor for the discussion class that the design
+    # doc rejects (Alternative 6): mechanism A's wrong-match cost is one
+    # ignorable line, so a quoted `/babysit` is accepted as a wrong fire rather
+    # than designed away. It also cost 13 labeled survivors and put acceptance
+    # criterion 7 out of reach at 551/571 against a floor of 554.
+    spans = _url_spans(context) + _code_spans(context) + _bracket_spans(context)
     if _within_any_span(offset, end, spans):
         logger.log(TRACE, "matches: token=%s offset=%d result=False reason=in-span", token, offset)
         return False

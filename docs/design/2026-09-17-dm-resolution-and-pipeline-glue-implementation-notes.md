@@ -492,3 +492,52 @@ append-only.
 
 ### Open questions
 - None.
+
+## Audit fix: the quote-span exclusion, and acceptance criterion 7
+
+Found by the orchestrator scoring criterion 7 after Phase 6 landed. Both phases reported their
+own criteria green and both were telling the truth; the criterion that failed belongs to
+neither of them.
+
+### Design decisions
+- **Removed the quote-span exclusion from `inline/matcher.py`.** It suppressed any token inside
+  quoted prose, which is the **lexical suppressor for the discussion class that the doc rejects
+  in Alternative 6** ("unnecessary under mechanism A, whose wrong-match cost is one ignorable
+  line"), and which the Resolved Decision of 2026-09-17 already settled ("a wrong inline-token
+  match is acceptable"). Every one of the 13 survivors it cost is a quoted mention, which is
+  exactly the class the doc accepts wrong fires on.
+- **Scored acceptance criterion 7 across both phases.** It reads "with Phase 6's deny list
+  applied", so it cannot be measured until Phase 6 exists, and Phase 5 could not have caught it.
+- **Added `AcceptanceCriterionSevenTest` to `inline/resolve_tests.py`**, so the seam is now in
+  CI rather than depending on someone remembering to score it by hand. That is the structural
+  remedy; "check it at finalization" would not be one.
+- **Added `test_a_token_inside_quoted_prose_still_matches`** to pin the Alternative 6 decision,
+  so a quote rule cannot creep back silently.
+
+### Deviations
+- **This edits Phase 5's committed code from outside Phase 5.** The alternative was to leave a
+  failing acceptance criterion for finalization, which is the defect class the executor's own
+  step 0.5 exists to prevent. The phase commit stands; this rides as its own commit.
+
+### Tradeoffs
+- There was no tradeoff to weigh, which is why this was folded rather than escalated. Removing
+  the rule improved every measured number and broke none:
+
+  | measure | with the quote rule | without it | requirement |
+  |---|---|---|---|
+  | criterion 7 survivors | 551/571 **FAIL** | **564/571** | >= 554 |
+  | criterion 7 false positives | 0 | 0 | <= 2 |
+  | Phase 5 survivors | 551/583 (95.37%) | **569/583 (97.60%)** | >= 95% |
+  | Phase 5 false positives | 0/1421 | 0/1421 | 0 |
+  | `(/status, /deployed, /version)` | no matches | no matches | zero |
+  | `a "name()/help arm,"` | no matches | no matches | zero |
+
+- Ruled out the bracket-span rule first rather than assuming: it costs only 2 survivors, and
+  with it disabled the score reaches 553, still under the floor, while Phase 5's criterion 3
+  breaks. So the brackets were never the cause.
+
+### Open questions
+- **For Scott, and it is reversible.** A quoted `/babysit` now fires the skill. That is the
+  doc's stated position (Alternative 6, and the 34% discussion class accepted in writing), not a
+  preference of mine. If you would rather suppress quoted prose, that is a doc change to
+  Alternative 6 first, and criterion 7's floor has to move with it.

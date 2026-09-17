@@ -105,9 +105,23 @@ class SpanExclusionTest(unittest.TestCase):
         offset = _slash_offset(context, token)
         self.assertFalse(matches(context, offset, token))
 
-    def test_apostrophe_is_not_a_quote_open(self) -> None:
+    def test_an_apostrophe_does_not_suppress_a_later_token(self) -> None:
         context = "it isn't done, /status shows why"
         token = "status"
+        offset = _slash_offset(context, token)
+        self.assertTrue(matches(context, offset, token))
+
+    def test_a_token_inside_quoted_prose_still_matches(self) -> None:
+        """Pins the Alternative 6 decision so a quote rule cannot creep back.
+
+        A quoted mention is the discussion class, and the doc accepts a wrong
+        fire there rather than building a lexical suppressor for it. A quote
+        span exclusion shipped in the first cut of this phase, cost 13 labeled
+        survivors, and put acceptance criterion 7 at 551/571 against its floor
+        of 554.
+        """
+        context = 'he asked "what the fuck does /babysit mean" that day'
+        token = "babysit"
         offset = _slash_offset(context, token)
         self.assertTrue(matches(context, offset, token))
 
