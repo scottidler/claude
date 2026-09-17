@@ -299,3 +299,44 @@ Commit: `tatari-tv/slack-cli` branch `dms-cache-and-fill`, on top of Phase 1's `
 - None for Phase 2. One thing for the operator, already in the doc's "Operator steps": Phase 3
   needs the INSTALLED binary (`cargo install`) and every resident `slack mcp serve` restarted,
   since an old writer drops `dms` on `save()`.
+
+## D2 release: the bump, and Phase 2's SHA change
+
+Supersedes the SHA recorded in the Phase 2 section above. That section is left as written, per
+append-only.
+
+### Design decisions
+- **`bump --no-tag -m`, minor rather than patch.** `rules/git.md` defaults to patch "unless the
+  design doc describes a breaking change", but both commits are `feat(cache)` and they add a
+  user-visible verb (`slack cache resolve`) plus a new persisted cache field. Additive and
+  non-breaking, which is the semver definition of a minor. `0.13.1 -> 0.14.0`.
+- **D2 ships as its own PR, separate from chunk E.** Scott, 2026-09-17: "if you want for D2 sep
+  from E, fine. do it." The doc already permits it: "E7 and E8 are single-repo and independent of
+  D2. They can land in any order relative to it."
+- PR: `feat(cache): dms cache and fill`,
+  https://github.com/tatari-tv/slack-cli/pull/51. Title slugifies to `dms-cache-and-fill`,
+  which is the branch, per `branch-pr-title-guard.sh`.
+
+### Deviations
+- **Phase 2's commit is `6d9af3f`, not the `6deb4c8` recorded above.** `bump --no-tag` **amends**
+  the tip commit rather than adding a version commit, so Phase 2's commit now also carries
+  `Cargo.toml` and `Cargo.lock` at 0.14.0 and its message does not mention the bump. That is the
+  tool's designed behavior for a gated repo and the doc wants the bump riding the PR, so it was
+  kept rather than unwound. Recorded because the audit will otherwise find a phase commit
+  carrying an unexplained version change, and because the SHA above no longer resolves.
+- **Two pre-existing untracked files were parked in a stash across the bump and restored**:
+  `docs/2026-09-15-watch-token-recovery-handoff.md` and
+  `docs/2026-09-16-dm-resolution-handoff.md`. Neither is ours and one is cited in the design doc's
+  References. `bump` runs `git add -A`, and its PreToolUse guard refuses a dirty tree for exactly
+  that reason, so the choice was park-and-restore rather than commit them into a version commit or
+  delete them. Both are back, untracked, and Scott's unrelated `stash@{0}` was never touched.
+
+### Tradeoffs
+- Pushed and opened the PR from this session rather than handing Scott the commands. He approved
+  it explicitly ("do it"). The `git push` itself had to run with the sandbox off: SSH cannot read
+  `~/.ssh` under it and fails `Host key verification failed`.
+
+### Open questions
+- None. Next gate is human: one CODEOWNER approval on
+  https://github.com/tatari-tv/slack-cli/pull/51, then `cargo install` and a restart of every
+  resident `slack mcp serve` before Phase 3 starts.
