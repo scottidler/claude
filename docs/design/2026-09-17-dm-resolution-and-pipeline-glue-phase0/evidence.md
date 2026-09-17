@@ -388,6 +388,23 @@ One procedural note, since `SendMessage`'s own guidance says "Don't originate
 `shutdown_request` unless asked": this doc's Phase 0d asks for it by name, and Phase 10's
 design rests on the answer. That is the standing ask.
 
+### 0d addendum: the protocol half, which arrived after the effect
+
+Recorded for completeness. The gate asked for the effect and the effect is above; these two
+deliveries landed a few turns later and confirm the mechanism rather than the outcome:
+
+```
+{"type":"shutdown_approved","requestId":"shutdown-1789667726041@Phase1","from":"Phase1",
+ "timestamp":"2026-09-17T17:55:30.397Z","backendType":"in-process"}
+{"type":"teammate_terminated","message":"Phase1 has shut down."}
+```
+
+Request sent at `...726041` and approved at `17:55:30`. Two things worth Phase 10's attention:
+the approval is **asynchronous**, so a reaping instruction must not assert the roster
+immediately after sending and call a still-present worker a failure; and the worker was
+already absent from `ListAgents` before `shutdown_approved` arrived, so the roster is the
+faster signal and remains the right assertion.
+
 ## Phase 0: summary
 
 | spike | verdict | effect on the plan |
