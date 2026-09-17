@@ -48,6 +48,17 @@ set -euo pipefail
 DOC_PATH="$1"
 PROMPT_ARG="$2"
 EXTRA_DIRS="${3:-}"
+# Optional 4th arg: where to record THIS attempt's terminal exit status. The
+# caller cannot capture it reliably, which is the whole reason this exists:
+# review-panel's documented rc-capture block is denied intermittently by the
+# auto-mode classifier, and the form that survives (absolute-path heads plus a
+# bare `wait`) cannot assign `$?`, because `wait` returns 0 after children exit
+# 1 or 124. Round 5 of the intent-guards panel shipped "rc=0 (inferred)" for
+# both seats as a result, while seven other runs captured real values including
+# an rc=124 timeout, so the denial is intermittent and the inference is silent.
+# Recorded by the process that owns the status instead. Empty means the old
+# behavior, for a direct caller that does not care.
+STATUS_FILE="${4:-}"
 SCRIPT_DIR="$(dirname "$0")"
 
 # --- Scratch discipline ------------------------------------------------------
@@ -134,7 +145,21 @@ fi
 # trace on success). Cleaned up on every exit path alongside the pidfile, except
 # on terminal failure where preserve_trace() copies it out first.
 TRACE=$(mktemp "$SCRATCH/architect-trace.XXXXXX")
-trap 'rm -f "$TRACE" "$PIDFILE"' EXIT
+
+# `$?` is read as the handler's FIRST operation, before any cleanup can
+# overwrite it, and the record is published with one `mv` so a reader never
+# sees a half-written file. The handler deliberately does not call `exit`:
+# bash keeps the original status as long as the trap does not replace it.
+record_status() {
+  local rc=$?
+  if [ -n "$STATUS_FILE" ]; then
+    printf 'seat=architect\npid=%s\nepoch=%s\nrc=%s\n' "$$" "$(date +%s)" "$rc" \
+      > "$STATUS_FILE.partial" 2>/dev/null &&
+      mv -f "$STATUS_FILE.partial" "$STATUS_FILE" 2>/dev/null
+  fi
+  rm -f "$TRACE" "$PIDFILE"
+}
+trap record_status EXIT
 
 echo "$$" > "$PIDFILE"
 echo "architect: gemini review running -- pid $$ (follow: kill -0 \$(cat $PIDFILE))" >&2

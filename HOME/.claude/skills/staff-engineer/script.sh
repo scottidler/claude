@@ -51,6 +51,14 @@ set -euo pipefail
 DOC_PATH="$1"
 PROMPT_ARG="$2"
 EXTRA_DIRS="${3:-}"
+# Optional 4th arg: where to record THIS attempt's terminal exit status. Symmetry
+# with architect/script.sh, and the same reason. The caller cannot capture it
+# reliably: review-panel's documented rc-capture block is denied intermittently
+# by the auto-mode classifier, and the accepted form (absolute-path heads plus a
+# bare `wait`) cannot assign `$?`, since `wait` returns 0 after children exit 1
+# or 124. This seat is the one that most needs it, because its 10-minute inner
+# cap makes rc=124 a routine outcome that the caller was reporting as rc=0.
+STATUS_FILE="${4:-}"
 SCRIPT_DIR="$(dirname "$0")"
 
 # --- Scratch discipline ------------------------------------------------------
@@ -143,7 +151,21 @@ $PROMPT"
 # capped tail and preserve the whole trace on disk.
 LAST_MSG=$(mktemp "$SCRATCH/staff-engineer-last.XXXXXX")
 TRACE=$(mktemp "$SCRATCH/staff-engineer-trace.XXXXXX")
-trap 'rm -f "$LAST_MSG" "$TRACE" "$PIDFILE"' EXIT
+
+# `$?` is read as the handler's FIRST operation, before any cleanup can
+# overwrite it, and the record is published with one `mv` so a reader never
+# sees a half-written file. The handler deliberately does not call `exit`:
+# bash keeps the original status as long as the trap does not replace it.
+record_status() {
+  local rc=$?
+  if [ -n "$STATUS_FILE" ]; then
+    printf 'seat=staff-engineer\npid=%s\nepoch=%s\nrc=%s\n' "$$" "$(date +%s)" "$rc" \
+      > "$STATUS_FILE.partial" 2>/dev/null &&
+      mv -f "$STATUS_FILE.partial" "$STATUS_FILE" 2>/dev/null
+  fi
+  rm -f "$LAST_MSG" "$TRACE" "$PIDFILE"
+}
+trap record_status EXIT
 
 echo "$$" > "$PIDFILE"
 echo "staff-engineer: codex review running -- pid $$ (follow: kill -0 \$(cat $PIDFILE))" >&2
