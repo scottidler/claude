@@ -117,3 +117,67 @@ Append-only. Design doc: `docs/design/2026-09-17-dm-resolution-and-pipeline-glue
 ### Open questions
 - None. 0c's own question ("does the payload carry `tool_input.name`") is answered yes, so
   Phase 10's guard on the named form is possible.
+
+## Phase 1: `slack-cli` gains `dms` on the cache
+
+Commit: `873e417` on `dms-cache-and-fill` (`tatari-tv/slack-cli`), one commit, `otto ci` exit 0.
+
+### Design decisions
+- **The merge arm collapses both `Merge` variants**, per the doc's Data Model listing, rather than
+  `unreachable!` on `Replace`: `Merge::Extend | Merge::Replace => current.dms.extend(...)` at
+  `src/slack/cache.rs:439-446`. `unreachable!` would panic a caller into oblivion for a policy the
+  type system permits, and this way a future sibling sync that copies a neighboring constant gets
+  the extend semantics the immutable-edge argument assumes, not a silent wholesale replace. The
+  comment says exactly that, so the collapse is not read later as laziness.
+- **`dms_write_survives_upsert` asserts on the RELOADED file**, not the returned value
+  (`src/slack/cache/tests.rs`). A `merge_and_save` missing the arm still returns a cache whose
+  `dms` came from `current`, so a weaker assertion on the return value would pass without the arm
+  and be worthless. Proven: see Success criteria below.
+- **Added `dms_extends_under_every_full_sync_policy`** beyond what the phase asked for. Sites 1
+  through 3 fail to compile if a constant is missing the field, but nothing makes a constant
+  written as `Merge::Replace` fail to compile, and `Replace` is exactly the behavior the design
+  rejected. The test asserts the surviving edge through all three full syncs.
+- **`sample()` in `cache/tests.rs` gained a `dms` entry** rather than an empty map, so
+  `round_trip_serialize_deserialize` and `json_shape_matches_design` cover the new key for free,
+  and so the survives-upsert test's extend half has a pre-existing edge to preserve.
+- **The `users` invariant test lives in `src/command/read/tests.rs`**, not `cache/tests.rs`. The
+  sole writer is `command::read::enrich` (`read.rs:561`), verified by grep across all non-test
+  source, so the test must drive the writer and not the cache. It reads a DM target (`D0123456789`
+  satisfies `looks_like_channel_id`, and `conversations.info` returns no `name` for an `im`, which
+  is the exact shape that tempts an opportunistic `D…` write), then asserts every `users` key
+  starts with `U` and that the DM id is absent. It also asserts `dms` is still empty, which is a
+  true statement of Phase 1's scope: the map, not the fill.
+- **`adding_dms_does_not_change_current_schema` pins `CURRENT_SCHEMA == 2`** so the no-bump
+  decision is enforced by CI rather than remembered from the doc.
+- **The `read()` debug log was left alone.** It enumerates `channels`/`users`/`subteams` and
+  already omits `handles`/`profiles`; it is not one of the doc's six sites, and `merge_and_save`'s
+  entry and exit logs (sites 5 and 6) are what diagnose a dropped `dms` write.
+
+### Deviations
+- **`MergePolicy`'s own doc comment was also fixed** (`cache.rs:318-323`), not just the specified
+  `merge_and_save` comment at the old `:350-354`. It read "How a merge folds `handles` and
+  `channels` respectively", which was already false for `subteams` and `profiles` and is the doc
+  comment attached to the struct site 2 edits. Same class of fix as the one the phase named, on a
+  site this phase changes anyway.
+- **`IdCache`'s own doc comment at `cache.rs:55-57` was NOT fixed and is still stale.** It renders
+  the on-disk shape as `{channels, users, handles, self}`, omitting `subteams`, `profiles` and now
+  `dms`. Fixing it is not in Phase 1's scope and is listed as an open question rather than folded
+  in silently.
+- **A `dms` entry in `sample()` changes two existing tests' fixtures** (`round_trip`,
+  `json_shape_matches_design`, the latter gaining one assertion). Additive, no existing assertion
+  was weakened or removed.
+
+### Tradeoffs
+- Collapsed match arm vs `unreachable!` on `Replace`: chose the collapse because the failure mode
+  of the alternative is a runtime panic on a type-legal input, and the doc offered either.
+- `dms` placed after `profiles` in the struct (the doc's site 1 said "after `cache.rs:117`", which
+  is the `profiles` field) rather than beside `self_`, so the serialized key order groups it with
+  the other id-maps ahead of the watermarks.
+- The `users`-invariant test drives the full `read` command through mockito rather than calling
+  `enrich` directly: more moving parts, but it exercises the actual DM path where a `D…` key would
+  be introduced, which a direct `enrich` call cannot reach.
+
+### Open questions
+- **`IdCache`'s doc comment (`src/slack/cache.rs:55-57`) still lies about the on-disk shape**,
+  omitting `subteams`, `profiles` and `dms`. Left untouched as out of Phase 1's scope. Fold it into
+  Phase 2 (which already edits this area) or leave it: Scott's call.
