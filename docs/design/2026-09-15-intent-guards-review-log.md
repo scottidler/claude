@@ -206,3 +206,47 @@ Pattern now five for five: **every round has found at least one rule whose state
 And the fold-is-where-defects-enter pattern held again from the other side: M4 was found during this fold, not by either seat. A fold is done when every place the doc states the same fact has been walked, and this time that included the merge sites the field addition implied.
 
 One process note, handed on rather than fixed here: `review-panel.md` Step 3's documented rc-capture block was denied four times by the auto-mode classifier, the tilde-path head being what trips it since it matches a `sandbox.excludedCommands` pattern. The form that ran was absolute-path heads plus bare `wait`, which cannot assign `$?`, so both seat exit codes are inferred from output rather than captured. That belongs to whichever chunk owns agent definitions.
+
+## Round 6, 2026-09-16: the implementation audit (Mode 2)
+
+The first implementation audit this doc has had. Rounds 1 through 5 were all design reviews. Ordered by Scott, and it needed `PANEL_ROUNDS_ORDERED_BY_SCOTT=6` for a mechanical reason worth recording: `panel-round-guard.sh` derives mode from the doc's `Status:` line, so once the status changed from `Implemented` to `Partially implemented` a Mode 2 audit keys as a design-review round. A partially-implemented doc cannot get an audit without spending the design-review cap. That is a guard defect, not a policy, and it belongs to whichever chunk owns `panel-round-guard.sh`.
+
+Scoped to Phases 0 through 7. Addendum A was explicitly out of scope. Verdict: **not clean.** 7 must-fix, 4 cheap wins, 4 defers, 8 of 8 questions answered. Wiring and registration were clean, all six registrations present and correctly matched, all five hook files resolving through the symlinks, and four of six acceptance criteria held.
+
+**Five of the eight shipped rules carried a live deny-to-allow bypass, and four of them trace to one question the code never answered consistently: which copy of the command a predicate reads.** That is the same class as chunk B's single-quoted-verb hole, which this chunk fixed in its own Phase 1, reappearing in five new places.
+
+Every must-fix was reproduced independently before folding. The fixes landed as `35e4d35` and `5156d60`.
+
+- **M1. GH-WRITE allowed the attached long body form.** `--field=name=x`, `--raw-field=name=x`, `--input=p.json` all allowed while the separated form denied. `is_value_flag` / `is_body_flag` are exact-token tests, and `gh` accepts the attached spelling (verified live), so the call read as a bare GET. Fixed by splitting on the first `=` before testing.
+- **M2. SECRET allowed a single-quoted credential path.** The artifact pre-filter gated on `$masked`, which has `mask_squote` applied, so the path was erased before the filter saw it and the whole branch was skipped. The branch below already read the heredoc/comment-masked copy; the `case` now reads the same one.
+- **M3. Any slash-command turn authorized an arbitrary post.** `posting_intent` matched the literal word `message` inside the `<command-message>` wrapper tag. 58 of 400 sampled transcripts carry that tag and `/cli-shakedown` is one of the incident classes TARGET exists to catch, so this inverted the rule on its own founding case. Fixed by stripping markup before matching, keeping inner text so `<command-args>send this to russ</command-args>` still counts. The existing slash-command fixture used `<command-name>` only, which is why the matrix never saw it.
+- **M4. SLACK judged only the first posting statement.** The statement loop `break`s, and everything downstream is built from one statement's variables, so `slack write scott.idler aaa; slack write engineering bbb` was authorized by the exempt first target. Evaluating every statement properly means restructuring the whole downstream path, so the shape is refused instead: two posting statements in one command deny and the text says to split them. This is also the 2026-06-09 duplicate class. The narrowing is deliberate and Phase 9's replay will surface any legitimate compound post.
+- **M5. PUBLIC-REPO ignored extra refspecs and the bulk forms.** The push read `sed -n '2p'`, so `git push origin main dirty` walked only `main`, and `--all` / `--mirror` carry no refspec at all and were never walked. Both are named in the doc's own "cases to model" list. Now every source is walked.
+- **M6. INGEST's door was command-wide.** One `BULK_INGEST_ORDERED_BY_SCOTT=1` statement short-circuited the entire deny block, so every later ingest in the same command was laundered. The spec already said the opposite: count <= n allows the STATEMENT. The door now removes only its own statement from scope.
+- **M7. `intent-guard.sh` failed OPEN on an unreadable `lib.sh`.** It carries PUBLIC-REPO, which the implementation contract names as fail-closed. `slack-post-guard.sh:182` had it right; this hook shipped the tree's older fail-open line.
+
+Cheap wins, all folded:
+
+- **C1** `cd -- <dir>` defeated the LN cwd tracker, because any operand starting with `-` was dropped. `--` is the end-of-options marker, not an option.
+- **C2** No blob-size check on the commit path, while the shared deny text advertises one and the rule head names `git commit`. On commit the bytes are still in the working tree, so size is measured there.
+- **C3** The heredoc extractor entered body state only for a `.sh` target, so it kept scanning THROUGH a `.md` body and re-armed on any line inside ending in `.sh` before a `<<`. Measured on the real artifact: writing this design doc through a quoted heredoc made the old extractor emit 1145 lines and deny. Two states now, and the comment that claimed the opposite is corrected.
+- **C4** INGEST counted ops on the unquoted copy while the clauses read the masked one, so quoted prose denied. This fired on three of the audit's own commands, including its first attempt to write its probe file, and on two of this session's.
+
+C3 and C4 compound into the exact false-positive class `lib.sh` exists to kill, reappearing in the one rule that deliberately opted out of statement scoping. That is the lesson to carry: an opt-out of the shared parser is an opt-in to re-deriving its bug list.
+
+Recorded, not fixed, with the reason:
+
+- **D1** `gh api repos/o/r/ -X PATCH` allows on a trailing slash, because the glob matches an empty third segment. GitHub 404s that route, verified, so the call cannot write. Predicate brittleness, not a bypass. The architect called it a silent bypass and that is overstated.
+- **D3** `slack scheduled deliver` is unguarded; the subcommand matcher is `write|repost`. It drains a queue of follow-ups whose parent `slack write --at` was already checked, so no unchecked body enters.
+- **D4** `cur_cwd` is the post-command cwd, so a trailing `cd` moves the repo PUBLIC-REPO audits. The audit could not construct a case that behaved differently from M5.
+- **New, found while fixing C3 and out of this chunk's scope:** `lib.sh`'s `mask_heredoc` does not mask heredoc bodies on these inputs at all, which is why body text reaches `verbscan` in the first place. This chunk stopped editing `lib.sh` after round 2 measured an obvious fix there flipping two shipped guards from allow to deny, so it is handed on rather than touched.
+
+Two mutations the audit ran proved the suites were blind to M2 and M4: reverting each fix left its suite at the pre-existing pass count. 16 fixtures were added across the three suites, each one verified to FAIL against the shipped code and pass against the fix. intent 167 -> 183, secret 189 -> 192, slack 123 -> 129.
+
+On the seats: the architect returned rc=0; the staff seat was killed by the 10-minute timeout while composing its report, rc=124, no report produced. Its 737 KB trace was mined for leads and every lead was re-tested independently, with two claims dropped for not reproducing. The panel agent's own report was therefore its synthesis plus its own verification, which is why every finding above carries a probe rather than a citation.
+
+## Standing after six rounds
+
+The pattern is six for six: **every round has found at least one rule whose stated mechanism could not perform its stated job.** Round 1 `realpath -m`. Round 2 a ledger nothing could write. Round 3 a lock that did not span the operation. Round 4 a skip list that did not cover the flag it had just fixed. Round 5 a guard whose recipient loop the rule never reaches and a cache fill no process on the post path runs. Round 6, five predicates reading the wrong copy of the command.
+
+The design-review question that catches this class is "what process, at what moment, runs this, and what can it see?" Round 6 adds the implementation-time sibling, and it is the sharper one for a guard: **which COPY of the command does this predicate read, and does every clause in the rule read the same one?** Five of the seven must-fixes are that question unanswered. It belongs in the implementation contract, not in a review.

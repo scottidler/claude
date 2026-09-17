@@ -2,8 +2,8 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-15
-**Status:** Partially implemented. Phases 0 through 7 are built, committed and live. Addendum A (2026-09-16) adds Phases 8, 9 and 10, which are specified and NOT built, and which cross into `tatari-tv/slack-cli`. It was rewritten after panel round 5 returned "not ready to build" on its first draft. SLACK was reworked after its first cut failed its intent: replayed against the historical corpus it denied 37% of the posts Scott had asked for, including "message russ", and it now denies 9 of 216, all of them posts no recent turn asked for. One acceptance criterion (3b) is amended rather than met, and one shipped-rule bypass (INGEST under `eval` and `bash -c`) is open. Both are recorded under "Acceptance criteria: results".
-**Review Passes Completed:** 5/5, then a research fold-in, then panel rounds 1, 2, 3 and 4 over Phases 0 through 7. Addendum A has had panel round 5, ordered by Scott past the cap, whose six must-fix are folded in.
+**Status:** Partially implemented. Phases 0 through 7 are built, committed, live, and audited: round 6's Mode 2 implementation audit found seven live deny-to-allow bypasses across five of the eight shipped rules, and all seven plus four cheap wins are fixed in `35e4d35` and `5156d60`. Addendum A's Phases 8, 9 and 10 have been transferred OUT of this chunk to chunk D2; this doc remains their spec until D2's own doc opens. SLACK was reworked after its first cut failed its intent: replayed against the historical corpus it denied 37% of the posts Scott had asked for, including "message russ", and it now denies 9 of 216, all of them posts no recent turn asked for. One acceptance criterion (3b) is amended rather than met, and one shipped-rule bypass (INGEST under `eval` and `bash -c`) is open. Both are recorded under "Acceptance criteria: results".
+**Review Passes Completed:** 5/5, then a research fold-in, then panel rounds 1 through 4 as design reviews, round 5 on Addendum A, and round 6 as the implementation audit of Phases 0 through 7. Rounds 5 and 6 were ordered by Scott past the cap. Every finding from all six is folded in.
 
 > Panel round 4 ran 2026-09-15, ordered by Scott past the 3-round cap (`PANEL_ROUNDS_ORDERED_BY_SCOTT=4`) to review the round-3 fold, which no reviewer had read. Both seats returned "not ready to build". 8 must-fix, 3 cheap wins, 3 rejected, all folded below. Five of round 3's nine fixes verified clean; four needed another pass. Two of the findings are **live bypasses executed against the real endpoint**: `gh api -XDELETE -p -XGET /rate_limit` and `gh api -XDELETE --header "-XGET: x" /rate_limit` both send DELETE while the round-3 parse resolves GET and allows, because the hand-listed skip list omitted `--header`, `-p`/`--preview` and `--cache`. The skip list is now the complete `gh api --help` flag specification. The round also found LN's raw-paren fallback denying a legitimate corpus command (8 of 51 `ln -s` commands carry a paren, only 3 carry a structural `$(`), INGEST's step 2 short-circuiting the whole command, the `BULK_INGEST_ORDERED_BY_SCOTT` ceiling that was never compared, a `jq 'has(...)'` allowlist that admits arbitrary expressions, and the `git commit -i` row repeating the index omission the `-am` row had just been fixed for. Drift during the round: **0 lines**, the second clean round running. Minutes: `docs/design/2026-09-15-intent-guards-review-log.md`.
 >
@@ -157,6 +157,8 @@ Measured on this machine, 2026-09-15: the ten hooks registered on the `PreToolUs
 (Whether the harness runs the hooks in one matcher list serially or in parallel is not established. The 689 ms is a sum of individual runs, and Phase 0 measures what the harness charges per call. One hook is the right shape either way.)
 
 ### Implementation contract every rule follows
+
+**Every clause in a rule reads the SAME copy of the command, and the rule says which.** Added 2026-09-16, after the implementation audit found five of eight shipped rules with a live deny-to-allow bypass and four of them traced to this one question going unanswered: GH-WRITE tested an exact token against an attached long form, SECRET's pre-filter gated on the quote-masked copy while its branch read the heredoc-masked one, INGEST counted ops on the unquoted copy while its clauses read the masked one, and INGEST's clauses read the whole command masked rather than the executable statements. The design-time question is "what process, at what moment, runs this, and what can it see?"; this is its implementation-time sibling, and for a guard it is the sharper one.
 
 Not restated per rule below:
 
@@ -880,22 +882,21 @@ Every criterion below was executed against `main` at 53f2904 on 2026-09-15 and t
 
 Walked 2026-09-15 against the shipped code, after Phase 6. Four pass, two fail, and both failures are decisions rather than unbuilt work.
 
-### 1. Deny fixtures, the wrapper sweep, and green CI: FAIL
+### 1. Deny fixtures, the wrapper sweep, and green CI: PASS after the round-6 fold
 
-`otto ci` exits 0 and every rule has a deny fixture. The sweep is the gap. GH-WRITE, DELETE-OUT, SLACK and SECRET ride `wrap_shapes`; the acceptance walk added LN, which holds 18 of 18 on both `ln -s . 5626` and `ln -s /tmp /tmp/loop`. INGEST and PUBLIC-REPO still do not ride it, and running the sweep by hand says why it matters:
+FAILED as first walked, on INGEST. Re-run 2026-09-16 against the guards as committed:
 
 ```
-ln -s . 5626              deny=18 allow=0
-ln -s /tmp /tmp/loop      deny=18 allow=0
-sb borg reingest --all    deny=15 allow=3
-  ALLOW: eval "sb borg reingest --all"
-  ALLOW: eval 'sb borg reingest --all'
-  ALLOW: bash -c "sb borg reingest --all"
+sb borg reingest --all     deny=18 allow=0
+ln -s . 5626               deny=18 allow=0
+ln -s /tmp /tmp/loop       deny=18 allow=0
+gh api -X DELETE ...       deny=18 allow=0
+acli jira workitem delete  deny=18 allow=0
 ```
 
-**INGEST has a live bypass in 3 of 18 spellings.** The rule is command-scoped by design (the doc settles that: `stmts` splits the incident's loop body apart), so it matches on the fully masked copy, and masking double quotes erases the payload of `eval "..."` and `bash -c "..."`. That is the deny-to-allow class chunk C's audit counted 22 of. Not fixed here: it is a change to Phase 4's rule scope and it needs its own decision.
+The original walk read `deny=15 allow=3` for INGEST, allowing `eval "..."`, `eval '...'` and `bash -c "..."`, and this section recorded it as needing its own decision. Scott routed that decision to the staff-engineer seat on 2026-09-16 and it ruled: fix before the push. The mechanism was already in the tree. `stmts` emits an `eval` / `bash -c` payload as its own statement (measured: `eval "sb borg reingest --all"` yields two records, `eval ""` and `sb borg reingest --all`), and the rule was reading the whole command quote-masked, which erased the payload. The clauses now read the accumulated executable statements instead. That one change also closed M6 and C4, because all three were the same defect.
 
-PUBLIC-REPO's fixtures are repo-state, not textual (a real scratch repo, `ls-remote`, `rev-list`), so wrapping them asserts nothing.
+PUBLIC-REPO's fixtures remain repo-state rather than textual (a real scratch repo, `ls-remote`, `rev-list`), so wrapping them asserts nothing. That is unchanged and is not the criterion's gap.
 
 ### 2. Every incident command denied, except the commit one: PASS
 
@@ -943,7 +944,11 @@ Against the shipped guard: **84 of 300 deny.** The first pass denied 108; the ac
 
 **The criterion and the rule text contradict each other**, and that is the finding. The rule text says a reader that cannot project denies against these paths and any jq filter off the allowlist denies. The corpus contains those shapes in volume. The criterion's premise, that the measured traffic is `jq .expires_at` / `jq has(...)` / mode checks, is what the measurement refutes: the dominant idiom is `TOKEN=$(jq -r .value "$C")` feeding a `curl`, 22 commands, where the value goes into a shell variable and never reaches the transcript.
 
-Open decision, for Scott: leave the rule as specified and amend the criterion, or carve out a captured-into-a-variable form (`X=$(jq -r .key <file>)` allows, a bare `jq .key <file>` still denies). Not decided here.
+**Ruled 2026-09-16, by the staff-engineer seat on Scott's instruction: ship the carve-out AND amend this criterion.** Both halves, because the carve-out reaches only 22 of the 84 denies, so "zero denies" cannot hold under either option. This criterion is therefore restated as explicit expected verdicts rather than a count: `X=$(jq -r .key <file>)` allows; `TOKEN=$(...) && echo $TOKEN` denies; `export TOKEN=$(...)` denies; a capture nested in a larger pipeline denies; `jq -r .value f | curl -H @-` denies; a bare `jq .key f` denies.
+
+**The carve-out as this section first phrased it is unimplementable, which is the seat's load-bearing finding.** It ran `stmts` on `TOKEN=$(jq -r .value <file>)` and got TWO detached records, `TOKEN=$(<masked>)` and `jq -r .value <file>`: `lib.sh:527` discards the parent relationship, so matching `X=$(` inside `artifact_verdict` cannot see the assignment. The carve-out needs a SECRET-local traversal of the original command carrying parent context and source offsets, with the captured variable tracked by its actual name rather than the heuristic at `secret-echo-guard.sh:411`. Grammar: a standalone scalar assignment whose entire RHS is one command substitution holding one `jq -r FILTER FILE`, FILTER a literal dotted path with no expressions, pipelines, `debug`, extra commands or redirections, FILE resolved only from a preceding literal assignment in the same call, later expansion permitted only in an auth-header operand of `curl`. Unsupported syntax denies.
+
+At least 62 of the 84 denies remain either way, and some legitimate captures will need a mechanical spelling change.
 
 ### 3c. The SLACK rule against its own traffic: PASS after rework
 
@@ -988,6 +993,15 @@ tracked files over 1 MB                                                        -
 
 ## Resolved Decisions
 
+- **2026-09-16, round 6: the five bypass classes are fixed, not deferred.** Seven must-fix and four cheap wins, all reproduced independently before folding, landed in `35e4d35` and `5156d60`. 16 fixtures added across three suites, each verified to fail against the shipped code. Three findings are recorded and NOT fixed with their reasons in the review log: the GH-WRITE trailing slash (GitHub 404s the route, so it cannot write), `slack scheduled deliver` (drains follow-ups already checked at their parent), and the post-command `cur_cwd` (no case behaved differently from M5).
+- **2026-09-16: `lib.sh` is still not edited by this chunk**, even though round 6's C3 fix surfaced that `mask_heredoc` does not mask heredoc bodies on the measured inputs. Round 2 measured an obvious `lib.sh` fix flipping two shipped guards from allow to deny with `lib-test.sh` passing 135/0, and three guards source the file. Handed on rather than touched.
+- **2026-09-16, Scott's instruction: the open calls are ruled by the staff-engineer seat, not by him.** Five were put to it against his standing intent and it returned five decisions with the evidence for each, reversing itself once when shown an artifact it had not had. His framing: he should not be handed this many decisions to opine on.
+- **2026-09-16 (ruling 1): the SECRET jq carve-out ships AND criterion 3b is amended.** Both halves, since the carve-out reaches 22 of 84 denies. The carve-out as first phrased is unimplementable: `stmts` detaches the assignment from the substitution and `lib.sh:527` drops the parent link, so it needs a SECRET-local traversal carrying parent context and source offsets.
+- **2026-09-16 (ruling 2): the INGEST wrapper bypass is fixed before the push**, using the shell-payload extraction already in `lib.sh`. Measured `deny=15 allow=3` before, 18 of 18 after.
+- **2026-09-16 (ruling 3): the audit runs before the push, and acceptance is re-run against the landed setup.** It corrected the premise it was given by finding that chunk B's audit also ran pre-push and caught 22 deny-to-allow regressions that way. Local enforcement is live through the symlinks throughout, so the ordering costs no deployment delay.
+- **2026-09-16 (ruling 4): Addendum A's Phases 8-10 become chunk D2**, between D and E. Chunk D's done definition is Phases 0-7 corrected, audited, pushed, acceptance re-run live.
+- **2026-09-16 (ruling 5, reversing its own round 1): the panel exit-status capture is fixed in this chunk, not left to chunk G.** Round 1 cleared the rails hook by importing the TypeScript and running `classifyStages` against the real settings, and found chunk C had already repaired Step 3. What reversed it was the dispatch-status corpus: across eight files, round 5 on this doc is the only one with inferred exit codes, so the classifier denial is intermittent and a panel this program depends on was reporting `rc=0` for unverified seats. It declined to model WHY the classifier denies, which it cannot observe from a read-only sandbox.
+- **2026-09-16: `panel-round-guard.sh` keys mode off the doc's `Status:` line**, so a `Partially implemented` doc cannot take a Mode 2 audit without spending the design-review cap. Round 6 needed `PANEL_ROUNDS_ORDERED_BY_SCOTT=6` for that reason alone. Recorded as a guard defect for whichever chunk owns it, not worked around.
 - **2026-09-16, Scott's ruling (Addendum A): the fill is eager with a lazy backstop.** Asked as a three-way after round 5 found that nothing populates `dms` before a `PreToolUse` hook runs. Eager alone leaves a window for a DM opened since the last refresh; lazy alone puts a network call in the hook on every cold miss.
 - **2026-09-16 (Addendum A, round 5): the weak TARGET condition does not survive.** The first draft kept it on the stated grounds that it carries the `do it` turn. `typed_prompt` joins the whole window into one string that both conditions read, so the naming turn is already in the strong condition's input, and the weak condition's only remaining function is the hole this addendum closes.
 - **2026-09-16 (Addendum A, round 5): which TARGET variant ships is measured, not asserted.** Phase 9 replays the 216-post corpus against three variants with a stated decision rule and both outcomes specified. The first draft asserted the answer.
@@ -1095,7 +1109,9 @@ Closed earlier, recorded so they are not reopened:
 
 ## Addendum A (2026-09-16): a DM channel id cannot be resolved to a person, and nothing fills it
 
-**Status:** specified, not built. Three phases, two repos, and it amends this doc's blast radius. Opened 2026-09-16 after the Phase 5 rework routed around this gap; rewritten the same day after panel round 5 returned "not ready to build" on the first draft of this section, which claimed a cost was bought back that its own mechanism could not buy back.
+**Status:** specified, not built. **Transferred out of chunk D to chunk D2** on 2026-09-16, so that D can close on what it actually shipped rather than claim cross-repo work it never did. This section stays here as D2's spec until D2's own design doc opens, and the baton carries the row. Phase 8's working copy in the client repo is `tatari-tv/slack-cli/docs/2026-09-16-dm-resolution-handoff.md`, which restates the decided parts so a fresh context does not redesign them.
+
+Three phases, two repos, and it amends this doc's blast radius. Opened 2026-09-16 after the Phase 5 rework routed around this gap; rewritten the same day after panel round 5 returned "not ready to build" on the first draft of this section, which claimed a cost was bought back that its own mechanism could not buy back.
 
 ### The gap
 
