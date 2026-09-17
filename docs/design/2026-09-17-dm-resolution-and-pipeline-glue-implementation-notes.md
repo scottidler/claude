@@ -87,3 +87,33 @@ Append-only. Design doc: `docs/design/2026-09-17-dm-resolution-and-pipeline-glue
   now load-bearing for a reason the doc does not state: it must corroborate itself against the
   visible prompt. Phase 7 should carry this as a written constraint, and the design doc should
   gain a line for it.
+
+## Phase 0c: the dispatch matrix
+
+### Design decisions
+- The probe hook **allows** (`{}`) rather than denying. Chunk C's hook denied, because it only
+  needed the payload; 0c needs the dispatch to actually run, since the question is whether the
+  report comes back inline.
+- Every cell dispatched `general-purpose`, not `phase-implementer`. A real `phase-implementer`
+  dispatch would implement a phase as a side effect of a probe. The synchrony mechanism is
+  `run_in_background`, which is a property of the Agent tool rather than of an agent type, and
+  the same key appears in the payload for both. Noted as a scope limit on the measurement.
+- Chose six cells to match the doc's stated count, covering both values of each of the three
+  factors rather than the full 2x2x2.
+
+### Deviations
+- **The design doc was amended, in three places, which 0c's gate explicitly instructs**
+  ("If one is, the doc is amended before Phase 10 starts"): Alternative 4's availability claim
+  is withdrawn, the item 8 Resolved Decision gains a companion entry, and the 0c gate line
+  records its outcome. **The decision itself is unchanged** and was not relitigated: the
+  legible-wait design still ships, because the seam argument is what carried it. Only the
+  falsified leg was removed.
+
+### Tradeoffs
+- Recorded `tool_input.run_in_background`'s presence on the payload even though the doc did not
+  ask for it, because Phase 10 can use it to tell sync from async dispatch at hook time without
+  inference. One line, and the alternative is a later phase re-deriving it.
+
+### Open questions
+- None. 0c's own question ("does the payload carry `tool_input.name`") is answered yes, so
+  Phase 10's guard on the named form is possible.

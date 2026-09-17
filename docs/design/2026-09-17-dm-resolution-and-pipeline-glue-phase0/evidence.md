@@ -223,3 +223,74 @@ does from each event. Plugins are at `$TMPDIR/p0b/probe-expand` and `$TMPDIR/p0b
 
 **Neither blocks anything.** 0b's gate turns on mechanism A, which is proven alive and
 obeyed. 0b-4 and 0b-5 only corroborate alternatives the doc already rejected in writing.
+
+## 0c: the dispatch matrix, six cells
+
+Method: a `PreToolUse` hook on matcher `Agent` that tees the payload and **allows** (`{}`),
+so the dispatch actually runs and synchrony is observable. Six nested `claude -p` runs over
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` x `name` x `run_in_background`. Every cell dispatched
+`general-purpose` with the prompt `Reply with the single word PONG and nothing else.`
+
+**Verdict: FOUR of six cells are SYNCHRONOUS. Per 0c's own gate, the doc is amended.**
+
+| cell | TEAMS | `name` | `run_in_background` | dispatch |
+|---|---|---|---|---|
+| 1 | unset | absent | `false` | **synchronous** |
+| 2 | unset | `Ponger2` | `false` | **synchronous** |
+| 3 | unset | absent | `true` | async |
+| 4 | `1` | `Ponger4` | `false` | **synchronous** |
+| 5 | `1` | `Ponger5` | `true` | async |
+| 6 | `1` | absent | `false` | **synchronous** |
+
+**`run_in_background` alone decides.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and `name` have
+no bearing on synchrony.
+
+A synchronous cell's `tool_result` carries the subagent's own answer inline:
+
+```json
+[{"type":"text","text":"PONG"},
+ {"type":"text","text":"agentId: a7edc17fc76c2aa03 (use SendMessage with to: 'a7edc17fc76c2aa03', ...)\n<usage>subagent_tokens: 30825\ntool_uses: 0\nduration_ms: 1684</usage>"}]
+```
+
+An async cell's does not:
+
+```json
+[{"type":"text","text":"Async agent launched successfully. (This tool result is internal metadata ...)\nagentId: a830bd2d1156f9e9e..."}]
+```
+
+### `tool_input.name` IS on the payload. A guard on the named form is possible
+
+The doc asked because "a guard on the named form is impossible if it does not." It does.
+`tool_input` keys per cell, in run order:
+
+```
+["description","prompt","run_in_background","subagent_type"]                  name ABSENT  bg=false
+["description","name","prompt","run_in_background","subagent_type"]           name Ponger2 bg=false
+["description","prompt","run_in_background","subagent_type"]                  name ABSENT  bg=true
+["description","name","prompt","run_in_background","subagent_type"]           name Ponger4 bg=false
+["description","name","prompt","run_in_background","subagent_type"]           name Ponger5 bg=true
+["description","prompt","run_in_background","subagent_type"]                  name ABSENT  bg=false
+```
+
+`name` is present exactly when the caller set it and absent when it did not. The full payload
+key set matches chunk C's at 2.1.272 (`cwd`, `effort`, `hook_event_name`, `permission_mode`,
+`prompt_id`, `session_id`, `tool_input`, `tool_name`, `tool_use_id`, `transcript_path`).
+
+**A second fact the doc did not ask for and Phase 10 wants:** `tool_input.run_in_background`
+is on the payload too, so a guard can tell a synchronous dispatch from an async one at
+PreToolUse time, without inference.
+
+### What this does and does not change
+
+It falsifies an **availability** claim, not the decision.
+
+- Alternative 4 said synchronous dispatch is "not demonstrably available: zero of 652
+  dispatches were synchronous." `652/0` is a true statement about what has *happened*; it was
+  read as a statement about what is *possible*. Four cells here show it is possible, on
+  demand, by passing `run_in_background: false`.
+- The **substantive** leg of the item 8 decision is untouched: a blocked parent has no seam
+  for mid-wait output, so synchronous dispatch would make silent waits universal. Nothing
+  measured here bears on that, and **0d measures it directly.**
+
+So the decision stands and the evidence under it is corrected. The design doc's Alternative 4
+and its item 8 Resolved Decision are amended to rest on the seam argument alone.
