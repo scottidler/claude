@@ -83,6 +83,9 @@ tasks:
         HOME/.claude/hooks/inline-name-resolution-test.sh
         HOME/.claude/skills/review-panel/SKILL.md
         HOME/.claude/skills/how-to-execute-a-plan/SKILL.md
+        HOME/.claude/skills/bump/SKILL.md
+        HOME/.claude/skills/shipit/SKILL.md
+        HOME/.claude/skills/babysit/SKILL.md
         HOME/.claude/bin/pr-open
         HOME/.claude/bin/pr-open-test.sh
         HOME/.claude/bin/release

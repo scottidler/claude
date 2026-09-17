@@ -1,6 +1,6 @@
 ---
 name: babysit
-description: Babysit ONLY the pull requests already named in this session - watch CI to green, fix failures, work every CodeRabbit and human review thread, report what needs the user. Use when the user says "babysit", "babysit it", "babysit them prs", "watch that PR", "drive it green", "get it mergeable", "handle the coderabbit comments", "fix the CI on that PR", or asks about the state of a PR discussed earlier in the session. This skill NEVER enumerates the user's open PRs and NEVER touches a PR the session did not name - if the request is to sweep everything, that is not this skill and the answer is to ask which PR.
+description: Babysit ONLY the pull requests already named in this session - watch CI to green, fix failures, work every CodeRabbit and human review thread, report what needs the user. Use when the user says "babysit", "babysit it", "babysit them prs", "watch that PR", "drive it green", "get it mergeable", "handle the coderabbit comments", "fix the CI on that PR", or asks about the state of a PR discussed earlier in the session. This skill NEVER enumerates the user's open PRs and NEVER touches a PR the session did not name - if the request is to sweep everything, that is not this skill and the answer is to ask which PR. When a named PR MERGES and its bump rode it, the rest ("finish the bump", "tag it", "now install it") is not this skill either: hand it to the release-driver agent with ENTRY finish.
 ---
 
 # Babysit the PRs in front of you
@@ -95,6 +95,23 @@ blocked behind that link.
 Born from 2026-08-12: two stacked PRs were reported "ready to merge" because each
 was approved and green against its own base, when nothing in the stack could reach
 main.
+
+## It merged: hand the back half to `release-driver`
+
+Babysitting ends at the merge. On a release-managed repo the merge is the START
+of the post-merge arc, and that arc belongs to the `release-driver` agent, which
+owns the async wait in its own context:
+
+- Spawn it with `ENTRY: finish`, the merged PR url, REPO, INSTALL, KIND, and
+  either DEPLOY-URL (a deployed service) or ACCEPTANCE (a CLI).
+- It reads the PR body's release-intent line. `Release: rides this PR (vX.Y.Z)`
+  means the bump rode and `release --finish` tags the merged tip, pushes the tag
+  by name, installs, and proves the version is live. `Release: none - <why>` or
+  no line means the bump did NOT ride: it stops and Scott decides.
+- Never run `bump`, `git tag` or `git push origin vX.Y.Z` from this skill. This
+  skill watches PRs; it does not cut releases.
+- The agent returns "installed at vX.Y.Z, shakedown not run". Firing
+  `/cli-shakedown` is yours, not the agent's.
 
 ## Never
 

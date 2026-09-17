@@ -909,3 +909,73 @@ with the payload fed on stdin: no PR was opened to find out.
   report (Phase1, Phase5, Phase6, Phase7, Phase8), so it can assert the roster after the
   last phase, and step 2's dispatch happens at finalization either way. Worth noting the
   edits take effect for FUTURE runs, so this run exercises the practice, not the file.
+
+## Phase 11: `release-driver` owns the back half
+
+### Design decisions
+- The back half is a new step 6 in `HOME/.claude/agents/release-driver.md`, after the tag
+  verification in step 5, with two arms keyed on KIND: `sdv probe <DEPLOY-URL>` until the
+  reported version matches for a `service`, and `command -v <binary>` + `<binary> --version`
+  + the ACCEPTANCE commands for a `cli`. Both arms report OUTPUT, not a verdict: the failure
+  this replaces is a release reported shipped on the strength of a tag existing.
+- The "PR already merged" entry is `ENTRY: finish` plus MERGED-PR, a new step 2b, and it
+  decides off the PR body's release-intent line rather than off a diff. Gate D already forces
+  that line to exist and already verified a `rides` claim against the diff at open time, so
+  the body is the cheapest true signal available post-merge. `Release: rides this PR (vX.Y.Z)`
+  runs `release --finish`; `Release: none - <why>` or no line stops for Scott, which is the
+  existing `rules/git.md` rule rather than a new one. Verified against the live case:
+  `tatari-tv/slack-cli` #51 carries `Release: rides this PR (v0.14.0)`.
+- KIND has a stated fallback rather than a hard failure: a DEPLOY-URL implies `service`, its
+  absence implies `cli`, and the report names the assumption. A `service` release with no
+  DEPLOY-URL stops, because the probe half would otherwise have nothing to probe.
+- The shakedown stays with the caller, per the doc's explicit decision. `release-driver.md`'s
+  tool grant is untouched (`tools: Bash, Read, Grep, Glob`, `:4`), the return contract carries
+  a **Shakedown:** line that is always "not run, caller's step", and `bump`, `shipit` and
+  `babysit` each say the caller fires `/cli-shakedown`.
+- Bullet 6's routing lands in the frontmatter `description:` of all three skills (the trigger
+  surface) AND in a body section of each, since the description is what fires the skill and
+  the body is what the model then follows.
+- Phase 9's carried-in fix: `bump/SKILL.md`'s `release` comment no longer claims it "opens
+  PR". It now reads "bumps the branch, pushes it, stops at `PR creation required`", with the
+  `pr-open` -> `gh pr create` -> `release --pr <url>` sequence spelled out and the reason
+  (a subprocess is invisible to PreToolUse) stated.
+
+### Deviations
+- EXPECTED-VERSION is declared **optional**, not required as the doc's input bullet reads.
+  The version `release` just cut is the only one that can be correct, and a required input
+  duplicating it is a field that can diverge from its source (`rules/taste.md`). It is
+  carried as an input as the doc asks, defaults to what `release` cut, and a caller-supplied
+  value that disagrees is a loud STOP rather than a silently-picked winner.
+- ACCEPTANCE is optional for the same reason a CLI can be worth releasing with nothing but
+  `--version` to assert. With none given the report says so explicitly, so the absence is
+  visible rather than read as "exercised and fine".
+- `shipit/SKILL.md` and `babysit/SKILL.md` were edited beyond the literal bullet list: bullet
+  6 names all three skills' trigger descriptions, and a routing line in a description that
+  the body then contradicts is worse than no routing at all.
+- 32 pre-existing em-dashes in `bump/SKILL.md` and 19 in `shipit/SKILL.md` were stripped, and
+  all three skill files added to `.otto.yml`'s lint list. `babysit/SKILL.md` carried none.
+  Per-site replacements, never a blanket substitution; `Release: none - <why>` now matches
+  the literal form `pr-open:151` and `git-release-guard.sh:560` use.
+
+### Tradeoffs
+- Probe-the-version vs. probe-the-health: `sdv probe` reports `/status`, `/deployed` and
+  `/version` in one call, and the version is the only one that answers "did MY release land".
+  Health belongs to whoever owns the service, not to the agent that cut the tag.
+- Reading the PR body vs. diffing the merge commit's version line for the finish entry: the
+  diff is more direct but format-specific (Cargo.toml, pyproject.toml, manifest.yml, a bare
+  VERSION file), and `bump --tag-only` already refuses to orphan, so the body check buys a
+  legible stop rather than a safety property. The safety property was already mechanical.
+- A separate `## The PR already merged` section in each skill vs. one line pointing at the
+  agent: the section states the two outcomes (bump rode, bump did not) because collapsing
+  them is exactly the confusion that produced the slack-cli #14/#15 deadlock.
+
+### Open questions
+- Two of the four success criteria cannot be verified from inside a phase: "a deployed-service
+  release probes until the new version is live and reports the probe output" and "a CLI release
+  reports the installed binary's version" both describe a release being performed. This phase
+  is instructed not to bump, push, tag, install or open a PR, so what is verified statically is
+  that the instructions are satisfiable: `sdv probe <URL>` exists and reports `/version`
+  (`sdv probe --help`), the inputs the probe needs are declared, and both arms are written with
+  the output as the reported artifact. The first live exercise available is `tatari-tv/slack-cli`
+  #51: it is a CLI release carrying `Release: rides this PR (v0.14.0)`, so on merge it runs the
+  ENTRY-finish path and criterion 2 is observable then.
