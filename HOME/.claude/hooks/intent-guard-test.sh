@@ -276,6 +276,37 @@ run allow 'echo "gh api -XDELETE repos/o/r"'
 run allow "$(printf "cat <<'EOF'\nacli jira workitem delete --key X\nEOF")"
 run allow '# gh api -X DELETE repos/o/r/rulesets'
 
+echo "=== round-6 audit regressions: bypasses each phase claimed to cover ==="
+# M1: gh accepts the ATTACHED long body form and the exact-token tables missed
+# it, so the call read as a bare GET and allowed.
+run deny  'gh api repos/o/r/rulesets --field=name=x'
+run deny  'gh api orgs/tatari-tv/rulesets --raw-field=name=x'
+run deny  'gh api repos/o/r/branches/main/protection --input=p.json'
+run allow 'gh api users/scottidler'
+run allow 'gh api repos/o/r --jq=.name'
+
+# M11: `--` is the end-of-options marker, not an option, so the cwd still moves.
+run deny  'cd -- /home/saidler/Claude && ln -s /home/saidler/repos/x y'
+run allow 'cd -- /tmp && ln -s /home/saidler/repos/x y'
+
+# M6: the door was a command-wide flag, so one `=1` statement laundered every
+# later ingest in the same command.
+run deny  'BULK_INGEST_ORDERED_BY_SCOTT=1 sb borg ingest https://a; sb borg ingest --file urls.txt'
+run deny  'BULK_INGEST_ORDERED_BY_SCOTT=1 sb borg ingest https://a && sb borg reingest --all'
+run allow 'BULK_INGEST_ORDERED_BY_SCOTT=1 sb borg ingest https://a'
+
+# Ruling 2: the wrapper spellings. `stmts` already emits the payload as its own
+# statement; the clauses were reading the whole command quote-masked.
+run deny  'eval "sb borg reingest --all"'
+run deny  'bash -c "sb borg reingest --all"'
+
+# C4: the op COUNT read the unquoted copy while the clauses read the masked one,
+# so quoted prose denied. This fired on three of the audit's own commands.
+run allow 'echo "sb borg ingest https://a and sb borg ingest https://b"'
+
+# `--all` was covered for `reingest` only, so the sibling verb walked through.
+run deny  'sb borg ingest --all'
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

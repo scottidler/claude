@@ -70,16 +70,22 @@ case "${1:-}" in
     ;;
 esac
 
-. "$(dirname "$0")/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }
-
 deny() { # deny <reason>
   jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0
 }
 
+# Fail CLOSED, not open. This hook carries PUBLIC-REPO, which the design contract
+# names as a fail-closed rule, so an unreadable lib.sh cannot be allowed to turn
+# the whole hook into a no-op. `slack-post-guard.sh:182` already did this
+# correctly; this line shipped the tree's older fail-open form.
+LIB_OK=1
+. "$(dirname "$0")/lib.sh" 2>/dev/null || LIB_OK=0
+
 input=$(cat)
 command=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null)
 [ -z "$command" ] && { echo '{}'; exit 0; }
+[ "$LIB_OK" -eq 0 ] && deny "intent-guard: lib.sh is unreadable, so the command cannot be parsed and PUBLIC-REPO cannot be evaluated. Fix $(dirname "$0")/lib.sh."
 
 # Every value-taking flag `gh api` has, short and long. A token matching one of
 # these consumes the NEXT token as its operand, so that operand can never be
@@ -134,8 +140,14 @@ gh_api_verdict() {
       -f|-F|--field|--raw-field|--input) body=1; skip=1; continue ;;
       -f?*|-F?*)       body=1; continue ;;
       -*)
-        if is_value_flag "$tok"; then skip=1; fi
-        if is_body_flag "$tok"; then body=1; fi
+        # An attached long form carries its operand in the same token:
+        # `--field=name=x` is the body flag `--field`, and `gh` accepts it.
+        # Matching the whole token against the exact-token tables set NEITHER
+        # body nor skip, so `gh api <path> --raw-field=name=x` read as a bare
+        # GET and allowed. Split on the first `=` before testing.
+        flag="${tok%%=*}"
+        if is_value_flag "$flag"; then [ "$flag" = "$tok" ] && skip=1; fi
+        if is_body_flag "$flag"; then body=1; fi
         continue
         ;;
       *)
@@ -276,7 +288,20 @@ cur_cwd="$payload_cwd"
 [ "$cwd_accumulates" -eq 0 ] && cur_cwd=""
 
 ingest_ops=0
-door_open=0
+# The statements that remain IN SCOPE for INGEST's command-level clauses, each
+# quote-masked. Replaces the old command-wide `door_open` flag and the
+# command-wide `masked_all` scan, which between them carried three defects:
+#   - one `=1` statement opened the door for EVERY later ingest in the command
+#   - the clauses read the whole command quote-masked, so an `eval "..."` /
+#     `bash -c "..."` payload was erased and the wrapper allowed
+#   - the op COUNT read the unquoted copy while the clauses read the masked one,
+#     so `echo "sb borg ingest <url>"` counted targets no clause could see and
+#     denied prose (this fired on three of the audit's own commands)
+# `stmts` already emits an eval / `bash -c` payload as its own statement, so
+# accumulating per-statement gets the executable text and only the executable
+# text. Spec: "Count <= n allows the STATEMENT and nothing below runs ... the
+# command's verdict is any-deny-wins over the statements that remain in scope."
+ingest_scope=""
 git_add_args=""
 
 SENSITIVE_RE='(^|/)(personal|excluded|voice|secret|secrets)/|\.env$|\.age$'
@@ -389,9 +414,20 @@ ingest_heredocs=$(printf '%s' "$command" | awk '
 
 while IFS= read -r -d '' stmt; do
   verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
+  # Quote-masked, and kept for INGEST. `stmts` already emits an eval / `bash -c`
+  # payload as its own statement, so accumulating here picks the payload up as
+  # executable text while `echo "..."` prose stays masked out.
+  ingest_stmt=$(printf '%s' "$verbscan" | mask_squote | mask_dquote)
+  ingest_exempt=0
 
   if [ "$cwd_accumulates" -eq 1 ] && printf '%s' "$verbscan" | cmdword_is cd >/dev/null 2>&1; then
     cd_op=$(printf '%s' "$verbscan" | args | sed -n '2p')
+    # `--` is the end-of-options marker, not an option: `cd -- /home/saidler/Claude`
+    # moves the cwd exactly as the bare form does. Dropping it here left cur_cwd
+    # parked and the ~/Claude policy never saw the destination.
+    if [ "$cd_op" = "--" ]; then
+      cd_op=$(printf '%s' "$verbscan" | args | sed -n '3p')
+    fi
     case "$cd_op" in
       ""|-*) : ;;
       *) cur_cwd=$(abs_path "$cd_op" "$cur_cwd") || cur_cwd="" ;;
@@ -433,24 +469,23 @@ while IFS= read -r -d '' stmt; do
 
   # INGEST's door and its read-only exclusion are the two PER-STATEMENT steps.
   # Everything else about the rule is command-scope, handled after the loop.
-  if printf '%s' "$verbscan" | grep -qE '(^|[^-[:alnum:]])borg[[:space:]]+(ingest|reingest|reingest-failed)\b'; then
-    stmt_ops=$(printf '%s' "$verbscan" | grep -oE 'borg[[:space:]]+(ingest|reingest-failed|reingest)' | wc -l)
+  if printf '%s' "$ingest_stmt" | grep -qE '(^|[^-[:alnum:]])borg[[:space:]]+(ingest|reingest|reingest-failed)\b'; then
+    stmt_ops=$(printf '%s' "$ingest_stmt" | grep -oE 'borg[[:space:]]+(ingest|reingest-failed|reingest)' | wc -l)
     # Same target counting the command-scope clause uses, so the ceiling means
     # the same thing in both places: `=1` must not admit five URLs.
-    stmt_urls=$(printf '%s' "$verbscan" | grep -oE 'https?://[^[:space:]"]+' | wc -l)
+    stmt_urls=$(printf '%s' "$ingest_stmt" | grep -oE 'https?://[^[:space:]"]+' | wc -l)
     [ "$stmt_urls" -gt "$stmt_ops" ] && stmt_ops="$stmt_urls"
     # Read-only operations are DROPPED from the operation list rather than
     # returning an allow for the command. Round 3 wrote this as "always allow"
     # and `sb borg log; sb borg ingest --file urls.txt` then never reached the
     # deny clauses at all.
-    case "$verbscan" in
-      *--dry-run*) case "$verbscan" in *reingest*) stmt_ops=0 ;; esac ;;
+    case "$ingest_stmt" in
+      *--dry-run*) case "$ingest_stmt" in *reingest*) stmt_ops=0 ;; esac ;;
     esac
     if [ "$stmt_ops" -gt 0 ]; then
-      ingest_ops=$((ingest_ops + stmt_ops))
       # The door, anchored as a LEADING assignment on this statement so it
       # cannot be smuggled in from a heredoc body or a comment.
-      door=$(printf '%s' "$verbscan" | sed -n 's/^[[:space:]]*BULK_INGEST_ORDERED_BY_SCOTT=\([^[:space:];|&]*\).*/\1/p' | head -1)
+      door=$(printf '%s' "$ingest_stmt" | sed -n 's/^[[:space:]]*BULK_INGEST_ORDERED_BY_SCOTT=\([^[:space:];|&]*\).*/\1/p' | head -1)
       if [ -n "$door" ]; then
         case "$door" in
           ''|*[!0-9]*) deny "$INGEST_DOOR_DENY" ;;
@@ -458,13 +493,25 @@ while IFS= read -r -d '' stmt; do
         # <n> is a CEILING and it is compared. Round 3 called it a maximum and
         # then never compared it, so =0 allowed and =1 allowed five ingests.
         if [ "$stmt_ops" -le "$door" ]; then
-          door_open=1
+          # This statement is out of scope now. Its ops are not counted and its
+          # text never reaches the clauses, so a later ingest in the same
+          # command is still judged on its own.
+          stmt_ops=0
+          ingest_exempt=1
         else
           deny "BULK_INGEST_ORDERED_BY_SCOTT=$door permits $door ingest occurrences and this statement carries $stmt_ops. Raise the ceiling deliberately or split the command."
         fi
       fi
+      ingest_ops=$((ingest_ops + stmt_ops))
     fi
   fi
+
+  # Every executable statement is in INGEST's command-scope window, which is the
+  # named exception in the contract: the measured vector puts the ingest in a
+  # statement stripped of its loop, so `echo while; sb borg ingest -- <url>`
+  # must still deny. Only a door-exempted statement drops out.
+  [ "$ingest_exempt" -eq 0 ] && ingest_scope="$ingest_scope
+$ingest_stmt"
 
   if printf '%s' "$verbscan" | cmdword_is git >/dev/null 2>&1; then
     gtoks=" $(printf '%s' "$verbscan" | args | tr '\n' ' ') "
@@ -580,8 +627,8 @@ done < <(printf '%s' "$command" | stmts)
 heredoc_ops=$(printf '%s' "$ingest_heredocs" | grep -cE 'borg[[:space:]]+(ingest|reingest-failed|reingest)' || true)
 ingest_ops=$((ingest_ops + heredoc_ops))
 
-if [ "$ingest_ops" -gt 0 ] && [ "$door_open" -eq 0 ]; then
-  scan="$masked_all$ingest_heredocs"
+if [ "$ingest_ops" -gt 0 ]; then
+  scan="$ingest_scope$ingest_heredocs"
   # Word boundaries, not globs. `*"while "*` needs a trailing space and misses
   # `echo while; sb borg ingest -- https://one.url`, which the design doc names
   # explicitly as a deny. A glob cannot express "this token, not this substring",
@@ -607,7 +654,11 @@ if [ "$ingest_ops" -gt 0 ] && [ "$door_open" -eq 0 ]; then
   [ "$ingest_ops" -ge 2 ] && deny "$INGEST_DENY ($ingest_ops ingest targets)"
   case "$scan" in
     *"ingest --file"*|*"ingest -f "*) deny "$INGEST_DENY (--file is the CLI's own bulk path)" ;;
-    *"reingest --all"*)               deny "$INGEST_DENY (--all is the largest bulk action available)" ;;
+    # `ingest --all`, not `reingest --all`: the narrower spelling left
+    # `sb borg ingest --all` allowed while its sibling denied, and
+    # rules/interaction.md names `--all` for BOTH verbs. The pattern still
+    # matches `reingest --all`, which contains it.
+    *"ingest --all"*)                 deny "$INGEST_DENY (--all is the largest bulk action available)" ;;
   esac
   # The literal-URL clause applies to `ingest` ONLY. `reingest` and
   # `reingest-failed` take no URL operand, so applying it to them would deny
@@ -676,21 +727,58 @@ $(git -C "$gr" diff --cached --name-only 2>/dev/null)"
         [ "$all" -eq 1 ] && candidate="$candidate
 $(git -C "$gr" diff --name-only 2>/dev/null)"
       fi
+      # The rule head reads "On `git commit` and `git push` ... deny if the path
+      # set contains ... or a blob over 1 MB", and the deny text this branch
+      # SHARES advertises the size check, but it existed only in the push branch:
+      # `git add big.bin && git commit -m add` allowed a 2 MB blob. On commit the
+      # bytes are still in the working tree rather than objects, so size is
+      # measured there rather than through cat-file.
+      if [ "$vis" = "public" ]; then
+        while IFS= read -r cpath; do
+          [ -n "$cpath" ] || continue
+          [ -f "$gr/$cpath" ] || continue
+          csize=$(stat -c %s "$gr/$cpath" 2>/dev/null) || continue
+          case "$csize" in ''|*[!0-9]*) continue ;; esac
+          [ "$csize" -gt "$BLOB_MAX" ] && deny "$PUBLIC_DENY (a blob over 1 MB: $cpath)"
+        done <<CPATHS
+$candidate
+CPATHS
+      fi
     fi
 
     if [ -n "${git_push_stmt:-}" ]; then
-      ptoks=$(printf '%s' "$git_push_stmt" | args | sed -n '/^push$/,$p' | tail -n +2 | grep -v '^-')
+      pargs=$(printf '%s' "$git_push_stmt" | args | sed -n '/^push$/,$p' | tail -n +2)
+      ptoks=$(printf '%s' "$pargs" | grep -v '^-')
       remote=$(printf '%s' "$ptoks" | sed -n '1p')
-      refspec=$(printf '%s' "$ptoks" | sed -n '2p')
       [ -n "$remote" ] || remote="origin"
-      if [ -z "$refspec" ]; then
-        src=$(git -C "$gr" symbolic-ref --short HEAD 2>/dev/null)
-        dst="$src"
+      # EVERY refspec, not just the second operand, and the bulk forms. The
+      # shipped code read `sed -n '2p'` and dropped operand 3 onward, so
+      # `git push origin main dirty` walked only `main` and published `dirty`.
+      # `--all` / `--mirror` carry no refspec at all and pushed every branch
+      # past a guard that had nothing to walk. Both are named in the doc's
+      # "cases to model" list.
+      bulk=0
+      case "
+$pargs" in
+        *"
+--all"*|*"
+--mirror"*) bulk=1 ;;
+      esac
+      if [ "$bulk" -eq 1 ]; then
+        refspecs=$(git -C "$gr" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null)
       else
-        src="${refspec%%:*}"
-        dst="${refspec#*:}"
-        [ "$dst" = "$refspec" ] && dst="$src"
+        refspecs=$(printf '%s' "$ptoks" | tail -n +2)
       fi
+      if [ -z "$refspecs" ]; then
+        refspecs=$(git -C "$gr" symbolic-ref --short HEAD 2>/dev/null)
+      fi
+      [ -n "$refspecs" ] || deny "$PUBLIC_DENY (no push source could be determined, so the range cannot be computed)"
+
+    while IFS= read -r refspec; do
+      [ -n "$refspec" ] || continue
+      src="${refspec%%:*}"
+      dst="${refspec#*:}"
+      [ "$dst" = "$refspec" ] && dst="$src"
       src="${src#+}"
       # `@{u}..HEAD` describes HEAD, not the ref being pushed, and it errors on
       # a fresh branch, which is this repo's normal landing flow. The
@@ -727,6 +815,9 @@ $(git -C "$gr" log --format= --name-only --diff-merges=first-parent "$range" 2>/
           | awk -v m="$BLOB_MAX" '$1=="blob" && $2+0 > m+0 {print $3; exit}')
         [ -n "$big" ] && deny "$PUBLIC_DENY (a blob over 1 MB: $big)"
       fi
+    done <<REFSPECS
+$refspecs
+REFSPECS
     fi
 
     if printf '%s' "$candidate" | grep -v '^$' | paths_are_sensitive; then

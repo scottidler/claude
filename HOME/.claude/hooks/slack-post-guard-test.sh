@@ -454,6 +454,34 @@ echo "=== every deny holds in all 18 spellings bash offers ==="
 runwrapped 'slack write engineering here are the release notes' "$TX_NONE"
 runwrapped 'slack write clipboard --broadcast engineering here is the summary' "$TX_NONE"
 
+echo "=== round-6: the slash-command wrapper tag, and compound posting statements ==="
+# M3: a slash-command turn arrives as <command-message>name</command-message>,
+# and `posting_intent` matched the literal word `message` inside the TAG, so any
+# slash-command turn in the window authorized a post to any resolvable target.
+# 58 of 400 sampled transcripts carry it, and /cli-shakedown is one of the
+# incident classes this rule exists to catch. The fixture at :95 used
+# <command-name> only, which is why the matrix never saw it.
+TX_CMDMSG=$(transcript cmdmsg '<command-message>cli-shakedown</command-message><command-name>cli-shakedown</command-name>')
+TX_CMDARGS=$(transcript cmdargs '<command-name>slackify</command-name><command-args>send this to #engineering</command-args>')
+reset_ledger
+runb deny  'slack write engineering r6a' "$TX_CMDMSG"
+reset_ledger
+runb allow 'slack write clipboard r6b' "$TX_CMDMSG"
+# Inner text is the user's own words and still counts.
+reset_ledger
+runb allow 'slack write engineering r6c' "$TX_CMDARGS"
+
+# M4: the statement loop broke after the first posting statement, so everything
+# below judged statement one and an exempt first target authorized the second
+# post. Mutation proof that no fixture covered this: replacing the `break` with
+# a no-op left the suite at 123/0.
+reset_ledger
+runb deny 'slack write scott.idler r6d; slack write engineering r6e' "$TX_ENG"
+reset_ledger
+runb deny 'slack write scott.idler r6f && slack write general r6g' "$TX_ENG"
+reset_ledger
+runb allow 'slack write engineering r6h' "$TX_ENG"
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

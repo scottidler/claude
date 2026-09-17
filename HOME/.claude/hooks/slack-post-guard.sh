@@ -394,7 +394,14 @@ typed_prompt() {
 #
 # The word set is taken from the 211 historical posts, not invented.
 posting_intent() {
-  printf '%s' "$1" | grep -qiE '(^|[^[:alnum:]])(post|posts|posted|posting|send|sends|sent|sending|share|shares|shared|sharing|announce|announced|announcement|message|messages|messaged|msg|dm|dms|slack|slackify|reply|replies|replied|ping|pings|notify|tell|thread|crosspost|cross-post|missive|clipboard|mrkdwn)([^[:alnum:]]|$)'
+  # Strip XML-ish markup before matching. A slash-command turn arrives wrapped in
+  # `<command-message>name</command-message>`, and the literal word `message`
+  # inside that TAG matched the word set, so ANY slash-command turn in the window
+  # authorized a post to any resolvable target. 58 of 400 sampled transcripts
+  # carry the tag, and /cli-shakedown is one of the incident classes this rule
+  # exists to catch. Only the delimiters go: inner text is the user's own words
+  # and still counts, so `<command-args>send this to russ</command-args>` matches.
+  printf '%s' "$1" | sed 's/<[^>]*>/ /g' | grep -qiE '(^|[^[:alnum:]])(post|posts|posted|posting|send|sends|sent|sending|share|shares|shared|sharing|announce|announced|announcement|message|messages|messaged|msg|dm|dms|slack|slackify|reply|replies|replied|ping|pings|notify|tell|thread|crosspost|cross-post|missive|clipboard|mrkdwn)([^[:alnum:]]|$)'
 }
 
 # prompt_names <prompt> <name>...  -> 0 when any name appears as a word
@@ -511,6 +518,7 @@ else
   # finding CW1 and the defect that let `'echo' $GH_TOKEN` past
   # secret-echo-guard.sh until Phase 1 of this chunk.
   stmt_found=0
+  post_stmts=0
   while IFS= read -r -d '' stmt; do
     verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
     printf '%s' "$verbscan" | cmdword_is slack >/dev/null 2>&1 || continue
@@ -536,6 +544,7 @@ else
       *) continue ;;
     esac
     stmt_found=1
+    post_stmts=$((post_stmts + 1))
     if [ "$subcmd" = "repost" ]; then
       # `slack repost <source> <destination>`: the body is the source message,
       # which lives in Slack rather than on the command line. The target is the
@@ -601,9 +610,20 @@ else
     else
       body="${content[*]}"
     fi
-    break
   done < <(printf '%s' "$command" | stmts)
   [ "$stmt_found" -eq 1 ] || allow
+  # The loop used to `break` after the first posting statement, so everything
+  # below judged statement one and the rest of the command was never seen:
+  # `slack write scott.idler aaa; slack write engineering bbb` allowed, because
+  # the exempt first target authorized the second post. Everything downstream
+  # (the recipient set, TARGET, TEST-TEXT, the RESEND ledger entry) is built
+  # from ONE statement's variables, so the honest fix is to refuse the shape
+  # rather than silently authorize on the first one. Two posts in one command
+  # is also the 2026-06-09 duplicate class. Splitting the command is the remedy
+  # and the deny says so.
+  if [ "$post_stmts" -gt 1 ]; then
+    deny "slack-post-guard: this command carries $post_stmts Slack posting statements and the guard authorizes one at a time, so the later ones would ride on the first one's target. Split them into separate commands."
+  fi
   # An invocation that posts nothing is nobody's business, and this has to come
   # BEFORE the target check: `slack write --help` has no target by construction,
   # and the no-target deny fired on it 20 times in the historical replay.

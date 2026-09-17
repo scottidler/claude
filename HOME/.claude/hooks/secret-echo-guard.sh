@@ -335,9 +335,13 @@ while IFS= read -r -d '' stmt; do
   # The artifact pre-filter: the same shape, and for the same reason, as the
   # secret-name superset below. A `case` costs nothing, and a statement naming
   # none of these artifacts cannot deny on any of the four vectors.
-  case "$masked" in
+  # Gated on `verbscan`, NOT `$masked`. `$masked` has mask_squote applied, so a
+  # single-quoted credential path is erased before the pre-filter sees it and the
+  # whole artifact branch is skipped: `cat '<path>/token.json'` allowed while the
+  # bare and double-quoted forms denied. The branch below already reads verbscan.
+  verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
+  case "$verbscan" in
     *get-secret-value*|*show-environment*|*.env*|*token.json*|*tokens.json*|*_history*)
-      verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
       artifact=$(artifact_verdict "$verbscan")
       case "$artifact" in
         aws-secret-value)

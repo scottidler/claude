@@ -2,8 +2,8 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-15
-**Status:** Implemented. All eight phases are built, committed and live. SLACK was reworked after its first cut failed its intent: replayed against the historical corpus it denied 37% of the posts Scott had asked for, including "message russ", and it now denies 9 of 216, all of them posts no recent turn asked for. One acceptance criterion (3b) is amended rather than met, and one shipped-rule bypass (INGEST under `eval` and `bash -c`) is open. Both are recorded under "Acceptance criteria: results".
-**Review Passes Completed:** 5/5, then a research fold-in, then panel rounds 1, 2, 3 and 4
+**Status:** Partially implemented. Phases 0 through 7 are built, committed and live. Addendum A (2026-09-16) adds Phases 8, 9 and 10, which are specified and NOT built, and which cross into `tatari-tv/slack-cli`. It was rewritten after panel round 5 returned "not ready to build" on its first draft. SLACK was reworked after its first cut failed its intent: replayed against the historical corpus it denied 37% of the posts Scott had asked for, including "message russ", and it now denies 9 of 216, all of them posts no recent turn asked for. One acceptance criterion (3b) is amended rather than met, and one shipped-rule bypass (INGEST under `eval` and `bash -c`) is open. Both are recorded under "Acceptance criteria: results".
+**Review Passes Completed:** 5/5, then a research fold-in, then panel rounds 1, 2, 3 and 4 over Phases 0 through 7. Addendum A has had panel round 5, ordered by Scott past the cap, whose six must-fix are folded in.
 
 > Panel round 4 ran 2026-09-15, ordered by Scott past the 3-round cap (`PANEL_ROUNDS_ORDERED_BY_SCOTT=4`) to review the round-3 fold, which no reviewer had read. Both seats returned "not ready to build". 8 must-fix, 3 cheap wins, 3 rejected, all folded below. Five of round 3's nine fixes verified clean; four needed another pass. Two of the findings are **live bypasses executed against the real endpoint**: `gh api -XDELETE -p -XGET /rate_limit` and `gh api -XDELETE --header "-XGET: x" /rate_limit` both send DELETE while the round-3 parse resolves GET and allows, because the hand-listed skip list omitted `--header`, `-p`/`--preview` and `--cache`. The skip list is now the complete `gh api --help` flag specification. The round also found LN's raw-paren fallback denying a legitimate corpus command (8 of 51 `ln -s` commands carry a paren, only 3 carry a structural `$(`), INGEST's step 2 short-circuiting the whole command, the `BULK_INGEST_ORDERED_BY_SCOTT` ceiling that was never compared, a `jq 'has(...)'` allowlist that admits arbitrary expressions, and the `git commit -i` row repeating the index omission the `-am` row had just been fixed for. Drift during the round: **0 lines**, the second clean round running. Minutes: `docs/design/2026-09-15-intent-guards-review-log.md`.
 >
@@ -495,7 +495,7 @@ window 12    0. The rule is inert.
 
   So 3 and 5 are the same answer and anything past 5 disarms the rule. This is the reason the constant carries that table as a comment: a later reader who widens it to be helpful turns the guard off.
 
-  With both conditions and the 3-turn window: **9 denies of 216**, every one a post no recent turn asked for (`force push the branches`, a `/cli-shakedown` burst, `loos like 4 .json files?`), and the 2026-07-10 shakedown posts still among them. What it gives up is "the right ask to the wrong channel", which is not an incident class here: all three incidents are an unasked post, a duplicate, or a test post.
+  With both conditions and the 3-turn window: **9 denies of 216**, every one a post no recent turn asked for (`force push the branches`, a `/cli-shakedown` burst, `loos like 4 .json files?`), and the 2026-07-10 shakedown posts still among them. What it gives up is "the right ask to the wrong channel", which is not an incident class here: all three incidents are an unasked post, a duplicate, or a test post. **Addendum A closes the root cause** (a DM channel id cannot be resolved to a person) and specifies the TARGET change that would buy this cost back, which is more than resolution: `slack-post-guard.sh:685` wraps the whole recipient loop in `if ! posting_intent`, so today neither a DM nor a channel reaches the name condition once a posting ask is in the window.
 - **TEST-TEXT**: deny when the first line IS a test marker (short enough to be one, or opening with the word) and the target is not one of the two exempt ids. Narrowed in the rework from "matches test/testing/verify/verifying" anywhere in the first line, which denied two real posts whose first line was a 180-character sentence mentioning a test environment ("live on test and prod, bypasses the broker", "only the test one is"). This is the 2026-07-10 class: five live posts and an MCP write test into a coworker DM during a shakedown whose prompt was "merged #10, tag v0.2.0 and run the shakedown". The rule is purely textual on purpose: the audit's phrasing of it ("no live posts during a `/cli-shakedown`") is not implementable, see Non-Goals.
 - **RESEND**: deny a repost of the same body to the same target. This is the 2026-06-09 class: "having you spam multiple versions of shit into our DMs is NOT what I asked you to do", one post asked, two sent.
 
@@ -791,9 +791,11 @@ Two of the three questions the draft asked are already answered by chunk C's own
 - **Commit-form criteria, one fixture each, all against an EMPTY pre-hook index:** `git add <sensitive> && git commit -am msg` denies, `git add <sensitive> && git commit --include README.md -m msg` denies (the round-4 miss), `git commit --only README.md` with a sensitive path staged allows, and `git add docs/` expands through `git ls-files -co --exclude-standard -- docs/` rather than a filesystem glob
 - **Push-destination criteria, one per outcome:** the destination resolves locally and the commit walk runs; it resolves at `ls-remote` but `git cat-file -e` returns 1, so the walk cannot run and the push denies; the refspec does not resolve at all and denies
 
+**Phases 8, 9 and 10 were added 2026-09-16 and live in Addendum A**, because they cross into `tatari-tv/slack-cli` and amend this doc's blast radius. They do not gate Phases 0 through 7.
+
 ## Blast radius and ship order
 
-- **Single repo.** Every file this chunk touches is in `scottidler/claude`: `HOME/.claude/hooks/*`, `HOME/.claude/settings.json`, `HOME/repos/.claude/rules/{git,interaction}.md`, the Slack skills, `.otto.yml`. No other repo changes.
+- **Single repo, Phases 0 through 7.** Addendum A adds Phases 8, 9 and 10 and is two repos; its own blast-radius amendment governs those. Every file Phases 0 through 7 touch is in `scottidler/claude`: `HOME/.claude/hooks/*`, `HOME/.claude/settings.json`, `HOME/repos/.claude/rules/{git,interaction}.md`, the Slack skills, `.otto.yml`. No other repo changes.
 - **The write fence is Bash-only, not absolute.** Verified 2026-09-15 with touch probes from this session: writable via Bash are `HOME/.claude/hooks/`, `HOME/repos/.claude/rules/`, `bin/`, `docs/design/` and `.otto.yml`; denied via Bash are `HOME/.claude/agents/`, `HOME/.claude/skills/`, `HOME/.claude/output-styles/`, `HOME/.claude/settings.json` and `HOME/.claude/CLAUDE.md`. The **Edit tool reaches the denied set**, proven inside this program by `f257ddb` (registered `panel-round-guard` in `settings.json`) and `ca3bfe8` (edited `HOME/.claude/agents/review-panel.md`). So the chunk is not blocked: new hook files land in a Bash-writable directory, and the `settings.json` registrations go through Edit. What is forbidden is a Bash redirect or heredoc into the denied set.
 - **Hooks go live on SAVE, not on commit.** `~/.claude/hooks/` holds **per-file** symlinks into the working tree (verified 2026-09-15: `allow-help.sh -> /home/saidler/repos/scottidler/claude/HOME/.claude/hooks/allow-help.sh`, and the same for every entry). So an already-linked script is live the instant the file is written, before `otto ci` and before the commit. "Matrix green before the commit" isolates nothing for an **edited** hook. Only a **new** file waits, and it waits for its `manifest -l` link plus its `settings.json` registration, not for the commit.
 - **Copy-before-live applies to every already-live script and every shared dependency, not just the two phases that edit `secret-echo-guard.sh`.** The candidate predicate is developed and exercised against a **copy** under a scratch name, the matrix runs against the copy, and only then is the live file written. That covers Phase 1 and Phase 6 on `secret-echo-guard.sh`, and it also covers `intent-guard.sh` in Phases 3, 4 and 7, because Phase 2 registers it and every later edit lands on a live hook. `lib.sh` is in the same position (`~/.claude/hooks/lib.sh` is a symlink into the working tree and three shipped guards source it), which is one of the reasons this chunk no longer edits it.
@@ -959,6 +961,8 @@ shipped    (name OR posting ask, 3 turns)  9 denies  (4%, plus 17 replay
 
 The 9 are the intent: `force push the branches` with a post to a work channel, five `/cli-shakedown` turns which are the 2026-07-10 class, `loos like 4 .json files?`, and two more with no posting ask in the window. Recall holds: the 2026-07-10 shakedown posts deny, the `**MCP write test**` marker denies, the duplicate-body case denies.
 
+The root cause of the first cut's 79, the unresolvable DM id, is closed in Addendum A. The accepted cost is NOT closed with it: Addendum A's Phase 9 re-runs this replay against three guard variants and the corpus picks which one ships.
+
 Four fixes came out of this replay and each one is a fixture now:
 
 - `slack write --help` denied, because the no-target check ran before the posts-nothing check. 20 occurrences.
@@ -984,6 +988,12 @@ tracked files over 1 MB                                                        -
 
 ## Resolved Decisions
 
+- **2026-09-16, Scott's ruling (Addendum A): the fill is eager with a lazy backstop.** Asked as a three-way after round 5 found that nothing populates `dms` before a `PreToolUse` hook runs. Eager alone leaves a window for a DM opened since the last refresh; lazy alone puts a network call in the hook on every cold miss.
+- **2026-09-16 (Addendum A, round 5): the weak TARGET condition does not survive.** The first draft kept it on the stated grounds that it carries the `do it` turn. `typed_prompt` joins the whole window into one string that both conditions read, so the naming turn is already in the strong condition's input, and the weak condition's only remaining function is the hole this addendum closes.
+- **2026-09-16 (Addendum A, round 5): which TARGET variant ships is measured, not asserted.** Phase 9 replays the 216-post corpus against three variants with a stated decision rule and both outcomes specified. The first draft asserted the answer.
+- **2026-09-16 (Addendum A): the DM-to-user edge lands in a new `dms` map, not as another `D…` key in `users`.** `users` is contracted as user-id to display label, both prior cache additions were new sibling maps with the reason documented, and a `D… -> handle` entry duplicates a name already derived from `handles[U]`, free to diverge on a rename. Both panel seats agreed.
+- **2026-09-16 (Addendum A): `dms` has no watermark and merges by Extend**, because the D-to-U edge is immutable. An entry can never be stale, only absent, and absence is what the lazy backstop covers. There is no listing whose absence should remove an entry, so Replace has no meaning here.
+- **2026-09-16 (Addendum A): adding `dms` does not bump `CURRENT_SCHEMA`.** The bar at `cache.rs:186` is a shape that forces an existing cache to refill. Verified against the two-phase protocol in that comment: the gates key on the `schema` scalar and the per-index watermarks, `clear_watermarks` keeps every map, and `dms` has no watermark. The additive `profiles` case, not the `subteams` refill case. Both panel seats agreed.
 - **2026-09-15: the prompt-word commit guard is not built.** Measured 590 denials against 2 of 5 incidents, and structurally unavailable in subagents. Superseded by Scott's 2026-09-15 ruling, which accepted the gap outright. Recorded as Alternative 1 so it is not re-proposed.
 - **2026-09-15: Gmail delete/trash is not guarded.** Zero observed vectors across 10 `gws` delete-shaped statements, all Drive, all requested or `--help`. Revisit condition stated in Non-Goals.
 - **2026-09-15: one hook, not five.** 689 ms of measured Bash-hook latency and five rules over one command string.
@@ -1082,6 +1092,136 @@ Closed earlier, recorded so they are not reopened:
 - **PUBLIC-REPO's scope.** Stays `~/repos/scottidler/*`. No repo outside it has an origin remote Scott owns.
 - **Whether the `~/Claude` symlink deny is unrequested scope.** It is in `CLAUDE.md`; both seats found traceability for it, the 1 MB threshold and the Slack confirmation split.
 - **GraphQL writes.** 716 `gh api graphql` statements, 170 mutations, zero on a guarded surface. Named as a residual hole.
+
+## Addendum A (2026-09-16): a DM channel id cannot be resolved to a person, and nothing fills it
+
+**Status:** specified, not built. Three phases, two repos, and it amends this doc's blast radius. Opened 2026-09-16 after the Phase 5 rework routed around this gap; rewritten the same day after panel round 5 returned "not ready to build" on the first draft of this section, which claimed a cost was bought back that its own mechanism could not buy back.
+
+### The gap
+
+`~/.cache/slack/ids.json` can answer "who is `U01E20B6DEZ`" (russ, in both `handles` and `profiles`, 401 entries each) and cannot answer "whose DM is `D01TL0BDQ4T`". A post's `channel` field carries the second form, documented as "Channel id (or DM id) to post to" at `tatari-tv/slack-cli/src/mcp/request.rs:78-123`, so for a DM the TARGET rule's name condition had nothing to compare the prompt against and degenerated into "the prompt must carry the raw `D0…` id". That is the measured root cause of the first cut's 79 denies in 216 under criterion 3c, alongside the cross-turn cause.
+
+Scott's framing on 2026-09-16, which is the requirement: "it should be that a DM, GROUP DM, CHANNEL that is NOT in the cache is looked up and found and then added to the cache so that future calls will benefit from the lookup performed once."
+
+### What round 5 corrected, because the first draft of this section got the guard wrong
+
+Three findings, all re-verified against the code, and together they mean resolution alone buys back nothing.
+
+- **The recipient loop is skipped entirely when a posting ask is present.** `slack-post-guard.sh:685` reads `if ! posting_intent "$prompt"; then` and the `for r in "${nonexempt[@]}"` loop sits inside it. So the two conditions are not evaluated per recipient at all: a posting ask anywhere in the window short-circuits the name check for **every** recipient, DM and channel alike. Measured: `message russ | do it` takes the shortcut, `russ | do it` does not. The first draft's claim that a resolved DM "gets the strong name condition exactly as a channel does" was true only in the sense that neither gets it.
+- **The first draft's reason for keeping the weak condition was wrong.** It said the weak condition carries the `do it` turn after the naming turn. `typed_prompt` (`slack-post-guard.sh:357`) returns the last `PROMPT_WINDOW` typed turns joined into ONE string and both conditions read that same string, so the naming turn is already inside the strong condition's input. The weak condition's actual and only function is to admit a post whose recipient no turn names, which is exactly the "right ask, wrong channel" hole this addendum exists to close. It does not stay.
+- **Nothing fills `dms` before the guard runs, and a lazy fill in the client cannot.** `channel_display_name` (`read.rs:525-533`) is called only from `read.rs:150` and `:202`, the CLI read and export paths. A raw `D…` target short-circuits `resolve_channel_id` through `looks_like_channel_id` (`read.rs:377-383`) with no API call, and the guard is a `PreToolUse` hook on `mcp__slack__chat_post_message` (`settings.json:885`), so it runs BEFORE any client code. A cold DM plus a name-only prompt would deny the very post whose execution would have warmed the cache.
+
+### The fill mechanism: Scott's ruling, 2026-09-16
+
+Asked as a three-way. **Answer: C, eager sync with a lazy backstop.**
+
+- **Eager.** A DM sync fills `dms` wholesale from `users.conversations` with `im`, so the guard reads a warm cache and makes no network call on the ordinary path.
+- **Lazy backstop.** A `D…` the eager sync has not seen is resolved on the spot, one `conversations.info`, and written back. This is the half that satisfies Scott's "looked up and found and then added to the cache".
+- Rejected: eager alone (a DM opened since the last refresh denies) and lazy alone (a network call inside a `PreToolUse` hook on every cold miss, on top of this doc's measured 689 ms of Bash-hook latency).
+
+**The D-to-U edge is immutable, which is why `dms` needs no watermark and no staleness rule.** A DM channel id maps to the same user forever: Slack does not reassign one. So a `dms` entry can never be stale, only absent, and absence is precisely what the lazy backstop covers. This is a different property from `channels` (a channel can be renamed, reused or left, which is why `channels_synced_at` exists and why `sync_channels` REPLACES) and from `handles` (a user can be deactivated). No `dms_synced_at`.
+
+### The hop is one call, everything it needs exists, and it is proven live
+
+- `SlackApi::conversations_info(channel)` at `src/slack/api.rs:682`
+- `Channel` carries `pub is_im: bool` and `pub user: Option<String>` at `src/slack/api.rs:262-282`
+- `cache::upsert` merges a partial patch (`src/slack/cache.rs:379`)
+
+Run against the DM the replay denies on, 2026-09-16, under the token's current scopes:
+
+```
+conversations_info(D01TL0BDQ4T)
+  -> {"id":"D01TL0BDQ4T","is_im":true,"is_mpim":false,"user":"U01E20B6DEZ","num_members":2}
+```
+
+`U01E20B6DEZ` is `russ` in `handles` and `Russ O'Reagan` in `profiles`. The scope question the handoff flagged is closed: `conversations.info` on an `im` needs nothing the token does not already hold, consistent with `channel_display_name` already calling it on read targets. `resolve_self_dm`'s "needs `im:write` once" note is about `conversations.open`, a different method, and is not in this path.
+
+### The client already does lazy-fill-and-write-back in three places, and not in this one
+
+| path | site | fills from | writes back |
+|---|---|---|---|
+| channel name to id, on a cache miss | `read.rs:312` (`resolve_channel_id`, the `Resolution::Unknown` arm at `:344`) | `users.conversations` over `CHANNEL_TYPES` | yes, `sync_channels` |
+| message author id to name, per render | `read.rs:540` (`enrich`), insert at `:561` | `users.info`, `u.best_name()` | yes, `patch.users` then `cache::upsert` |
+| the caller's OWN DM | `write.rs:1458` (`resolve_self_dm`) | `conversations.open` | yes, under the cache's `self` section |
+| **a peer's DM channel id to their user id** | **nothing** | | |
+
+The channel sync excludes DMs deliberately, with a test asserting it: `const CHANNEL_TYPES: &str = "public_channel,private_channel,mpim"` at `read.rs:48`, `"CHANNEL_TYPES must not request im"` at `read/tests.rs:772`. **That constant does not change.** The eager DM sync is a separate listing filling a separate map, so the assertion stays true and `channels` keeps holding no `D…` keys. `mcp.rs:69`'s `DEFAULT_CONVERSATION_TYPES` is already im-inclusive, so the im listing is a shape this repo already issues.
+
+### The cache gains a `dms` map, and not another `D…` key in `users`
+
+Both panel seats agreed with this and with the no-bump ruling below. The reasoning, on this repo's own documented precedent:
+
+- `users` is contracted as user-id to `best_name()` display label. The field itself (`cache.rs:73`) carries no doc; the contract is written in the `handles` docs beside it (`cache.rs:74-84`, "Kept SEPARATE from `users` (which holds `best_name()` display labels for `read` enrichment)"). The founding design doc states the shape as `"users": {"U…":"scott"}` (`slack-cli/docs/design/2026-07-01-slack-cli.md:240`).
+- Both prior additions to this file were **new sibling maps** rather than widenings, each with its reason written down: `profiles` because changing `users`' value type "makes every existing `ids.json` fail to parse", and `subteams` because "a NEW key is safe where widening the old one was not".
+- A `D… -> handle` entry stores a name already derived from `handles[U]`, so a rename makes the two disagree. `rules/taste.md`: a field derived from another never diverges, drop it rather than sync it. `dms: {D… -> U…}` stores the edge only, and every name comes off `handles` / `profiles` at read time.
+
+**No `CURRENT_SCHEMA` bump.** The bar at `cache.rs:186` is a stored shape that forces an existing cache to REFILL rather than load as-is. Verified against the two-phase protocol documented in that same comment: the gates key on the `schema` scalar and the per-index watermarks, `clear_watermarks` keeps every map's contents, and `dms` has no watermark to clear. An empty `dms` on first load is correct rather than degraded, because the lazy backstop is the fill path by design. This is the additive `profiles` case, not the `subteams` refill case.
+
+**`dms` merges by Extend, and it needs an arm in both merge sites.** Round 5's own finding, from neither seat: the first draft specified the field on `IdCache` and not the `dms` field on `MergePolicy` (`cache.rs:310-323`) nor the arm in the merge body (`cache.rs:379-420`), so every write would have been silently dropped while looking successful. Extend and never Replace, and the reason is the immutability above: there is no listing whose absence should remove an entry.
+
+### What the guard side becomes
+
+`resolve_names` (`slack-post-guard.sh:277-325`) has a DM branch today that reads `.users` and, for a `D…` hit, chains through `handles` to the `U…` id and then through `profiles` to `display_name` and `real_name`. That branch was written against the 18 legacy `D…` keys, whose origin is now known (below).
+
+Two corrections to the first draft, both from round 5:
+
+- It is **one clause in each of TWO jq programs**, not one clause. `resolve_names` runs a second program at `:311-324` deriving first names, which reads `.users` independently.
+- Dropping the `.users` DM branch does not break `U…` resolution. A `U…` id or handle resolves through `$uits` over `.handles` (`:294`), which is a separate branch and is how `dm_mentioned` recipients already arrive.
+
+### Blast radius amendment
+
+The "Single repo" bullet above holds for Phases 0 through 7 and not for this addendum.
+
+- **Two repos, and the order is forced.** `tatari-tv/slack-cli` ships the fill first; `scottidler/claude` changes TARGET last, because the guard cannot read a field the client does not write and must not tighten before the cache can answer.
+- `slack-cli` is release-managed and gated, so `rules/git.md` applies: `bump --no-tag` on the feature branch so the version commit rides the PR, the release-intent line in the PR body per `rules/pr.md`, `bump --tag-only` on main after merge. Own the PR to green.
+- **Phase 10 waits for an INSTALLED binary, not a merged PR.** The guard reads a cache that only the installed `~/.cargo/bin/slack` writes. A merged-but-uninstalled slack-cli leaves `dms` empty, and Phase 10 tightening against an empty map denies every name-only DM post.
+- Nothing in Phases 0 through 7 depends on this, so the unpushed `intent-guards` branch can land on its own schedule. This addendum does not gate it.
+
+### Phase 8: `slack-cli` fills `dms`, eagerly and on a miss
+**Model:** opus
+**Repo:** `tatari-tv/slack-cli`
+
+- `dms: IndexMap<String, String>` on `IdCache`, `#[serde(default)]`, no schema bump, no watermark, with the field doc carrying the immutable-edge reasoning
+- `dms: Merge` on `MergePolicy` set to `Extend` in every constant, plus its arm in the merge body. Without both, every write is dropped silently
+- `sync_dms`: one `users.conversations` listing over `im`, every `D…` to its `user`, written through `cache::upsert`. Runs where the other full syncs run, and does NOT touch `CHANNEL_TYPES`
+- `resolve_dm_user(api, cache_path, dm_id) -> Result<Option<String>>` beside `resolve_self_dm`: cache hit short-circuits, a miss calls `conversations_info`, `is_im` gates it, `user` is persisted, a non-`im` channel returns `None` without writing
+- `channel_display_name` stops discarding the answer: the response it already fetches fills `dms` when `is_im` is set
+- **Success criteria:** a cold `D…` costs exactly one `conversations_info` and a warm one costs zero, asserted on a fake API's call count; a non-`im` channel writes nothing; an `im` whose `user` is absent writes nothing rather than an empty string; a `dms` write SURVIVES `upsert` (the criterion that catches the omitted merge arm, and it must be written to fail against a build without it); `sync_dms` over a listing of N ims yields N entries and leaves `channels` unchanged; an existing `ids.json` on disk loads with `dms` empty and no error
+- **Downgrade is accepted and stated, not tested as survival.** An OLD binary resaving a NEW cache DROPS `dms`: `IdCache` retains no unknown fields and the repo asserts that erasure in `resave_of_pre_change_cache_drops_the_groups_key` (`cache/tests.rs:103-124`). The first draft's "survives a round trip through a binary that predates the field" was unsatisfiable. The accepted behavior is that a downgrade empties the map and the next run refills it, which is exactly what the lazy backstop is for
+- **Not in scope:** backfilling from anything, and touching the 18 legacy `D…` keys in `users`
+
+### Phase 9: measure both TARGET variants, zero code
+**Model:** opus
+**Repo:** `scottidler/claude`
+
+The first draft asserted which variant ships. It does not get to: the corpus decides, the way Phase 0 decides in the rest of this doc.
+
+- Prerequisite: Phase 8 installed, so `dms` is populated and DM recipients resolve to names
+- Rebuild the replay harness from criterion 3c's recipe (it lived in a session scratchpad on tmpfs and is gone), then replay the 216-post corpus against three guard variants: today's shipped rule, name-mandatory for non-exempt DMs only, and name-mandatory for every non-exempt recipient
+- **Both outcomes are specified.** The variant that ships is the strictest one whose real deny count does not exceed today's 9, artifacts excluded. If the DM-only variant clears that bar and the all-recipients variant does not, DM-only ships and the weak condition survives for channels alone, with the measurement recorded here as the reason
+- **Success criteria:** three deny counts in a table in this doc; every deny the selected variant introduces read individually and named; the 2026-07-10 shakedown posts, the `**MCP write test**` marker and the duplicate-body case still deny in the selected variant
+
+### Phase 10: TARGET requires the named recipient
+**Model:** opus
+**Repo:** `scottidler/claude`
+
+- `resolve_names` gains its `dms` clause in BOTH jq programs, `D…` to `U…` and then the existing user branch; the `.users` DM branch is removed
+- The recipient loop stops being wrapped in `if ! posting_intent`. The shape Phase 9 selected decides whether the weak condition remains as a per-recipient fallback for channels or disappears entirely
+- The cold-miss backstop: a `D…` absent from `dms` is resolved through the installed `slack` client before authorization, with a timeout, and a failure **denies**, consistent with this rule's existing missing-cache and unreadable-transcript behavior
+- The 3-turn window is unchanged, and the table of measured window values stays where it is
+- **Success criteria:** a post to a peer's DM whose prompt names the person by handle, display name, real name or first name allows; the same post with a prompt naming nobody denies, and the deny text names the person rather than the `D…` id; the replay's real deny count matches Phase 9's measurement for the selected variant; the cold-miss path is exercised against a `D…` deliberately removed from `dms`
+
+### The 18 legacy `D…` keys: origin found, and it was the first draft's wrong file
+
+Round 5 closed this. `users` holds 18 `D… -> handle` entries its own contract does not admit, and the writer is the retired `slack.py`'s hand-maintained id file: `git show a259d79:HOME/repos/.claude/slack-ids.yml` carries a `users` section of exactly 18 `D…` keys, **byte-identical to the cache's 18 today, zero diff**. Its own header comment reads "id -> name (channels), username (users)", so the mixed keying was deliberate in the tool that predates this client. `migrate_legacy` (`cache.rs:544-561`) `fs::rename`s `~/repos/.claude/slack-ids.json` into the XDG cache on first run, which is how they arrived.
+
+The first draft called the origin unidentified after ruling out the predecessor cache at that path. That was the wrong file: the rename MOVED the original, so what sits there today was recreated afterwards, which is why it showed 169 channels and zero users. The correct probe is the git object, not the live path.
+
+Non-blocking stands, for better reasons than the first draft gave: the writer is retired, the migration is a first-run-only no-op once the XDG cache exists (`cache.rs:545`), and Phase 10 removes the branch that reads these keys. Phase 8 still adds the `users` doc invariant and a test that the sole writer's key is a user id, so a `D…` key cannot return unnoticed.
+
+### Open Questions: none
+
+Round 5 recommended parking the TARGET-variant call here. It is not parked: Phase 9 is a zero-code measurement with both outcomes specified and a stated decision rule, which is the pattern Phase 0 uses throughout this doc. Parking it would put an open question in a doc `rules/taste.md` requires the author to close. The group-DM half of Scott's framing is likewise closed rather than deferred: `mpim` is already in `CHANNEL_TYPES` and the cache holds 19 resolved `G…` entries, including `mpdm-donut--joseph--scott.idler-1`, so group DMs resolve to names today and need no work.
 
 ## References
 

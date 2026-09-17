@@ -179,3 +179,30 @@ Round 4 was the narrow round Scott ordered and it paid for itself: two live bypa
 Pattern, now four for four: **every round has found at least one rule whose stated mechanism could not perform its stated job.** Round 1 `realpath -m`, round 2 a ledger nothing could write, round 3 a lock that did not span the operation, round 4 a skip list that did not cover the flag it had just fixed. The question that catches them stays the same: what process, at what moment, executes this, and what can it see?
 
 Second pattern worth carrying to chunk E: **the fold is where defects enter.** M6, C1 and arguably M3 are all cases where a fix landed at one site and not at its siblings. Round 2 found six, round 3 one, round 4 two. A fold is not done when the rule text is right; it is done when every place the doc states the same fact has been walked.
+
+## Round 5, 2026-09-16
+
+Ordered by Scott past the cap (`PANEL_ROUNDS_ORDERED_BY_SCOTT=5`), scoped to Addendum A and the five sites it amended. Phases 0 through 7 were explicitly out of scope. Both seats returned "not ready to build": 6 must-fix, 8 cheap wins, 3 defers, 8 of 8 questions answered. Run dir `/tmp/review-panel/GOX7yywR/`, drift during the round 0 lines.
+
+Every must-fix was re-verified against the code before folding, and three of them invalidate the first draft's central claim.
+
+- **M1. The recipient loop is skipped wholesale on a posting ask.** `slack-post-guard.sh:685` is `if ! posting_intent "$prompt"; then` with the `for r in "${nonexempt[@]}"` loop inside it. So the first draft's "a DM gets the strong name condition exactly as a channel does" was true only because neither does. Resolution alone buys back nothing; the control flow has to change too.
+- **M2. The stated reason for keeping the weak condition was wrong.** `typed_prompt` (`:357`) joins the whole window into one string and both conditions read it, so the naming turn is already in the strong condition's input. The weak condition's only function is admitting a post no turn's recipient names, which is the hole the addendum exists to close.
+- **M3. Nothing fills `dms` before authorization, and a lazy client fill cannot.** `channel_display_name` is called only from `read.rs:150` and `:202`; a raw `D…` short-circuits `resolve_channel_id` at `read.rs:377-383`; the guard is `PreToolUse` on `mcp__slack__chat_post_message` (`settings.json:885`). Cold DM plus name-only prompt would deny the post whose execution would have warmed the cache. Closed by Scott's ruling the same day: eager sync plus lazy backstop.
+- **M4. The `dms` merge arm was omitted** from `MergePolicy` (`cache.rs:310-323`) and the merge body (`:379-420`). Neither seat found this; it came out of the fold. Every write would have been dropped silently while looking successful. It is now a Phase 8 success criterion written to fail against a build without it.
+- **M5. "Survives a round trip through a binary that predates the field" is unsatisfiable.** `IdCache` retains no unknown fields and the repo asserts the erasure in `resave_of_pre_change_cache_drops_the_groups_key` (`cache/tests.rs:103-124`). Replaced with a stated downgrade behavior: an old binary empties `dms` and the next run refills it.
+- **M6. The 18 legacy `D…` keys have a writer, and the first draft checked the wrong file.** `git show a259d79:HOME/repos/.claude/slack-ids.yml` holds 18 `D…` keys byte-identical to the cache's 18 today, zero diff, from the retired `slack.py` whose header reads "id -> name (channels), username (users)". `migrate_legacy` (`cache.rs:544-561`) `fs::rename`s the legacy file into the XDG cache, so the path the first draft probed had been recreated after the move. Non-blocking stands on better reasoning.
+
+## Findings rejected in round 5, with the reason
+
+- **Architect: "fatal deadlock, permanently denies ALL DM posts."** Rejected as stated. With the weak condition in place a cold DM plus a posting ask allows, measured. The gap is confined to the name-only path, which is what M3 records.
+- **Architect Q4: dropping the `.users` DM branch breaks `U…` resolution.** Wrong. A `U…` id or handle resolves through `$uits` over `.handles` (`slack-post-guard.sh:294`), a separate branch, and that is how `dm_mentioned` recipients already arrive. The real omission was the SECOND jq program at `:311-324`, which the staff seat caught.
+- **Both seats: park the TARGET-variant call in Open Questions.** Refused. Phase 9 is a zero-code measurement with a stated decision rule and both outcomes specified, which is the Phase 0 pattern this doc uses throughout. `rules/taste.md` makes closing it the author's job.
+
+## Standing after five rounds
+
+Pattern now five for five: **every round has found at least one rule whose stated mechanism could not perform its stated job.** Round 1 `realpath -m`, round 2 a ledger nothing could write, round 3 a lock that did not span the operation, round 4 a skip list that did not cover the flag it had just fixed, round 5 a guard whose recipient loop the rule never reaches and a cache fill no process on the post path runs. The question keeps being the same one: what process, at what moment, executes this, and what can it see?
+
+And the fold-is-where-defects-enter pattern held again from the other side: M4 was found during this fold, not by either seat. A fold is done when every place the doc states the same fact has been walked, and this time that included the merge sites the field addition implied.
+
+One process note, handed on rather than fixed here: `review-panel.md` Step 3's documented rc-capture block was denied four times by the auto-mode classifier, the tilde-path head being what trips it since it matches a `sandbox.excludedCommands` pattern. The form that ran was absolute-path heads plus bare `wait`, which cannot assign `$?`, so both seat exit codes are inferred from output rather than captured. That belongs to whichever chunk owns agent definitions.

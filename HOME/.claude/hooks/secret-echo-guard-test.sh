@@ -207,6 +207,14 @@ runwrapped 'cat /run/user/1000/borg.env'
 runwrapped 'systemctl --user show-environment'
 runwrapped 'aws secretsmanager get-secret-value --secret-id prod/slack'
 
+echo "=== round-6: the artifact pre-filter gated on the quote-masked copy ==="
+# mask_squote erased a single-quoted credential path before the pre-filter saw
+# it, so the whole artifact branch was skipped and the bare form's sibling
+# spelling allowed.
+run deny "cat '/home/saidler/.cache/slack/token.json'"
+run deny "cat \"/home/saidler/.cache/slack/token.json\""
+run deny 'cat /home/saidler/.cache/slack/token.json'
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]
