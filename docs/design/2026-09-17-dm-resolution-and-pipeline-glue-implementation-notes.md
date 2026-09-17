@@ -705,3 +705,38 @@ Files: `HOME/.claude/skills/review-panel/SKILL.md` (new),
   with frontmatter in the same shape (`name` + `description`) as every other working skill, which
   is the same evidence category the repo's other skills rely on for discoverability. Confirm with
   a live `Skill(review-panel)` call in a fresh session.
+
+## Phase 8 follow-up: criterion 1 closed by the orchestrator
+
+Phase 8 reported criterion 1 as "PASS structurally, UNVERIFIED live" because a
+`phase-implementer` has no `Skill` tool and so cannot invoke one. That was the right call
+rather than a claim it could not support. The orchestrator has the tool, so it is closed here.
+
+### Design decisions
+- **Invoked `Skill(review-panel)` for real.** It resolved and returned the shim's contents; no
+  `Unknown skill`. The shim's dispatch instruction was deliberately NOT followed: the point was
+  to prove resolution, not to spend a panel round. The Skill tool returns instructions rather
+  than acting on them, so this costs nothing beyond the load.
+- Corroborated independently: the harness rescanned `HOME/.claude/skills/` on Phase 8's write
+  and now lists `review-panel` with the new `SKILL.md`'s own description, which is the registry
+  that `Unknown skill` is raised from.
+- Verified the replacement in `create-design-doc/SKILL.md:47` is a replacement and not an
+  addition: the diff is one `-` and one `+`, and `review-panel` appears exactly once in that
+  file. That is the "two signals do not encode one meaning" Resolved Decision holding.
+- Verified Phase 8's isolation claim rather than accepting it: `PANEL_ROUND_CACHE_DIR` is a
+  documented override in `panel-round-guard.sh:87`, and the live counter at
+  `~/.cache/review-panel/rounds/` has no entry for the scratch doc, its newest file predating
+  the run.
+
+### Deviations
+- None.
+
+### Tradeoffs
+- Chose the real invocation over inferring resolution from the skill listing. The listing is
+  strong evidence, but the criterion names `Skill(review-panel)` specifically and the invocation
+  is what it asks for.
+
+### Open questions
+- None. Phase 8's own open question (whether a running session picks the skill up without a
+  restart) is answered by this session doing exactly that: the skill was created mid-session and
+  resolved without a restart.
