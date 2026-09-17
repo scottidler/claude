@@ -10,16 +10,22 @@ Chunk D's Slack replay harness. Addendum A recorded it as "lived in a session sc
 |---|---|
 | `rowsFinal.json` | **the pinned baseline.** 216 rows, 26 denies = 9 TARGET + 17 body-file replay artifacts. Reproduces chunk D's acceptance criterion 3c exactly. md5 `5ade36f7fead9c5973b2398a2cbe6473` |
 | `slackrecall.py` | the replay driver. `python3 slackrecall.py <rows-out.json> [/path/to/guard.sh]` |
-| `variantA.sh` | the SHIPPED two-condition rule. `PROMPT_WINDOW=3`, recipient loop wrapped in `if ! posting_intent` |
+| `variantA.sh` | the two-condition rule as of the harvest. `PROMPT_WINDOW=3`, recipient loop wrapped in `if ! posting_intent`. **NOT the shipped guard, see the third trap** |
 | `variantB.sh` | the per-recipient prototype, loop UNWRAPPED at `:621-630`. The starting point for both Phase 3 variants |
 | `windowdist.py` | the `PROMPT_WINDOW` distance study |
 
-**Two traps, both load-bearing.**
+**Three traps, all load-bearing. The third was found by panel round 1.**
 
 1. **`slackrecall.py` on disk carries `WINDOW = 12`. `rowsFinal.json` was produced at `WINDOW = 3`.** Set it to 3 or the baseline does not reproduce. Verified by counting `" || "`-joined turns per row: `rowsFinal.json` max is 3.
 2. **It reads the LIVE `~/.claude/projects` tree**, so a re-run today yields more than 216 rows. Compare against `rowsFinal.json`, do not regenerate it.
+3. **`variantA.sh` is NOT the shipped guard.** `variantA.sh:354-356` greps the raw prompt; the shipped `slack-post-guard.sh:396-405` pipes through `sed 's/<[^>]*>/ /g'` first to strip harness tags, and its own comment measures 58 of 400 sampled transcripts carrying the `<command-message>` wrapper. Re-derive the baseline arm from the guard on disk. Comparing a post-fix variant against this pre-fix copy invalidates the measurement.
 
-It also `shutil.rmtree`s `~/.cache/slack/sent-ledger` before every post. Keep that: without it, replaying a year of traffic in one minute makes every repeated body look like a RESEND.
+**`slackrecall.py` was PATCHED on harvest, twice, and neither change is cosmetic.**
+
+- The original pointed `LEDGER` at `$HOME/.cache/slack/sent-ledger` and `shutil.rmtree`'d it once per replayed row. That is the LIVE ledger (`slack-post-guard.sh:113`), the only thing ruling out duplicate posts, and the guard fails closed when it is unwritable. A 216-row replay destroyed live duplicate-post protection 216 times. It now defaults to a scratch path via `$REPLAY_LEDGER` and REFUSES to run against the live one.
+- The original caught a parse failure and returned `allow`, so a crashed or malformed guard scored as permissive. It now raises.
+
+The per-row ledger clear itself is correct and stays: without it, replaying a year of traffic in one minute makes every repeated body look like a RESEND.
 
 **Not harvested:** the first-cut guard variant (recipient named in the CURRENT turn, no `posting_intent`). It exists in no file. Chunk D's "79 denies in 216" cannot be re-derived from what survives, and this doc does not restate it as a live measurement.
 

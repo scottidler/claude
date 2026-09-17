@@ -11,7 +11,7 @@ For each Slack write tool_use, this walks back through the transcript prefix the
 hook would have seen, picks the turn's typed prompt with the corrected
 extractor, writes a one-record transcript carrying it, and asks the guard.
 """
-import json
+import json, os
 import pathlib
 import subprocess
 import sys
@@ -49,7 +49,14 @@ def typed_prompt(records, upto):
     return best[-WINDOW:]
 
 
-LEDGER = pathlib.Path.home() / ".cache/slack/sent-ledger"
+# PATCHED 2026-09-17 (panel round 1, MF-5). The harvested original pointed at
+# $HOME/.cache/slack/sent-ledger, which is the LIVE ledger the shipped guard uses
+# (slack-post-guard.sh:113) and the only thing ruling out duplicate posts. A 216-row
+# replay rmtree'd it once per row, destroying live duplicate-post protection 216 times.
+# It now defaults to a scratch dir and REFUSES to run against the live path.
+LEDGER = pathlib.Path(os.environ.get("REPLAY_LEDGER", "/tmp/replay-sent-ledger"))
+if LEDGER == pathlib.Path.home() / ".cache/slack/sent-ledger":
+    raise SystemExit("refusing to replay against the LIVE sent-ledger; unset REPLAY_LEDGER")
 
 
 def verdict(payload):
@@ -63,7 +70,9 @@ def verdict(payload):
     try:
         d = json.loads(out)["hookSpecificOutput"]
     except Exception:
-        return "allow", ""
+        # PATCHED 2026-09-17 (panel round 1, MF-5). The original scored a crashed or
+        # malformed guard as an ALLOW, so a broken variant measured as permissive.
+        raise SystemExit(f"guard produced unparseable output: {out!r}")
     if d.get("permissionDecision") != "deny":
         return "allow", ""
     return "deny", d.get("permissionDecisionReason", "")

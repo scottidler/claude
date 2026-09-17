@@ -3,7 +3,7 @@
 **Author:** Scott Idler
 **Date:** 2026-09-17
 **Status:** Draft
-**Review Passes Completed:** 5/5. Panel review not yet run.
+**Review Passes Completed:** 5/5, then panel round 1 as a design review. All 7 must-fix, 5 should-fix and 1 nit folded in; every one re-verified against the code before folding. Round-2 not yet run.
 
 ## Summary
 
@@ -63,8 +63,9 @@ Three prescriptions do not survive first contact. This is the third consecutive 
 - The harness backgrounds Agent dispatches unconditionally, since roughly 2026-06-12. Measured over all 652 `phase-implementer` dispatches ever recorded: zero returned a report inline. Independently re-run in this session, 652 resolved, 0 unresolved.
 - `run_in_background` is absent on 1,905 of 1,906 dispatches of every type, not because the model declines to background but because it has no say.
 - `name` selects the delivery variant (teams relay vs background task), not synchrony. Both forms end the parent turn at dispatch.
-- The June complaints are the OPPOSITE failure: "are we sure this thing is still building? 22m; 48k tokens and not moving?". Measured over 396 dispatch-to-report gaps: median 0.5 min, p90 22.8 min, max 300.9 min. Of the 124 gaps over 10 minutes, **102 (82%) were silent** after the opening status line.
-- A synchronous parent is blocked inside the tool call, so it has no seam for mid-wait output. It would make the 82%-silent condition universal.
+- The June complaints are the OPPOSITE failure: "are we sure this thing is still building? 22m; 48k tokens and not moving?".
+- **The silence is qualitative here, not a pinned number.** A first measurement put 102 of 124 long gaps (82%) at silent, but round 1 showed the dispatch-to-report join that produced it pairs a dispatch with the next teammate message regardless of sender, including idle notices from a different phase. An exact worker-name join gives 390 pairs and a 14.53-minute median. Neither number is load-bearing and the doc does not rest on one: the complaints are on record verbatim, the long waits are on record, and that is enough to reject a direction that would make them universal.
+- A synchronous parent is blocked inside the tool call, so it has no seam for mid-wait output. It would make silent waits universal rather than repair them. **This half rests on `652/0`, which is exact and scope-independent** (round 1 reproduced it under both top-level-only and including-subagents scopes).
 - **Verdict: the direction inverts. Do not make dispatch synchronous. Make the asynchronous wait legible.**
 
 **Item 8's "three phase workers sitting idle" is not a stop.**
@@ -171,13 +172,22 @@ Three routes exist. The choice is A.
 | cost | one hook, house pattern | plugin reload hazard | needs `$.session.messages()` |
 | risk | none to the typed prompt | can corrupt the prompt | wrong order for "merge, /bump, install" |
 
-- **A wins on cost and blast radius.** It matches `prose.sh`, the repo's existing prompt-reading hook. No plugin reload. An existing `*-test.sh` harness pattern. It is the only route that cannot corrupt what Scott typed. Its `source:"user"` discriminator fires it only on human-typed prompts.
+- **A wins on cost and blast radius.** It matches `prose.sh`, the repo's existing prompt-reading hook. No plugin reload. An existing `*-test.sh` harness pattern. It is the only route that cannot corrupt what Scott typed.
+- **There is no `source` discriminator, and the hook fires on injected prompts too.** Chunk C measured the `UserPromptSubmit` payload keys at 2.1.272 and they are `cwd`, `hook_event_name`, `permission_mode`, `prompt`, `prompt_id`, `session_id`, `transcript_path`, with no `source` (`2026-09-14-panel-round-cap-phase0/evidence.md:142`). The same evidence records it firing on a prompt handed to `claude -p`. So "fires only on human-typed prompts" is false and the design does not rest on it. Phase 0b probes for a discriminator; if none exists, the hook fires on every prompt and the cost is one ignorable line on the ones it should not have matched, which is the same failure mode already accepted for the discussion class.
 - **B's only advantage is text ownership**, which buys nothing unless the design commits to inlining SKILL.md bodies. That trades a reliability problem for a context-budget problem (bodies run 3.3K to 21.3K; a prompt naming three skills could inline 45K) and silently defeats `skillOverrides`.
 - **C is the only mechanical route and it fires on the wrong turn.** For "merge, pull main, /bump, install, /cli-shakedown" the original prompt is answered first and the skill runs after. Wrong order.
 
-**Choosing A also closes the discussion-class question.** 34% of survivors are discussion, not invocation, and no lexical rule separates them. Under A a wrong match costs one line of injected context that the model is free to ignore, not a wrongly-executed skill. That is an acceptable failure mode; under B or C it would not be.
+**Choosing A also closes the discussion-class question, and the injected text carries the closure.** 34% of survivors are discussion, not invocation, and no lexical rule separates them. Under A a wrong match costs one line of injected context rather than a wrongly-executed skill.
 
-**The matcher is `dSt`, ported, not reinvented.** Every exclusion rule the dig derived independently is a subset of it. Port its algorithm, including the rule that is easy to miss: `if(e.startsWith("/")) return []`, so a prompt that already opens with a slash command is not scanned.
+That argument only holds if the injected line leaves room to decline, and the feature works precisely when the model does NOT ignore what is injected. So the text is not "invoke `Skill(name)`". It names the token, says the user mentioned it, and makes invocation conditional on the prompt asking for it. Phase 7's criteria include a discussion prompt as a negative case, so the wording is tested rather than asserted.
+
+**The matcher ports `dSt`'s span logic and INVERTS its slash rule.** This is the trap, and porting `dSt` faithfully ships a matcher that scores zero.
+
+- `dSt` excludes any match whose preceding character is `/`, `\` or `-`: `if(ye==="/"||ye==="\\"||ye==="-")continue`, where `ye` is `e[U-1]`.
+- It was built to match a BARE `ultraplan` and to exclude `/ultraplan`. E7 needs the opposite.
+- Measured by porting the function and running it: `dSt("please /bump next","bump") -> []`, `dSt("merge, pull main, /bump, install","bump") -> []`, `dSt("please bump next","bump") -> match`.
+- **What to take:** the quote/bracket/angle/code span exclusion, the apostrophe-vs-quote rule, the trailing-neighbor rules (`/`, `\`, `-`, `?`, and `.` followed by alphanumeric), and `if(e.startsWith("/")) return []`.
+- **What to invert:** the leading-neighbor rule. A `/` before the token is REQUIRED, not disqualifying. `\` and `-` before it still disqualify.
 
 **Name resolution drops what must not match.**
 
@@ -197,7 +207,10 @@ Three routes exist. The choice is A.
 - After accepting a phase report the orchestrator sends `{"type":"shutdown_request"}` to that worker. One line, and it closes the "three workers sitting idle" complaint.
 - Step 5's `git push && git push --tags` at `:496` and `:533` is replaced with the `rules/git.md` sequence. The skill stops instructing a step its own hook denies.
 
-**A `Stop` hook backstop, only if Phase 0 says prose is insufficient again.** Prose saturation is already present: four "DO NOT STOP" statements at `:275-280` and `:363-364`, and the failure persists. `prose.sh` is the shipped proof that a Stop hook can block a premature end (`:98` emits `{decision:"block",reason:$r}`; the harness caps consecutive blocks at 8 so a hook bug cannot wedge a session). A sibling hook scanning for "dispatched phase-implementer, never dispatched review-panel after the last one" fits the existing shape exactly: same payload, same transcript read, same block verb.
+**The Stop-hook backstop does NOT cover the dispatch boundary, and the doc no longer claims it does.** The 2.1.274 bundle: `[end-turn] Stop hook block discarded (turn ended by tool result ... no model re-invoke)`. An Agent dispatch ends the parent turn BY TOOL RESULT, so a Stop-hook block at that boundary is discarded. `prose.sh` proves ordinary Stop blocking, not this one.
+
+- What a Stop hook CAN still catch is a turn that ends normally with phases outstanding, which is a different and narrower case. It stays available as a fallback for that case only.
+- **The heartbeat rests on the wake that exists, and nothing else.** The parent is woken by each teammate report and can act in that turn, proven in three transcripts. A beat is emitted on each such wake. A genuinely silent mid-phase gap, the 22-minute case, has NO mechanism today: no intermediate notification arrives, so nothing wakes the parent to speak. The design does not pretend otherwise, and the residual silence is named as an accepted limit rather than designed away.
 
 **`release-driver` gains the back half of the chain.** It stops today at "tag verified, install reported the new version" (`:96-102`). It gains `sdv probe` until live for a deployed service, or installed-binary version plus acceptance commands for a CLI, then the shakedown. It also gains an entry path for "the PR already merged, finish the bump", which its step 2 has no route for today.
 
@@ -206,7 +219,8 @@ Three routes exist. The choice is A.
 - Branch from `git branch --show-current`. Title de-slugged from the branch as `type(scope): <those same words>`, so `slug(title minus type/scope) == branch` by construction.
 - Release intent is an explicit argument, never defaulted and never guessed. `Release: rides this PR (vX.Y.Z)` only after confirming a version line changes vs base, else Gate D `:566` denies the claim.
 - Body written to a literal readable path under `$TMPDIR`, passed as `--body-file <literal path>`. Never a process substitution, never `-`, never an unexpanded `$VAR`. Those three are the 32 September denials.
-- **It does not hide `gh` behind a subprocess.** `bin/release:334` does, and that is the bug, not the pattern. `pr-open` emits the command where the hook can see and approve it.
+- **It does not hide `gh` behind a subprocess.** `bin/release:334` does, and that is the bug, not the pattern.
+- **The handoff is a protocol, not a phrase.** "Emits the command where the hook can see it" has two failure modes and the design picks between them: running `gh` inside the helper still bypasses PreToolUse, and merely printing it creates no PR. So: `release` stops at a distinct `PR creation required` result carrying the literal command; the agent runs that literal as its own Bash tool call, where the hooks see it; only a verified creation advances. Denial, failure and resume are each defined, because a denied `gh pr create` must not leave the driver believing a PR exists.
 
 ## Data Model
 
@@ -236,10 +250,15 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 **Repo:** `scottidler/claude`
 
 - **0a (D2).** Reproduce the criterion 3c baseline from the harvested harness. `slackrecall.py` on disk carries `WINDOW = 12`; `rowsFinal.json` was produced at `WINDOW = 3`. Set it to 3 and confirm the split. The harness reads the LIVE `~/.claude/projects` tree, so a re-run yields more than 216 rows: `rowsFinal.json` is pinned as the denominator.
-- **0b (E7).** Six probes: a `UserPromptSubmit` hook's `additionalContext` reaches the model; what `source` a normal typed prompt carries; whether it fires for prompts that start with `/`; that a `prompt.submit` hook returning text beginning with `/` is NOT expanded; that `$.command.run` is refused from `prompt.submit` and succeeds from `turn.complete`; whether a `skillOverrides: "off"` skill is still resolvable.
+- **0b (E7).** Six probes: a `UserPromptSubmit` hook's `additionalContext` reaches the model; **whether ANY field discriminates a typed prompt from an injected one** (chunk C measured the payload keys at 2.1.272 with no `source`, so the probe asks whether one exists, it does not presuppose one); whether it fires for prompts that start with `/`; that a `prompt.submit` hook returning text beginning with `/` is NOT expanded; that `$.command.run` is refused from `prompt.submit` and succeeds from `turn.complete`; whether a `skillOverrides: "off"` skill is still resolvable.
+- **0d (E8, added in round 1).** Two assumptions no other spike covers. Does anything wake the parent DURING a phase, or only on the teammate report? And does a `shutdown_request` to a completed phase worker actually clear it from the roster? Both are what Phase 10's heartbeat and reaping rest on.
 - **0c (E8).** Six cells over `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` x `name` x `run_in_background`, using the scratch-hook method from `2026-09-14-panel-round-cap-phase0/evidence.md:6-8`. Also capture whether the PreToolUse `Agent` payload carries `tool_input.name`: a guard on the named form is impossible if it does not.
 - **Success criteria:** every answer is an observed log line or tool result pasted into `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md`, never an inference from the bundle; 0a reproduces 26 denies splitting 9 TARGET / 17 artifacts; 0c states whether any cell yields a synchronous dispatch.
-- **Gate:** if no 0c cell is synchronous, Phases 9 and 10 build the legible-wait design and the synchronous option is closed in writing. If one is, the doc is amended before Phase 9 starts.
+- **Gates, one per spike.**
+  - 0a: if the baseline does not reproduce at 26/9/17, Phase 3 stops and the corpus is re-derived before any variant is measured.
+  - 0b: if no field discriminates a typed prompt, the hook fires on every prompt and that is written into Phase 7 as an accepted cost. If `additionalContext` does not reach the model at all, mechanism A is dead and the doc returns to the A/B/C table before Phase 5 starts.
+  - 0c: if no cell is synchronous, Phases 10 and 11 build the legible-wait design and the synchronous option is closed in writing. If one is, the doc is amended before Phase 10 starts.
+  - 0d: if nothing wakes the parent mid-phase, Phase 10's heartbeat covers report boundaries only and the residual silence is stated as a limit, not promised away.
 
 ### Phase 1: `slack-cli` gains `dms` on the cache
 **Model:** opus
@@ -254,10 +273,12 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 **Model:** opus
 **Repo:** `tatari-tv/slack-cli`
 
-- New `src/slack/dm.rs`: `sync_dms` (one `users.conversations` over `im`) and `resolve_dm_user(api, cache_path, dm_id) -> Result<Option<String>>`.
+- New `src/slack/dm.rs`: `sync_dms` and `resolve_dm_user(api, cache_path, dm_id) -> Result<Option<String>>`.
 - **Register the module.** `src/slack.rs:10-20` declares submodules alphabetically; `pub mod dm;` goes between `decode` (`:14`) and `follow_ups` (`:15`). A new file nobody declares compiles to nothing, and `taste.md` names registration as the most-skipped step in an implementation audit.
-- Wire `sync_dms` into `CacheLookup::refresh` (`mention.rs:1060`), `RefreshSummary` (`mention.rs:162`) and the count string (`command/cache.rs:130`). All three.
-- `channel_display_name` (`read.rs:525-533`) stops discarding `ch.user`: fill `dms` from the response it already fetches when `is_im` is set.
+- **`sync_dms` PAGINATES.** `users_conversations` returns `Page<Channel>` with a `next_cursor` (`api.rs:902-916`), and `sync_channels` loops it (`mention.rs:463-473`). Addendum A's "one `users.conversations` listing" is one PAGE, which contradicts this phase's own "N ims yields N entries" criterion. Copy `sync_channels`'s cursor loop exactly.
+- Wire `sync_dms` into `CacheLookup::refresh` (`mention.rs:1060`), `RefreshSummary` (`mention.rs:162`) and the count string (`command/cache.rs:130`). All three. **Plus the two output projections that would otherwise omit `dms` silently:** `run_refresh`'s JSON object (`command/cache.rs:136`) and `render()`'s text form (`command/cache.rs:160`).
+- **`slack cache resolve <id>`, a new `CacheAction` variant.** `CacheAction` is `List | Add | Refresh` today (`cli.rs:563-580`) and `Add` warms a CHANNEL, so `resolve_dm_user` would ship with no caller Bash can reach and Phase 4's cold-miss backstop would have no implementation. This is the narrowest chokepoint that makes it reachable, and the guard shells out to it.
+- **`channel_display_name` needs a signature change or it cannot fill anything.** It is `fn channel_display_name(api, channel_id) -> Option<String>` (`read.rs:525-533`) and takes no `cache_path`, so the opportunistic fill Addendum A describes is impossible without threading a path through both callers (`read.rs:150`, `:202`). Do the signature change, or drop the opportunistic fill and rely on `sync_dms` plus the explicit resolve. Either is fine; silently skipping it is not.
 - `CHANNEL_TYPES` (`read.rs:48`) does not change, and `read/tests.rs:772` stays true.
 - Function-level debug logging per `rules/logging.md`: entry with the dm id, exit with hit | miss | not-an-im.
 - **Success criteria:** a cold `D…` costs exactly one `conversations_info` and a warm one costs zero, asserted on a fake API's call count; a non-`im` channel writes nothing; an `im` whose `user` is absent writes nothing rather than an empty string; `sync_dms` over N ims yields N entries and leaves `channels` unchanged; no source file exceeds 1500 lines.
@@ -267,7 +288,9 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 **Repo:** `scottidler/claude`
 
 - Prerequisite: Phase 2 merged, bumped, tagged and **installed**. The guard reads a cache only the installed binary writes.
-- Replay the pinned 216-row corpus against three variants: the shipped rule (`variantA.sh`, confirmed functionally identical to the guard on disk), name-mandatory for non-exempt DMs only, and name-mandatory for every non-exempt recipient (`variantB.sh` is the starting point, its loop already unwrapped at `:621-630`).
+- **Re-derive variant A from the guard on disk. Do NOT use the harvested `variantA.sh` as the baseline arm.** It is not functionally identical: `variantA.sh:354-356` greps the raw prompt, while the shipped guard pipes through `sed 's/<[^>]*>/ /g'` first (`slack-post-guard.sh:396-405`) to strip harness tags. The shipped comment quantifies the gap at 58 of 400 sampled transcripts carrying the `<command-message>` wrapper. Comparing a post-fix variant against a pre-fix baseline invalidates the whole measurement.
+- **Fix the replay driver before running it.** `slackrecall.py` as harvested does `shutil.rmtree` on `~/.cache/slack/sent-ledger` once per row (`:52,59-60`). That is the LIVE ledger (`slack-post-guard.sh:113`), the only thing ruling out duplicate posts, so a 216-row replay destroys duplicate-post protection 216 times. Point `LEDGER` at a scratch directory. Separately, `:65-66` catches a parse failure and returns `allow`, so a crashed or malformed guard is scored as a pass; make it a hard error.
+- Replay the pinned 216-row corpus against three variants: the re-derived shipped rule, name-mandatory for non-exempt DMs only, and name-mandatory for every non-exempt recipient (`variantB.sh` is the starting point, its loop already unwrapped at `:621-630`).
 - The first-cut guard survives in no file, so the "79 denies in 216" number cannot be re-derived and is not restated as a live measurement.
 - **Decision rule, all three outcomes specified:** the variant that ships is the strictest whose deny count does not exceed 9, artifacts excluded.
   - Both clear -> all-recipients ships, the weak condition disappears.
@@ -281,7 +304,9 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 
 - `resolve_names` gains its `dms` clause in BOTH jq programs; the `.users` DM branch is removed. `U…` resolution is unaffected: it runs through `$uits` over `.handles` at `:294`, a separate branch.
 - The recipient loop stops being wrapped in `if ! posting_intent` (`:705`). Phase 3's result decides whether the weak condition remains as a per-recipient fallback for channels or disappears.
-- Cold-miss backstop: a `D…` absent from `dms` is resolved through the installed `slack` client before authorization, with a timeout, and a failure DENIES, consistent with this guard's existing missing-cache behavior.
+- Cold-miss backstop: a `D…` absent from `dms` is resolved by shelling out to `slack cache resolve <id>` (Phase 2's new variant) before authorization, with a timeout, and a failure DENIES, consistent with this guard's existing missing-cache behavior.
+- **The 18 legacy `D…` keys under `.users` break here, and that is stated rather than discovered.** `$dmits` (`slack-post-guard.sh:292`) is their only reader and this phase removes it. They resolve today and stop resolving after this phase, which is correct (they are a retired tool's artifact) but it is a behavior change, not a no-op.
+- **Ordering hazard, and it is the reason this phase ships last.** Any cache written by a process without Phase 2 has no `dms`. Phase 4 against such a cache resolves no DM at all and fails closed on EVERY DM post. So Phase 4 does not ship until every writer on this machine is a Phase 2 binary: `~/.cargo/bin/slack` installed AND no older copy on PATH.
 - The 3-turn window is unchanged.
 - **Success criteria:** a post to a peer's DM whose prompt names the person by handle, display name, real name or first name allows; the same post naming nobody denies, and the deny text names the person rather than the `D…` id; the replay's deny count matches Phase 3's measurement for the selected variant; the cold-miss path is exercised against a `D…` deliberately removed from `dms`.
 
@@ -289,7 +314,9 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 **Model:** sonnet
 **Repo:** `scottidler/claude`
 
-- Port `dSt`'s exclusion algorithm, including `startsWith("/") -> no scan`. No wiring to anything.
+- **Python.** `dSt` is character-scanning with span tracking; in bash/jq that is a liability on a path that runs for every prompt. The tree already ships Python hooks, so this is the house option, not a new dependency.
+- Port `dSt`'s span and trailing-neighbor logic, keep `startsWith("/") -> no scan`, and INVERT the leading-neighbor rule so `/` before the token is required rather than disqualifying. No wiring to anything.
+- **The inversion is the whole phase.** A faithful port scores zero on every survivor: `dSt("merge, pull main, /bump, install","bump") -> []`. Write the test that proves the inversion first.
 - Fixtures are committed and pinned: `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/inline-token/fixtures.json`, 2,004 records, 1,421 labeled false positives and 583 survivors. Do NOT regenerate them: the generator reads the live session tree and the counts move.
 - **Success criteria:** 0 of the 1,421 known false positives match; at least 95% of the 583 survivors match; `the three standard endpoints (/status, /deployed, /version)` and `a "name()/help arm,"` both produce zero matches.
 
@@ -306,7 +333,7 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 
 - The `UserPromptSubmit` hook, registered in `settings.json`, with its `*-test.sh` beside it in the shape the other 20 guards use.
 - One line in `interaction.md` naming the hook, per the enforcement-before-prose rule.
-- **Success criteria:** a live session where `merge, pull main, /bump, install, /cli-shakedown` produces both skill invocations with no second prompt; a live session where `is chunk E ready to build, or do I need to /create-design-doc on it first?` invokes nothing; a prompt already opening with a slash command is left alone; `hooks-preflight.sh` reports the new hook resolving.
+- **Success criteria:** a live session where `merge, pull main, /bump, install, /cli-shakedown` produces both skill invocations with no second prompt; a live session where `is chunk E ready to build, or do I need to /create-design-doc on it first?` invokes nothing, which is the discussion case the injected wording has to survive; a second discussion case, `13 of the 15 costliest sessions are /how-to-execute-a-plan`, also invokes nothing; a prompt already opening with a slash command is left alone; `rg -c 'UserPromptSubmit' HOME/.claude/settings.json` returns at least 1 and `hooks-preflight.sh` emits no unresolved-hook warning naming it.
 
 ### Phase 8: the `review-panel` shim
 **Model:** sonnet
@@ -332,16 +359,19 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 - Per-wake heartbeat: phase, elapsed, what it waits on.
 - `shutdown_request` to each phase worker after its report is accepted.
 - Step 5's `git push --tags` at `:496` and `:533` replaced with the `rules/git.md` sequence, routed through `pr-open` where a PR is involved. Both sites: fixing only the live one leaves the summary box lying.
-- **Success criteria:** `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` returns nothing; the audit-offering sentence is gone; a multi-phase run dispatches review-panel with no user prompt between the last phase and the dispatch.
+- **Success criteria:** `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` returns zero lines; the audit-offering sentence at `:456` is gone; a multi-phase run dispatches review-panel with no user prompt between the last phase and the dispatch; **the transcript of that run shows one beat per teammate wake, naming the phase and elapsed time** (without this assertion the phase can pass with the heartbeat unbuilt); each completed worker receives a `shutdown_request`.
 
 ### Phase 11: `release-driver` owns the back half
 **Model:** opus
 **Repo:** `scottidler/claude`
 
-- The chain extends past tag verification: install -> `sdv probe` until live (deployed) or installed-binary version plus acceptance commands (CLI) -> shakedown.
+- The chain extends past tag verification: install -> `sdv probe` until live (deployed) or installed-binary version plus acceptance commands (CLI).
+- **The shakedown does NOT move into `release-driver`.** Its frontmatter grants `tools: Bash, Read, Grep, Glob` (`release-driver.md:4`), so it cannot call `Skill(cli-shakedown)`. Either widen the grant or leave the shakedown with the caller. **Leave it with the caller:** the agent exists to own the async wait in an isolated context, and a shakedown is an interactive exercise whose findings Scott reads. `release-driver` returns "installed at vX.Y.Z, shakedown not run" and the caller fires the skill.
+- `sdv probe` is a plain binary, so the probe half needs no new grant.
 - An entry path for "the PR already merged, finish the bump", which step 2 lacks today.
+- **Its declared inputs (`release-driver.md:23`) grow to carry what the back half needs**: the deployment URL, the expected version, and the acceptance commands. Today they carry none of the three, so the probe half would have nothing to probe.
 - Route the post-merge arc there from the `bump`, `shipit` and `babysit` trigger descriptions.
-- **Success criteria:** a deployed-service release probes until the new version is live and reports the probe output; a CLI release reports the installed binary's version; `release-driver.md` names `pr-open` rather than a raw `gh pr create`.
+- **Success criteria:** a deployed-service release probes until the new version is live and reports the probe output; a CLI release reports the installed binary's version; `release-driver.md` names `pr-open` rather than a raw `gh pr create`; its return contract names the shakedown as the caller's step.
 
 ## Blast radius and ship order
 
@@ -406,28 +436,32 @@ Twelve phases. Phase 0 is three independent zero-code spikes and its answers can
 
 ## Acceptance Criteria
 
-Every criterion names a literal command. Each was executed against current `main` on 2026-09-17 and its output recorded beneath it, per the ready-to-build gate. A criterion that cannot run until a phase ships says so and names the phase.
+Every criterion names a literal command. Per the ready-to-build gate, each was run against current `main` on 2026-09-17 and its output recorded beneath it, EXCEPT where the criterion's subject does not exist yet: those say so, name the phase, and record what was run in its place. Five were executed as written (1, 2, 4, 5, 8); three record a substitute (3 a pin, 6 a registration probe, 7 a fixture build).
 
 - [ ] **1. The cache answers the DM question.** `jq -r 'has("dms")' ~/.cache/slack/ids.json` returns `true` and `jq -r '.dms|length'` returns a count greater than zero.
   - `Observed on main: false`. Correctly failing: `dms` does not exist yet. Ships in Phase 2, and the count requires the INSTALLED binary, not a merged PR.
 
 - [ ] **2. `slack-cli` stays under the bloat gate.** `otto ci` exits 0 in `tatari-tv/slack-cli`, including the `bloat` task.
-  - `Observed on main: All files within 1500 line limit`. **Passes today, and that is the point: the margin is the risk.** `src/command/write/tests.rs` 1494, `src/command/write.rs` 1484, headroom 6 and 16. This criterion bites only after Phase 2 adds code, which is why `resolve_dm_user` goes in a new file.
+  - `Observed on main:` the `bloat` stanza run standalone returns `All files within 1500 line limit`; the top four by size are `write/tests.rs` 1494, `write.rs` 1484, `mcp/tests.rs` 1400, `scheduled.rs` 1382. **Full `otto ci` was NOT run** (it compiles and tests the crate); the bloat half was run as the part this doc puts at risk. **Passes today, and that is the point: the margin is the risk**, headroom 6 and 16. This criterion bites only after Phase 2 adds code, which is why `resolve_dm_user` goes in a new file.
 
-- [ ] **3. The selected TARGET variant does not deny more than the shipped rule.** The Phase 3 replay against the pinned 216-row corpus returns a deny count no greater than 9, artifacts excluded, with all three variants' counts in this doc.
-  - Cannot run until Phase 3. The denominator is pinned now: `phase0/replay/rowsFinal.json`, md5 `5ade36f7fead9c5973b2398a2cbe6473`, 216 rows, 26 denies splitting 9 TARGET / 17 artifacts. Verified on harvest.
+- [ ] **3. The selected TARGET variant does not deny more than the shipped rule.** The Phase 3 replay against the pinned 216-row corpus returns a deny count no greater than 9, artifacts excluded, with all three variants' counts in this doc, **the baseline arm re-derived from the guard on disk rather than from the harvested `variantA.sh`**.
+  - Cannot run until Phase 3, and its premise was corrected in round 1: `variantA.sh` is NOT the shipped rule (it greps the raw prompt; the guard strips harness tags first at `:396-405`).
+  - Substitute run: the denominator is pinned. `phase0/replay/rowsFinal.json`, md5 `5ade36f7fead9c5973b2398a2cbe6473`, 216 rows, 26 denies splitting 9 TARGET / 17 artifacts. Verified on harvest.
 
 - [ ] **4. The plan executor stops instructing a denied command.** `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` returns zero lines.
   - `Observed on main:` two lines, `496:git push && git push --tags` and `533:│  5. git push && git push --tags     [if approved]│`. Correctly failing. Ships in Phase 10.
 
-- [ ] **5. The release driver stops evading the PR gates.** `rg -n 'gh pr create --fill' HOME/.claude/bin/release` returns zero lines.
-  - `Observed on main:` two lines, `:334` (the live call) and `:342` (the dry-run echo). Correctly failing. Ships in Phase 9.
+- [ ] **5. The release driver stops evading the PR gates.** `rg -n 'gh pr create --fill' HOME/.claude/bin/release` returns zero lines, AND a `pr-open`-built command run against the live `git-release-guard.sh` and `branch-pr-title-guard.sh` is ALLOWED on a branch with a version delta and DENIED without one.
+  - The string check alone measures a deletion, not the behavior; round 1 flagged that. The allow/deny pair is what bites.
+  - `Observed on main:` the string check returns two lines, `:334` (the live call) and `:342` (the dry-run echo). Correctly failing. Ships in Phase 9.
 
-- [ ] **6. The new hook resolves.** `hooks-preflight.sh` exits 0 with the `UserPromptSubmit` hook registered.
-  - `Observed on main:` `rg -n 'UserPromptSubmit' HOME/.claude/settings.json` exits 1, zero matches. No such hook exists today; the preflight cannot report on it. Ships in Phase 7.
+- [ ] **6. The new hook is registered and resolves.** `rg -c 'UserPromptSubmit' HOME/.claude/settings.json` returns at least 1, AND `hooks-preflight.sh` emits no `unresolved hook(s)` string naming it.
+  - **Rewritten after round 1: the original ("`hooks-preflight.sh` exits 0") was not falsifiable.** Every path in that script exits 0: `:22` and `:24` bail 0, and the unresolved-hooks branch at `:40-46` emits a warning then falls through to `exit 0` at `:48`. It is true with the hook absent, with `settings.json` unreadable, and with every hook unresolvable.
+  - `Observed on main:` `rg -c 'UserPromptSubmit' HOME/.claude/settings.json` exits 1 with zero matches. Correctly failing. Ships in Phase 7.
 
 - [ ] **7. The matcher separates the classes.** Against `phase0/inline-token/fixtures.json`, zero of the 1,421 `label != "survivor"` records match, and at least 554 of the 583 `label == "survivor"` records match (95%).
-  - `Observed on main:` fixtures materialized and verified, `total 2004 survivors 583 false-positives 1421`, class split `code-span 832, path-glued 544, url 36, path-continues 8, filename-ext 1`. No matcher exists yet. Ships in Phase 5.
+  - Substitute run, since no matcher exists: the fixtures were materialized and verified at `total 2004 survivors 583 false-positives 1421`, class split `code-span 832, path-glued 544, url 36, path-continues 8, filename-ext 1`. The criterion itself ships in Phase 5.
+  - **Round 1 added the case that matters:** a faithful `dSt` port scores 0 of 583, because `dSt` excludes a match preceded by `/`. The criterion is unchanged; the trap is now named in Phase 5.
 
 - [ ] **8. The guard's own suite does not regress.** `bash HOME/.claude/hooks/slack-post-guard-test.sh` reports zero failures and no fewer than 129 passes.
   - `Observed on main: pass=129 fail=0`. This is the baseline Phase 4 must not break, and the count floor rises with the fixtures Phase 4 adds.
@@ -436,11 +470,15 @@ Every criterion names a literal command. Each was executed against current `main
 
 - **2026-09-17 (Scott): D2 and E ship in one design doc, D2 first.** Overrides the program's one-chunk-per-doc rule at `:22` and the no-folding rule at `:26`. The override is recorded here and in the tracker; it is not treated as a precedent for later chunks.
 - **2026-09-17: the audit's item 7 mechanism is rejected on measurement.** A `prompt.submit` hook cannot fire a skill; expansion is position-0 and runs first. Mechanism A ships and the platform limit is stated in the doc rather than implied away.
-- **2026-09-17: the audit's item 8 direction is inverted on measurement.** Synchronous dispatch would make the 82%-silent condition universal. The wait becomes legible instead.
+- **2026-09-17: the audit's item 8 direction is inverted on measurement.** Zero of 652 `phase-implementer` dispatches ever returned inline, and a blocked parent has no seam for mid-wait output, so synchronous dispatch would make silent waits universal. The wait becomes legible instead. The decision rests on `652/0`, which is exact; the 82%-silent figure from the first pass did not survive round 1's join correction and is not load-bearing.
 - **2026-09-17: a wrong inline-token match is acceptable**, because mechanism A's failure mode is one line of ignorable context. The 34% discussion class is therefore not a blocker and needs no lexical suppressor.
 - **2026-09-17: `resolve_dm_user` goes in a new `src/slack/dm.rs`**, not beside `resolve_self_dm`. `write.rs` has 16 lines of headroom against a hard `bloat` gate.
 - **2026-09-17: `rowsFinal.json` is the pinned Phase 3 denominator**, harvested off tmpfs into this doc's phase0 directory. The harness reads the live projects tree, so a re-walk would move the denominator.
 - **2026-09-17: the `review-panel` shim replaces the agent reference** in `create-design-doc`, rather than sitting beside it, so two signals do not encode one meaning.
+- **2026-09-17 (round 1): the matcher inverts `dSt`'s leading-slash rule rather than porting it.** A faithful port scores zero on every survivor. Measured by running the extracted function.
+- **2026-09-17 (round 1): mechanism A does not rest on a `source` discriminator**, because none exists on the payload and the hook fires on injected prompts too. This repo's own chunk C evidence had measured that three chunks ago.
+- **2026-09-17 (round 1): the Stop-hook backstop is withdrawn at the dispatch boundary.** A block there is discarded because the turn ended by tool result. The heartbeat rests on the teammate-report wake, and mid-phase silence is named as an accepted limit rather than designed away.
+- **2026-09-17 (round 1): the 82%-silent figure is not load-bearing and is stated qualitatively.** It did not reproduce under an exact worker-name join. The item 8 decision rests on `652/0`, which is exact.
 - **2026-09-16 and earlier:** every Addendum A decision stands unchanged. The fill is eager with a lazy backstop; `dms` is a new map; no `CURRENT_SCHEMA` bump; no watermark, Extend only; `CHANNEL_TYPES` unchanged; the 18 legacy keys are left alone.
 
 ## Alternatives Considered
@@ -455,7 +493,7 @@ Every criterion names a literal command. Each was executed against current `main
 - **Why not:** fires on a later turn, so the skill runs after the prompt is answered. Wrong order for the imperative chains this item exists to fix. Parked with a revisit condition: it becomes correct if the chain ever needs to run AFTER the turn rather than within it.
 
 ### Alternative 4: synchronous phase dispatch (item 8 as prescribed)
-- **Why not:** a blocked parent has no seam for mid-wait output, so it guarantees the measured 82%-silent failure. Also not demonstrably available: zero of 652 dispatches were synchronous.
+- **Why not:** a blocked parent has no seam for mid-wait output, so it would make silent waits universal instead of repairing them. Also not demonstrably available: zero of 652 dispatches were synchronous.
 
 ### Alternative 5: `resolve_dm_user` beside `resolve_self_dm` (Addendum A as written)
 - **Why not:** `write.rs` 1484/1500 and `write/tests.rs` 1494/1500. Both trip `bloat`, and `otto ci` aborts before `check` and `test`.
