@@ -41,3 +41,10 @@ HOME/.claude/skills/archify/
 .credentials.json
 sessions/
 HOME/.claude/hooks/__pycache__/
+
+# Anthropic first-party skills the harness syncs in at session start (pdf,
+# pptx, xlsx, docx, morning, ...), in a per-install UUID bucket. Runtime state,
+# not authored content: 206 files and 4.2 MB, replaced whenever the harness
+# resyncs, and the bucket name changes per install so it would never diff
+# cleanly. Same class as the `skills` CLI entry above.
+HOME/.claude/skills/synced/
