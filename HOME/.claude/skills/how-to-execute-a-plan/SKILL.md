@@ -9,20 +9,20 @@ A systematic workflow for implementing multi-phase design documents created with
 
 ## Execution Mode
 
-Pick one. Both produce the same result — per-phase commits, `otto ci` green,
+Pick one. Both produce the same result: per-phase commits, `otto ci` green,
 implementation notes, then finalization. They differ only in *who* implements
 each phase.
 
 - **Delegated (default).** For each phase, spawn the `phase-implementer` agent
   with that phase's **annotated model** (the `**Model:**` tag in the design
-  doc — sonnet/opus/fable). Pass it the doc path, the phase, and the prior
+  doc: sonnet/opus/fable). Pass it the doc path, the phase, and the prior
   phase's commit SHA. It implements the phase in its own context and returns a
   report (commit SHA, CI status, notes appended, deviations, open questions).
   **You (the skill) stay the orchestrator:** sequence the phases, gate the next
   phase on the prior report being green, own the implementation-notes file's
   coherence, and run finalization once after the last phase. This is the only
   mode that actually honors per-phase model tags, and it mirrors the
-  per-phase-per-context pattern by hand — but automated and in one session.
+  per-phase-per-context pattern by hand, but automated and in one session.
   - *Fallback if delegation isn't available* (no agent, or you'd rather drive
     it directly): just run the Inline mode below. Nothing else changes.
 
@@ -30,10 +30,66 @@ each phase.
   context, exactly as the rest of this document describes. This is the proven
   path; use it whenever you want full visibility or the delegated path misbehaves.
 
-Everything below — the loop steps, the commit format, the notes discipline, the
-finalization sequence — applies to **both** modes. In Delegated mode the
+Everything below (the loop steps, the commit format, the notes discipline, the
+finalization sequence) applies to **both** modes. In Delegated mode the
 `phase-implementer` agent performs steps 1-6 per phase and you perform step 7
 (sequencing) and the finalization; in Inline mode you perform all of it.
+
+## Orchestrating a delegated run: the beat and the reap
+
+Delegated mode only. Inline mode has no worker and no wake, so neither rule
+applies to it.
+
+### One beat per wake
+
+Every phase report wakes you. **Before anything else in that turn, emit exactly
+one line:**
+
+```
+Phase 3/12 dm-fill | report accepted, 14m since dispatch | next: dispatching Phase 4 (opus)
+```
+
+Three parts, always: the phase (number and name), the elapsed time since that
+phase was dispatched, and what the run now waits on. Every wake gets one,
+including the last, whose "next" is the implementation audit.
+
+**The beat covers report boundaries and nothing else.** Measured on a live
+`phase-implementer` on 2026-09-17 (`scottidler/claude`,
+`docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md`,
+section 0d): a worker ran ~12 minutes in the background while the parent did
+roughly a dozen unrelated tool rounds, and **zero** wakes arrived from it during
+the phase. The one delivery was its completion notification.
+
+- The beat makes the boundaries between phases visible, using the only wake
+  that exists.
+- **Never write a beat claiming progress inside a running phase.** You cannot
+  observe it. A silent mid-phase gap has no mechanism today: that residual
+  silence is an accepted limit of this workflow, written down here rather than
+  papered over with a guess.
+
+### Reap each worker once its report is accepted
+
+A finished `phase-implementer` sits in `ListAgents` as `idle` indefinitely, and
+the roster fills up with workers that have nothing left to do. After you accept
+a report (CI green, commit SHA present) and before dispatching the next phase,
+send that worker:
+
+```json
+{"type": "shutdown_request", "reason": "phase <N> report accepted"}
+```
+
+- **Assert the roster, not the approval.** `shutdown_approved` is
+  **asynchronous**: it arrived several turns after the request, and the worker
+  was already gone from `ListAgents` before it landed (0d addendum). A worker
+  still listed in the turn you sent the request is NOT a failure, and it is not
+  something to resend. The check is the end-of-run one: `ListAgents` shows no
+  phase worker.
+- **Only after accepting.** A red or incomplete report means that worker's
+  context is still the cheapest place to fix the phase. Message it back, and
+  reap only once the follow-up report is accepted.
+- `SendMessage`'s own guidance says not to originate `shutdown_request` unless
+  asked. This workflow asks, for the phase workers it spawned itself and for
+  nothing else.
 
 ## Prerequisites
 
@@ -113,17 +169,17 @@ Follow the design doc specifications exactly. If the design doc uses `/rust-cli-
 
 ### Step 2.5: Maintain Implementation Notes
 
-As you implement, maintain `docs/design/<feature>-implementation-notes.md` — a
+As you implement, maintain `docs/design/<feature>-implementation-notes.md`, a
 running, **append-only** record of anything a future reviewer should know about
 how the implementation diverges from or interprets the design doc.
 
-For each phase, append a section with all four buckets — even when empty, write
+For each phase, append a section with all four buckets. Even when empty, write
 "None." so the agent is forced to consider each axis:
 
-- **Design decisions** — choices you made where the spec was ambiguous
-- **Deviations** — places where you intentionally departed from the spec, and why
-- **Tradeoffs** — alternatives you considered and why you picked what you did
-- **Open questions** — anything you'd want the user to confirm or revise
+- **Design decisions**: choices you made where the spec was ambiguous
+- **Deviations**: places where you intentionally departed from the spec, and why
+- **Tradeoffs**: alternatives you considered and why you picked what you did
+- **Open questions**: anything you'd want the user to confirm or revise
 
 Rules:
 
@@ -141,13 +197,13 @@ Template per phase:
 ## Phase N: <phase name>
 
 ### Design decisions
-- <decision> — <file:function> — <why>
+- <decision> (<file:function>): <why>
 
 ### Deviations
-- <deviation from spec> — <why>
+- <deviation from spec>: <why>
 
 ### Tradeoffs
-- <choice> vs. <alternative> — <why this one>
+- <choice> vs. <alternative>: <why this one>
 
 ### Open questions
 - <question for the user>
@@ -274,6 +330,12 @@ After committing, **IMMEDIATELY** proceed to the next phase:
 3. **Check dependencies** - ensure previous phase provides what's needed
 4. **Begin the loop again** - DO NOT STOP, DO NOT ASK THE USER
 
+In Delegated mode the report arrives as a wake, and two things happen in that
+same turn before the next dispatch: **emit the beat**, and **send the accepted
+worker a `shutdown_request`**. Both are specified above, under "Orchestrating a
+delegated run". After the LAST phase the same turn dispatches the
+implementation audit (finalization step 2), with no user prompt in between.
+
 **CRITICAL: Do NOT ask the user "Ready for phase N?" or "Should I continue?"**
 **CRITICAL: Do NOT pause between phases. Execute ALL phases in sequence until done.**
 
@@ -356,7 +418,7 @@ If a phase cannot be completed:
 | `/create-design-doc` | Creates the design doc this skill executes |
 | `/rust-cli-coder` | Coding conventions for Rust implementations |
 | `/otto` | CI validation tool |
-| `/bump` | Version bumping after all phases complete — only after the user approves at the finalization confirmation checkpoint |
+| `/bump` | Version bumping after all phases complete, only after the user approves at the finalization confirmation checkpoint |
 
 ## What NOT to Do
 
@@ -377,13 +439,13 @@ When the final phase is committed and CI is green, prepare the finalization
 sequence. The per-phase loop (implement → test → CI → **local commit**) runs
 without pausing because every step is local and reversible. Finalization is
 different: it bumps the version, **pushes to remote**, **creates/pushes tags**,
-and **installs a binary** — all irreversible or externally visible. Those steps
+and **installs a binary**, all irreversible or externally visible. Those steps
 require an explicit user confirmation checkpoint (see step 3a) before they run.
 
 ### 0. Surface implementation notes
 
 Before bumping/pushing, print the path to the implementation notes file and a
-one-line summary of each phase's open questions. **Do not block** on the user —
+one-line summary of each phase's open questions. **Do not block** on the user:
 they can act on it after the push. Example output:
 
 ```
@@ -437,7 +499,7 @@ git add docs/design/<design-doc>.md
 git commit -m "docs: mark <feature> design doc as implemented"
 ```
 
-### 2. Implementation audit — BEFORE the checkpoint, not after
+### 2. Implementation audit: BEFORE the checkpoint, not after
 
 The doc is now `Status: Implemented`, so the reviewers run in Mode 2 and walk
 every Implementation Plan bullet against the committed code. **Run it here**,
@@ -446,22 +508,30 @@ That is the whole point: a finding at this moment changes what ships. The same
 finding after step 5 can only be fixed forward, on an ungated repo into a
 `main` that is already live and daemons that have already restarted.
 
-Offer it on its own line so the prompt predictor picks it up (Tab + Enter):
+**Dispatch it. Do not offer it and do not wait to be told to.** The audit is a
+step of this workflow, not a suggestion for the user to accept:
 
 ```
-send to the review-panel agent for an implementation audit
+Skill(review-panel)  with DOC_PATH=<absolute path to the design doc>
+                     and scope "implementation audit"
 ```
 
-Then **wait for the user**. They may run it, skip it, or defer it — all three
-are fine, it is their call and it is not a gate. What is NOT fine is sailing
-past it into the checkpoint without offering, or offering it once the push has
-already happened.
+Fire it in the same turn that accepted the final phase's report. That turn is a
+normal tool-use turn with full tool capability, so **no user prompt is needed
+between the last phase and the dispatch**, and waiting for one is the failure
+this step exists to remove.
+
+- `Skill(review-panel)` is the only entry point (`skills/review-panel/SKILL.md`);
+  it dispatches the agent. Never write your own review in place of theirs.
+- If `panel-round-guard.sh` denies the dispatch (the round cap in
+  `rules/interaction.md`), report the denial text verbatim and go to step 3. Do
+  not retry variations of the dispatch.
 
 Fold anything the audit turns up into the phase commits before continuing.
 
 ### 3. Confirmation checkpoint (REQUIRED before any irreversible action)
 
-The remaining steps — bump, push, tag, install — are irreversible or externally
+The remaining steps (bump, push, tag, install) are irreversible or externally
 visible. **Stop here and get explicit user approval before running any of them.**
 
 Display a summary of exactly what is pending, then wait for the user to confirm:
@@ -471,7 +541,7 @@ Ready to finalize. The following IRREVERSIBLE / EXTERNALLY-VISIBLE actions are p
 
   - Version bump: <current version> → <proposed version> (<patch|minor|major>)
   - git push (commits to <remote>/<branch>)
-  - git push tags (tag <vX.Y.Z> to <remote>)
+  - git push origin <vX.Y.Z> (the tag, by name, after the commit is on <default>)
   - cargo install --path . (installs binary into ~/.cargo/bin)
 
 Reply to approve. You may approve all, a subset (e.g. "bump and push, skip install"),
@@ -479,22 +549,66 @@ or decline. I will run ONLY what you approve.
 ```
 
 Do not proceed past this point without an explicit affirmative response. If the
-user declines or does not respond, stop — the per-phase commits are already
+user declines or does not respond, stop: the per-phase commits are already
 safely in local history and nothing is lost. Run only the actions the user
 approved, in the order below.
 
 ### 4. Bump version (only if approved)
 
-Use the `/bump` skill to increment the version. Default to `patch` unless the
-design doc describes a breaking change (then `minor` or `major`).
+Run `bump --gates` first. It reports BOTH gates (classic branch protection and
+repo/org rulesets) and names the flow. Never infer the flow from local git
+config, and never from memory of what this repo did last time.
 
-### 5. Push (only if approved)
+Default to `patch` unless the design doc describes a breaking change (then `-m`
+or `-M`). Which `bump` form is legal depends on the gate, so the bump and the
+push are one sequence: see step 5.
 
-Push all commits and tags to the remote:
+### 5. Push and tag (only if approved)
+
+**Never push tags in bulk: no `--tags` flag, no `--follow-tags`.** A bulk tag
+push lands the tag even when the branch push is rejected, which is exactly how
+okta-auth-rs v0.2.0 was orphaned. The tag is pushed by explicit name, and only
+once the commit it points at is confirmed on `origin/<default>`. That is
+`rules/git.md`'s sequence, and `bump`
+enforces it: plain `bump` refuses to tag on a gated default branch, and
+`bump --tag-only` refuses unless `HEAD == origin/<default>`.
+
+**Ungated** (both gates clear, main accepts direct pushes):
 
 ```bash
-git push && git push --tags
+bump --no-tag [-m|-M]                    # version commit on main, NO tag yet
+git push --no-follow-tags origin main    # publish the commit
+# WAIT for CI green on this exact SHA
+bump --tag-only                          # refuses unless HEAD == origin/main
+git push origin vX.Y.Z                   # by explicit name
 ```
+
+**Gated** (main requires a PR). The bump rides the FEATURE PR and the tag is cut
+after the merge, on updated main. The PR is opened through `pr-open`, in two
+tool calls:
+
+```bash
+bump --no-tag [-m|-M]                    # version commit on the feature branch
+git push origin <branch>
+pr-open --type <t> [--scope <s>] --release rides
+# pr-open PRINTS one `gh pr create ...` line. Run that line VERBATIM as its own
+# Bash tool call. Never eval it, never pipe it to bash: a `gh` call inside a
+# subprocess is invisible to PreToolUse, so neither gate sees the PR.
+# after the PR merges:
+git checkout main && git pull --ff-only origin main
+bump --tag-only
+git push origin vX.Y.Z                   # by explicit name
+```
+
+- `--release rides` only when a version line actually changes vs the base, which
+  is what the `bump --no-tag` above guarantees. Otherwise `--release none
+  --reason "<why>"`. Gate D denies a `rides` claim the diff does not support.
+- A **denied** `gh pr create` means no PR exists. Report the denial text verbatim
+  and stop. Do not hand-edit the command around the gate.
+- **The merge wait belongs to the `release-driver` agent.** Hand it the release
+  rather than babysitting a gated PR inline: it runs `release`, which stops at
+  `PR creation required` with that same literal `pr-open` command, babysits the
+  PR to merge, finishes the tag, and verifies it is not orphaned.
 
 ### 6. Install (only if approved)
 
@@ -522,22 +636,22 @@ verify at the runtime surface:
 ### Finalization summary
 
 ```
-┌──────────────────────────────────────────────────┐
-│  0. Surface implementation notes (non-blocking)  │
-│  1. Update design doc status + commit (local)    │
-│  2. OFFER THE IMPLEMENTATION AUDIT — here, while │
-│     nothing is tagged, pushed, or deployed       │
-│  3. CONFIRMATION CHECKPOINT — get user approval  │
-│     for the irreversible actions below           │
-│  4. /bump (patch by default)        [if approved]│
-│  5. git push && git push --tags     [if approved]│
-│  6. cargo install --path .          [if approved]│
-│  7. Verify at the runtime surface   [if shipped] │
-└──────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  0. Surface implementation notes (non-blocking)     │
+│  1. Update design doc status + commit (local)       │
+│  2. DISPATCH THE IMPLEMENTATION AUDIT: here,        │
+│     while nothing is tagged, pushed, or deployed    │
+│  3. CONFIRMATION CHECKPOINT: get user approval      │
+│     for the irreversible actions below              │
+│  4. bump --no-tag (patch by default) [if approved]  │
+│  5. push, CI green, tag by name      [if approved]  │
+│  6. cargo install --path .           [if approved]  │
+│  7. Verify at the runtime surface    [if shipped]   │
+└─────────────────────────────────────────────────────┘
 ```
 
 **The per-phase loop runs without pausing** (local commits only). But steps 4-6
-push, tag, and install — those are gated behind the step 3 confirmation
+push, tag, and install, and those are gated behind the step 3 confirmation
 checkpoint and run ONLY with explicit user approval. Never bump, push, tag, or
 install without it.
 
@@ -545,10 +659,10 @@ install without it.
 
 Report what shipped: the phase commits, the tag if one was cut, the CI result,
 and anything that came back from the runtime check in step 7. Name explicitly
-whatever is left undone and why — a blocked bullet, a criterion that could only
+whatever is left undone and why: a blocked bullet, a criterion that could only
 be measured after a deploy, an item the user has to run by hand.
 
 Do NOT close by suggesting the implementation audit. It belongs at step 2,
 before the irreversible actions. Suggesting it here asks the user to review
 code that is already tagged, pushed, and deployed, where every finding is
-fix-forward — which is why they will decline, and rightly.
+fix-forward, which is why they will decline, and rightly.

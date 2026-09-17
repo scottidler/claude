@@ -850,3 +850,62 @@ with the payload fed on stdin: no PR was opened to find out.
   still says `release` "opens PR", which Phase 9 made false. Phase 11 owns routing `bump`,
   `shipit` and `babysit`, so it belongs there, and that file needs adding to the lint list too
   (it carries an em-dash at `:101`).
+
+## Phase 10: how-to-execute-a-plan runs the plan
+
+### Design decisions
+- The beat and the reap live in one new section, "Orchestrating a delegated run: the beat
+  and the reap", placed before Prerequisites, with a pointer from Step 7 ("Move to Next
+  Phase"). Step 7 is where the loop turns, so the instruction has to be reachable from the
+  loop; the rules themselves govern the orchestrator rather than a phase, so they do not
+  belong inside the per-phase steps.
+- The beat's shape is fixed by a literal example rather than described:
+  `Phase 3/12 dm-fill | report accepted, 14m since dispatch | next: dispatching Phase 4 (opus)`.
+  The criterion asserts a transcript line naming the phase and the elapsed time, so the
+  instruction hands over a template, not three adjectives.
+- The reaping instruction asserts the ROSTER, not the approval, and says in as many words
+  that a worker still listed in the sending turn is not a failure and not something to
+  resend. Straight from 0d's addendum: `shutdown_approved` arrived several turns after the
+  request and the worker was already absent from `ListAgents` before it landed.
+- Mid-phase silence is written in as an accepted limit carrying its measurement (0d: ~12
+  minutes, roughly a dozen parent tool rounds, zero wakes), and the instruction forbids a
+  beat that claims progress inside a running phase. Without that sentence the next author
+  rebuilds the heartbeat as a progress ticker it has no mechanism to feed.
+- Steps 4 and 5 were rewritten as one gate-aware sequence rather than patched at the push
+  line. Which `bump` form is legal depends on the gate, so `bump --gates` leads and both
+  flows are spelled out, mirroring `skills/bump/SKILL.md` FLOW 1 and FLOW 2, with the gated
+  one routed through `pr-open` and its two-tool-call hand-back.
+
+### Deviations
+- **The prohibition sentence cannot contain the string the criterion greps for.** Criterion
+  1 is `rg -n 'push --tags'` returning zero lines, so even a ban written as "never
+  `git push --tags`" fails it. Written instead as "Never push tags in bulk: no `--tags`
+  flag, no `--follow-tags`", which forbids exactly the same thing and leaves the grep clean.
+- The finalization summary box was re-laid-out (three columns wider) rather than edited in
+  place. Line 2 grew from "OFFER" to "DISPATCH" and line 5 changed entirely; holding the old
+  width would have meant truncating the wording to fit the ASCII art. Padding recomputed so
+  every row aligns.
+- Two sites beyond the four bullets were touched, both made false by them: the
+  confirmation-checkpoint list advertised "git push tags (tag <vX.Y.Z> to <remote>)", and
+  step 4 promised `/bump` with no gate check. Same reasoning the doc gives for fixing both
+  `push --tags` sites: a corrected step beside an uncorrected summary is a lie.
+- 26 pre-existing em-dashes were stripped from `SKILL.md` and the file added to `.otto.yml`'s
+  lint list, per this phase's instruction and `rules/safety.md`. None of them were mine.
+
+### Tradeoffs
+- A new top-level section vs. folding the two rules into Execution Mode's Delegated bullet:
+  that bullet is about who implements a phase, while the beat and the reap are about how the
+  orchestrator behaves between phases. A separate section is greppable and survives a future
+  rewrite of the mode list.
+- Naming `release-driver` as the owner of the merge wait vs. spelling out the babysit loop
+  here: the agent exists to own that async wait, and restating its loop would be two signals
+  for one behavior. Phase 11 owns that agent's back half.
+
+### Open questions
+- Three of the five success criteria are only observable in a live multi-phase run: the
+  audit dispatched with no user prompt after the last phase, one beat per wake in the
+  transcript, and an empty `ListAgents` afterwards. The cheapest verification is this run's
+  own finalization rather than a second run: the orchestrator is already reaping workers per
+  report (Phase1, Phase5, Phase6, Phase7, Phase8), so it can assert the roster after the
+  last phase, and step 2's dispatch happens at finalization either way. Worth noting the
+  edits take effect for FUTURE runs, so this run exercises the practice, not the file.
