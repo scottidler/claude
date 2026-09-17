@@ -665,3 +665,43 @@ registered live and fires on every prompt of every future session.
   nested session stopped on the first clause and asked which repo `merge` meant, which is a
   second prompt, which is what the criterion forbids. It needs one interactive prompt in a
   session where `merge` has a target. Scott's to run.
+
+## Phase 8: the review-panel shim
+
+Files: `HOME/.claude/skills/review-panel/SKILL.md` (new),
+`HOME/.claude/skills/create-design-doc/SKILL.md:47` (edited, not duplicated),
+`.otto.yml` (the new file joined the em-dash lint list).
+
+### Design decisions
+- **The shim is gather-inputs -> spawn -> relay, modeled on `shipit/SKILL.md`'s shape**
+  (`review-panel/SKILL.md`, "What to do"). It does not re-derive round number, mode, or
+  doc-hash comparison: `review-panel.md`'s Step 0 already owns all three, and duplicating that
+  logic in the shim would be a second place for it to drift out of sync with the agent.
+- **`create-design-doc/SKILL.md:47` was edited in place, not left beside a new mention.** The
+  line read `` `review-panel` agent`` and now reads `` `Skill(review-panel)` ``, per the doc's
+  Resolved Decision ("so two signals do not encode one meaning"). Verified the line number
+  against the current file before editing: it matched.
+- **No `manifest -l` step was needed**, unlike Phase 7's per-hook-file link. `manifest.yml`'s
+  `link.dirs` already maps the whole `HOME/.claude/skills` directory to `$HOME/.claude/skills`
+  (confirmed live: `~/.claude/skills` is a symlink straight to this repo's `HOME/.claude/skills`),
+  so a new subdirectory under it is live the moment the file exists, with nothing further to run.
+
+### Deviations
+- None. Implemented exactly the two bullets: the shim, and the replacement.
+
+### Tradeoffs
+- **Tested `panel-round-guard.sh` with synthetic `PreToolUse` payloads on stdin rather than real
+  dispatches**, per the explicit instruction (a real round is expensive and spawns Gemini and
+  Codex). Isolated the counter via the guard's own `PANEL_ROUND_CACHE_DIR` override (an absolute
+  scratch directory) rather than the `slackrecall.py`-style scratch-`HOME` seam: the guard already
+  exposes a dedicated, documented override for exactly this (`panel-round-guard.sh:87`), so
+  redirecting all of `$HOME` would be more isolation than the state actually needs. Verified the
+  live cache at `~/.cache/review-panel/rounds` gained no entry for the scratch doc's key.
+
+### Open questions
+- **Whether an already-running Claude Code session picks up the new skill directory without a
+  restart is not verified here.** I have no `Skill` tool in this implementer context to invoke
+  `Skill(review-panel)` directly; I verified the file is live at `~/.claude/skills/review-panel/SKILL.md`
+  with frontmatter in the same shape (`name` + `description`) as every other working skill, which
+  is the same evidence category the repo's other skills rely on for discoverability. Confirm with
+  a live `Skill(review-panel)` call in a fresh session.

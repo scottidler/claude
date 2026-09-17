@@ -43,8 +43,8 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
    The pass counter in the header reports ONLY passes that actually ran ,
    never fabricate "X/5" (write "0/5" honestly if the ritual was skipped).
 4. **Converge**: when no significant changes, document is ready
-5. **Review panel**: send the doc (plus your open questions) to the
-   `review-panel` agent. Then run the consensus loop: fold in everything you
+5. **Review panel**: send the doc (plus your open questions) to
+   `Skill(review-panel)`. Then run the consensus loop: fold in everything you
    agree with, send pushbacks WITH rationale back to the reviewers seeking
    consensus, escalate to Scott only what the agents cannot close. NEVER
    silently drop or defer a finding. **The doc is ready to build only when
