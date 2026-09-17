@@ -184,6 +184,163 @@ jq_filter_is_safe() {
   return 1
 }
 
+
+# ---------------------------------------------------------------------------
+# The captured-into-a-variable carve-out. Ruled 2026-09-16 by the
+# staff-engineer seat on Scott's instruction, against acceptance criterion 3b:
+# 84 of 300 measured credential-path commands deny, and the dominant legitimate
+# idiom is `TOKEN=$(jq -r .value "$C")` feeding a curl, 22 commands, 19 of them
+# carrying curl. The value lands in a shell variable and never reaches the
+# transcript, so the deny buys nothing there.
+#
+# THIS CANNOT BE DONE INSIDE artifact_verdict, which is why it lives here.
+# `stmts` splits `TOKEN=$(jq -r .value <file>)` into TWO detached records,
+# `TOKEN=$(<masked>)` and `jq -r .value <file>`, and `lib.sh:527` discards the
+# parent relationship. By the time the projector branch sees the jq there is no
+# assignment left to recognise. So the carve-out is a SECRET-local traversal of
+# the ORIGINAL command, run once, which records the exact inner jq text it
+# blesses; the projector branch then consults that list.
+#
+# The grammar is deliberately narrow. Anything it does not recognise falls
+# through to the ordinary deny, which is the fail-closed direction.
+CAPTURE_EXEMPT=""
+
+# One top-level statement per line. A naive split is sound HERE because every
+# unrecognised shape denies: the only risk a mis-split carries is blessing a jq
+# that never runs as a statement, and an exemption for text nothing executes
+# denies nothing.
+capture_split() {
+  printf '%s' "$1" | sed -E 's/(&&|\|\||;)/\n/g'
+}
+
+# A literal dotted field path, and nothing that can compute. `has(...)` and the
+# non-secret keys already ride `jq_filter_is_safe`; this is the path that
+# selects a VALUE, which is exactly what the carve-out is for.
+capture_filter_is_literal() {
+  printf '%s' "$1" | grep -qE '^\.[A-Za-z0-9_][A-Za-z0-9_.-]*$'
+}
+
+# The var may be expanded ONLY in an auth-header operand of curl. Everything
+# else, including `echo $TOKEN`, is what the deny exists to stop.
+# Any expansion of the name counts as a use, including the brace forms that
+# slice or measure it. `${#RT}` and `${RT:0:8}` print a length and a prefix of a
+# refresh token, and a regex that only knew `$RT` and `${RT}` would have blessed
+# `RT=$(jq -r .refresh_token <file>); echo "${RT:0:8}"`. Found in the corpus.
+capture_names_var() { # capture_names_var <text> <varname>
+  printf '%s' "$1" | grep -qE '\$'"$2"'([^A-Za-z0-9_]|$)' && return 0
+  printf '%s' "$1" | grep -qE '\$\{[^}]*(^|[^A-Za-z0-9_])'"$2"'([^A-Za-z0-9_][^}]*)?\}' && return 0
+  printf '%s' "$1" | grep -qE '\$\{#?'"$2"'[^A-Za-z0-9_}]*[^}]*\}' && return 0
+  return 1
+}
+
+capture_use_is_ok() { # capture_use_is_ok <statement> <varname>
+  local st="$1" name="$2" stripped
+  capture_names_var "$st" "$name" || return 0
+  verb_of "$st" curl >/dev/null || return 1
+  # Remove every -H / --header operand, attached or separated, then look again.
+  stripped=$(printf '%s' "$st" \
+    | sed -E 's/(^|[[:space:]])(-H|--header)[[:space:]]+("[^"]*"|\x27[^\x27]*\x27|[^[:space:]]+)/\1/g' \
+    | sed -E 's/(^|[[:space:]])-H("[^"]*"|\x27[^\x27]*\x27|[^[:space:]]+)/\1/g')
+  capture_names_var "$stripped" "$name" && return 1
+  return 0
+}
+
+compute_capture_exempt() {
+  local cmd_scan lines st name inner q file var_line
+  cmd_scan=$(printf '%s' "$command" | mask_heredoc | mask_comment)
+  lines=$(capture_split "$cmd_scan")
+
+  while IFS= read -r st; do
+    # `export TOKEN=$(...)` is NOT a scalar assignment statement: the export
+    # builtin is a command word, so the shape falls outside the grammar and
+    # denies. Same for a capture nested in a pipeline, which never matches the
+    # whole-statement anchors below.
+    name=$(printf '%s' "$st" | sed -nE 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)="?\$\(.*\)"?[[:space:]]*$/\1/p')
+    [ -n "$name" ] || continue
+    inner=$(printf '%s' "$st" | sed -nE 's/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*="?\$\((.*)\)"?[[:space:]]*$/\1/p')
+    [ -n "$inner" ] || continue
+
+    # ONE jq, and nothing that can compose: no pipeline, no second command, no
+    # nested substitution, no redirection.
+    printf '%s' "$inner" | grep -qE '^[[:space:]]*jq([[:space:]]|$)' || continue
+    printf '%s' "$inner" | grep -qE '[|;&<>`]|\$\(' && continue
+    [ "$(printf '%s' "$inner" | grep -oE '(^|[^-[:alnum:]])jq([^-[:alnum:]]|$)' | wc -l)" -eq 1 ] || continue
+    printf '%s' "$inner" | grep -qE '(^|[^A-Za-z0-9_])debug([^A-Za-z0-9_]|$)' && continue
+
+    # The filter is the first non-flag operand after the verb; the file is the
+    # second. Reuse the same flag tables the projector branch uses so the two
+    # cannot disagree about what an operand is.
+    local -a itoks=()
+    local i=0 seen=0 filt="" fil="" tok
+    mapfile -t itoks < <(printf '%s' "$inner" | args)
+    while [ "$i" -lt "${#itoks[@]}" ]; do
+      tok="${itoks[$i]}"; i=$((i + 1))
+      if [ "$seen" -eq 0 ]; then
+        case "$tok" in jq|*/jq) seen=1 ;; esac
+        continue
+      fi
+      if [ "${tok:0:1}" = "-" ]; then
+        case "$JQ_FLAGS2" in *" $tok "*) i=$((i + 2)); continue ;; esac
+        case "$JQ_FLAGS1" in *" $tok "*) i=$((i + 1)); continue ;; esac
+        continue
+      fi
+      if [ -z "$filt" ]; then filt="$tok"; else fil="$tok"; break; fi
+    done
+    capture_filter_is_literal "$filt" || continue
+    [ -n "$fil" ] || continue
+
+    # The file operand is a literal path, or a variable set by a PRECEDING
+    # literal assignment in this same command. An operand that cannot be
+    # resolved here is not resolved at all, so it denies.
+    # The operand must NAME the artifact literally. The measured shape is
+    # `"${XDG_CACHE_HOME:-$HOME/.cache}/slack/token.json"`: a literal filename
+    # under a parameterized root, which is all this guard cares about, since the
+    # artifact is what decides the rule. An operand carrying no literal artifact
+    # name is either out of scope (the pre-filter never fired) or unresolvable,
+    # and either way it gets no carve-out.
+    case "$fil" in
+      *token.json*|*tokens.json*|*.env*|*_history*|*/.history*) ;;
+      \$*|*\$*)
+        var=$(printf '%s' "$fil" | sed -nE 's/.*\$\{?#?([A-Za-z_][A-Za-z0-9_]*)[^A-Za-z0-9_]?.*/\1/p')
+        [ -n "$var" ] || continue
+        var_line=$(printf '%s' "$lines" | sed -nE 's/^[[:space:]]*'"$var"'=([^$`|;&<>]*)[[:space:]]*$/\1/p' | head -1)
+        [ -n "$var_line" ] || continue
+        case "$var_line" in
+          *token.json*|*tokens.json*|*.env*|*_history*|*/.history*) ;;
+          *) continue ;;
+        esac
+        ;;
+      *) continue ;;
+    esac
+
+    # Every OTHER statement that expands the captured name must be a curl auth
+    # header. `TOKEN=$(...) && echo $TOKEN` fails here, which is the point.
+    local ok=1 other
+    while IFS= read -r other; do
+      [ "$other" = "$st" ] && continue
+      capture_use_is_ok "$other" "$name" || { ok=0; break; }
+    done <<CAPTURE_USES
+$lines
+CAPTURE_USES
+    [ "$ok" -eq 1 ] || continue
+
+    CAPTURE_EXEMPT="$CAPTURE_EXEMPT$(printf '%s' "$inner" | tr -s '[:space:]' ' ')
+"
+  done <<CAPTURE_STMTS
+$lines
+CAPTURE_STMTS
+}
+
+# capture_is_exempt <statement>  -> 0 when this exact jq was blessed above
+capture_is_exempt() {
+  local norm
+  [ -n "$CAPTURE_EXEMPT" ] || return 1
+  norm=$(printf '%s' "$1" | tr -s '[:space:]' ' ' | sed -E 's/^ //; s/ $//')
+  printf '%s' "$CAPTURE_EXEMPT" | grep -qxF "$norm " && return 0
+  printf '%s' "$CAPTURE_EXEMPT" | grep -qxF "$norm" && return 0
+  return 1
+}
+
 # artifact_verdict <verbscan> -> prints a deny code, or nothing
 artifact_verdict() {
   local stmt="$1" verb filter q i n k tok hit seen_verb pattern seen_pattern
@@ -276,6 +433,10 @@ artifact_verdict() {
       break
     done
     jq_filter_is_safe "$filter" && return 1
+    # The value never reaches the transcript when it is captured into a shell
+    # variable, and the carve-out above has already checked the whole command
+    # for any other use of that variable.
+    capture_is_exempt "$stmt" && return 1
     printf '%s' "projector-filter"
     return 0
   fi
@@ -326,6 +487,7 @@ artifact_verdict() {
 scan=""
 prints=""
 printenvs=""
+compute_capture_exempt
 while IFS= read -r -d '' stmt; do
   masked=$(printf '%s' "$stmt" | mask_heredoc | mask_comment | mask_squote)
   scan="$scan$masked

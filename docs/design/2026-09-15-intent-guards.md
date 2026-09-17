@@ -927,7 +927,7 @@ The ninth line is chunk B's hole, closed by Phase 1. The fifth is the allow the 
 - 3 `~/Claude` policy, all genuine: two are literally `ln -sfn <repo>/HOME/Claude/writing/voice ~/Claude/writing/voice`, the founding incident.
 - 2 INGEST, a different rule, on commands that genuinely carry an ingest statement. Confirmed not a heredoc false positive: a heredoc body naming the verb and three URLs written to a `.md` target allows, and the same body written to a `.sh` target denies.
 
-### 3b. Zero denies over the credential-path corpus: FAIL
+### 3b. Zero denies over the credential-path corpus: AMENDED, and the carve-out is measured
 
 Rebuilt the corpus rather than trusting the count: 5,076 transcripts walked, every Bash `tool_use` command naming `token.json`, `tokens.json`, `/run/user/*/*.env`, `~/.config/*/*.env` or a shell history file. **300 unique commands**, which is the "over 200 occurrences" the pricing paragraph measured.
 
@@ -949,6 +949,23 @@ Against the shipped guard: **84 of 300 deny.** The first pass denied 108; the ac
 **The carve-out as this section first phrased it is unimplementable, which is the seat's load-bearing finding.** It ran `stmts` on `TOKEN=$(jq -r .value <file>)` and got TWO detached records, `TOKEN=$(<masked>)` and `jq -r .value <file>`: `lib.sh:527` discards the parent relationship, so matching `X=$(` inside `artifact_verdict` cannot see the assignment. The carve-out needs a SECRET-local traversal of the original command carrying parent context and source offsets, with the captured variable tracked by its actual name rather than the heuristic at `secret-echo-guard.sh:411`. Grammar: a standalone scalar assignment whose entire RHS is one command substitution holding one `jq -r FILTER FILE`, FILTER a literal dotted path with no expressions, pipelines, `debug`, extra commands or redirections, FILE resolved only from a preceding literal assignment in the same call, later expansion permitted only in an auth-header operand of `curl`. Unsupported syntax denies.
 
 At least 62 of the 84 denies remain either way, and some legitimate captures will need a mechanical spelling change.
+
+**Built and measured 2026-09-16.** The corpus was rebuilt from the derivation above rather than reused: 344 unique commands. The carve-out is a SECRET-local traversal, run once over the original command, that records the exact inner `jq` text it blesses; the projector branch consults that list, because by the time it sees the `jq` there is no assignment left to recognise.
+
+```
+shipped: deny=107 allow=237
+patched: deny=93  allow=251
+flipped: 14, every one deny -> allow
+```
+
+**Every one of the 14 is the same idiom, and every use of the captured variable in all 14 was audited one at a time: all of them sit inside `curl -H "Authorization: Bearer $TOKEN"`. None print it.** That audit is the gate the allow had to pass, and it is the reason this ships rather than the ruling alone.
+
+Two corrections the measurement forced on the grammar as the ruling stated it, both of which would have made it useless or unsafe:
+
+- **The operand shape.** The first cut required a bare literal path or a variable set by a preceding literal assignment. The measured operand is `"${XDG_CACHE_HOME:-$HOME/.cache}/slack/token.json"`: a literal artifact name under a parameterized root, which is neither. With the first cut the corpus flipped **zero** commands. The rule is now that the operand must NAME the artifact literally, which is all this guard cares about.
+- **What counts as a use.** The first cut's check knew `$RT` and `${RT}`. It did not know `${#RT}` or `${RT:0:8}`, which print a length and a prefix of a refresh token, so it would have blessed `RT=$(jq -r .refresh_token <file>); echo "${RT:0:8}"`. That shape is in the corpus. Any brace expansion naming the variable is a use now, and the fixture is pinned.
+
+The remaining 93 denies are the classes this rule is for: `cat` of a credential file, `grep` against a history file, a `jq` filter that selects a value with no capture, and `strings` / `awk` / `head` / `tail` / `sed` over a token file.
 
 ### 3c. The SLACK rule against its own traffic: PASS after rework
 
