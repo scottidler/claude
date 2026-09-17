@@ -35,7 +35,10 @@ file or run raw `git tag`/`git push --tags`, STOP: that is the failure mode.
 
 - **Ungated:** the version commit lands first, untagged (`bump --no-tag`), and the tag waits for green CI on that exact SHA, because a tag cut before CI can only be repaired by a second tag. Exact command sequence: `bump/SKILL.md` FLOW 1.
 - **Gated:** the version bump RIDES THE FEATURE PR. From the feature branch (code
-  committed): `bump --no-tag` → push the branch → open the PR, then **pause**. (If
+  committed): `bump --no-tag` → push the branch → **stop at `PR creation required`**,
+  because `release` does not open the PR and must not: a PR created from inside it
+  is a subprocess, and PreToolUse cannot see a subprocess. **You** open it, in two
+  of your own Bash tool calls (step 3 below). (If
   commits are stranded on local main, the driver moves them to a feature branch
   named after the change first, since a version commit cannot land on gated main
   except via PR.) After merge, `release --finish` tags the merged tip (`bump --tag-only`
@@ -48,6 +51,13 @@ file or run raw `git tag`/`git push --tags`, STOP: that is the failure mode.
 It runs `bump`/`git` as subprocesses, so the git-release-guard hook does not see
 them. The safety lives inside `release` itself, and it is verified. Trust it; do
 not second-guess its gate verdict or re-implement its steps by hand.
+
+**The PR is the one exception, and it is the reason it is an exception.** Gate D
+(the release-intent line) and branch-pr-title-guard (title must match the branch)
+exist to be applied to `gh pr create`, so that call has to be a Bash tool call of
+YOURS, where PreToolUse reads it. `release` therefore stops and hands you the
+command. Never collapse the hand-back: no `eval`, no piping either printed
+command into a shell, no `$( )` around them. Each runs on its own.
 
 ## The loop
 
@@ -71,10 +81,26 @@ not second-guess its gate verdict or re-implement its steps by hand.
    ```
    release [-m|-M] [--install "<cmd>"|--no-install]
    ```
-   - If it prints **"done - … tag on origin/<default>"** → ungated release shipped.
+   - If it prints **"done, … tag on origin/<default>"** → ungated release shipped.
      Go to step 5.
-   - If it prints **"paused - waiting on PR merge"** → gated. Capture the PR URL.
-     Go to step 4.
+   - If it prints **"PR creation required"** → gated, branch pushed, no PR yet. It
+     printed a literal `pr-open …` command. Open the PR yourself, in two tool calls:
+     1. Run that `pr-open …` line as its own Bash tool call. It prints one line: the
+        `gh pr create …` command, title derived from the branch, release intent
+        stated, `--body-file` an already-expanded absolute path.
+     2. Run that `gh pr create …` line **verbatim**, as its own Bash tool call. This
+        is the call the gates must see, which is why it cannot be wrapped, piped or
+        `eval`ed.
+     3. `release --pr <url it returned>` → `release` verifies the PR exists, is OPEN
+        or MERGED, and has this branch as its head, before advancing. Then step 4.
+     - **DENIED by a hook** → the PR does not exist and no PR was recorded. Return
+       the denial text verbatim to the caller and stop. Do not retry variations, do
+       not hand-edit the command around the gate.
+     - **FAILED** (network, auth, a 404 that is really the wrong persona) → retry the
+       **same** command once. Still failing → report the exact error, with no PR
+       recorded.
+   - If it prints **"paused, waiting on PR merge"** → gated, PR verified. Capture the
+     PR URL. Go to step 4.
    - If it **dies** (dirty tree, behind origin, UNKNOWN gates, etc.) → read the
      message, fix the *specific* precondition it names (e.g. `gh auth login` for
      UNKNOWN gates), and re-run. Do not work around it with raw git/tag commands.

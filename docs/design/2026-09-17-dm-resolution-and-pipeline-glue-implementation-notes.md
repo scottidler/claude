@@ -740,3 +740,83 @@ rather than a claim it could not support. The orchestrator has the tool, so it i
 - None. Phase 8's own open question (whether a running session picks the skill up without a
   restart) is answered by this session doing exactly that: the skill was created mid-session and
   resolved without a restart.
+
+## Phase 9: `pr-open`
+
+`HOME/.claude/bin/pr-open` composes and PRINTS the `gh pr create` command; `bin/release` stops
+creating the PR at all and hands the command back. Both gates were run live, in both directions,
+with the payload fed on stdin: no PR was opened to find out.
+
+### Design decisions
+- **`pr-open` never runs `gh`, and `release` never runs `pr-open`.** Both would put
+  `gh pr create` inside a subprocess, which is the exact invisibility that let the old
+  `--fill` call past Gate D and branch-pr-title-guard. The protocol is therefore a two-step
+  hand-back: `release` prints the literal `pr-open ...` line, `pr-open` prints the literal
+  `gh pr create ...` line, and the caller runs each as its own command. `pr-open`'s header and
+  `release`'s new comment block both say why, and both forbid `eval`/piping explicitly, because
+  collapsing the hand-back silently restores the bug.
+- **The body-file path is expanded in `pr-open`, never emitted as `$TMPDIR/...`.** The hook
+  reads the body file itself out of the RAW command text and resolves `$TMPDIR` against its own
+  environment, which is not the caller's. Measured live this session: `--body-file
+  "$TMPDIR/pr-body.md"` was denied with "cannot be read" while the file sat at
+  `/tmp/claude-1000/claude-1000/pr-body.md`. `pr-open` writes to `$TMPDIR/pr-open/<branch>.md`,
+  resolves it with `cd ... && pwd -P`, and refuses any path outside `^/[A-Za-z0-9/._+-]*$`.
+- **`--release` is required and `rides` is verified the way Gate D verifies it**
+  (`pr-open`, the RELEASE_LINE block): the version number in the body comes OUT of the
+  `$BASEREF...HEAD` version-line diff, so the claim and the evidence are the same read. No delta
+  means `pr-open` refuses to emit a command at all, rather than emitting one the gate denies.
+- **Persona comes from the origin remote's ORG, not the cwd** (`gh_persona` in both scripts).
+  The cwd heuristic misses whenever a call targets one org from inside another, and the miss
+  reads as a 404 "no access" rather than "wrong identity". Live example this session:
+  `tatari-tv/slack-cli` resolved as the home persona and returned "Could not resolve to a
+  Repository". Every `gh` call in `release` now carries `GH_PERSONA=$PERSONA`, and the test
+  asserts that mechanically (a bare `gh pr|api|repo` in command position fails the suite).
+- **RESUME verifies rather than trusts.** `release --pr <url>` checks the PR resolves, is OPEN
+  or MERGED, and has THIS branch as its head, before advancing. A url is a caller's claim.
+- **The three transitions are named in `release`'s printed output and in
+  `release-driver.md` step 3**: DENIED returns the denial text with no PR recorded, FAILED
+  retries the same command once then reports, CREATED comes back through `release --pr <url>`.
+- **The human path is in the output**, not left implicit: at a terminal there is no PreToolUse
+  and no agent, so the printed commands are Scott's to run, and both scripts say so.
+- **`HOME/.claude/bin/pr-open-test.sh` is the criteria, mechanized**, and runs in `otto ci`.
+  27 assertions, including both live-hook directions, built on throwaway origin+clone fixtures
+  in the shape `git-release-guard-test.sh` already uses.
+
+### Deviations
+- **`release` also gained `--type`/`--scope`**, which the phase bullet does not mention. The
+  hand-back command has to be runnable as printed, and `pr-open` requires a type. `release`
+  reads it off the branch's first commit subject; underivable leaves a literal `<type>`
+  placeholder, which `pr-open` refuses loudly rather than guessing a type into the PR title.
+- **`release`'s 26 em-dashes were stripped** as part of adding it to the `.otto.yml` lint list
+  (the list is the only thing enforcing the rule). Per-site replacements, no blanket
+  substitution. Two sentinel strings changed shape as a result: `done - ...` and
+  `paused - waiting on PR merge`. `release-driver.md`'s matching text was updated in the same
+  commit, and it already disagreed with the script's em-dash spelling before this.
+- **`release-driver.md`'s gated description (`:37-46`) was updated too**, not just the
+  `:74-80` result list the bullet names. Leaving "open the PR, then pause" in place would have
+  left the file lying about the thing this phase changed.
+- **The implementation-notes file was NOT added to the lint list.** It carries 6 pre-existing
+  em-dashes from earlier phases, and this phase is append-only to that file: adding it would
+  fail CI on sections I am forbidden to edit.
+
+### Tradeoffs
+- **Two hand-backs (`release` -> `pr-open` -> `gh`) instead of one.** Collapsing them means
+  `release` composing the `gh` command itself, which duplicates every rule `pr-open` owns
+  (title derivation, body file, intent verification) in a second place. Two signals encoding one
+  meaning is the failure mode; an extra tool call is not.
+- **`pr-open` makes no `gh` calls at all**, so it does not check whether a PR already exists.
+  `release` does that check (it has the branch and the persona), and the split keeps `pr-open`
+  hermetic and testable without network.
+- **`--type` required rather than defaulted to `feat`.** A defaulted type is a guess that lands
+  in the PR title, and the title is the PR's face. The branch supplies the words; the type is
+  the caller's to state.
+
+### Open questions
+- `HOME/.claude/skills/bump/SKILL.md:100` still describes `release` as "gated: bumps the branch,
+  opens PR, pauses", which is now false. Phase 11 owns routing `bump`/`shipit`/`babysit` to
+  `release-driver`, so I left it rather than folding a later phase in early. If it should be
+  corrected sooner, it is a one-line edit plus adding that file to the lint list (it carries an
+  em-dash at `:101`).
+- `manifest -s pr-open-on-path` and the two `manifest -l` links were run scoped, outside the
+  sandbox (the sandbox denies writes under `~/.claude/bin` with "Read-only file system").
+  `~/bin/pr-open` and `~/.claude/bin/pr-open` exist and `command -v pr-open` resolves.

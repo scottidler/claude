@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# pr-open: compose the `gh pr create` command that both PreToolUse gates accept,
+# and PRINT it. It never runs `gh` itself, and that is the whole point.
+#
+# The bug this exists to kill: `bin/release` used to run
+# `gh pr create --fill` as a SUBPROCESS. A subprocess is invisible to
+# PreToolUse, so neither git-release-guard.sh (Gate D: the release-intent line)
+# nor branch-pr-title-guard.sh (title must match the branch) ever saw the PR
+# being opened. Moving that same call inside THIS script would reimplement the
+# bug exactly: what matters is not which script runs `gh`, it is that the text
+# `gh pr create ...` is the body of a Bash tool call the hooks can read.
+#
+# So the protocol is a hand-back, in two steps, and neither step may be
+# collapsed into a pipe:
+#
+#   1. `pr-open --type feat --release rides` prints ONE line on stdout: the
+#      literal `gh pr create ...` command, every path expanded, nothing
+#      deferred to the caller's shell.
+#   2. The caller runs that line AS ITS OWN command. An agent runs it as its own
+#      Bash tool call, where PreToolUse sees it. A human at a terminal runs it by
+#      hand: there is no PreToolUse and no agent at a terminal, so the gates are
+#      informational there and the command is simply the thing to run.
+#
+# NEVER `eval "$(pr-open ...)"` and never `pr-open ... | bash`. Both put `gh`
+# back inside a subprocess of the calling command, which is the invisibility
+# this script exists to remove.
+#
+# What it guarantees about the command it prints:
+#   - Title is DERIVED from the branch: `type(scope): <branch words>`, so
+#     `slug(title minus type/scope) == branch` by construction and
+#     branch-pr-title-guard.sh cannot deny it.
+#   - Release intent is EXPLICIT (--release rides|none), never defaulted and
+#     never guessed. `rides` is verified against the actual version-line diff vs
+#     the base, which is the same test Gate D runs, so a claim this script emits
+#     is a claim the gate confirms.
+#   - `--body-file` is a LITERAL, ALREADY-EXPANDED absolute path to a file that
+#     exists and is readable. Never `-`, never a process substitution, never a
+#     `$TMPDIR`-bearing string. The hook reads the body file itself, out of the
+#     RAW command text, and its $TMPDIR is not the caller's: passing
+#     `--body-file "$TMPDIR/pr-body.md"` was denied live on 2026-09-17 with
+#     "cannot be read" while the file sat happily at a different absolute path.
+#   - `GH_PERSONA` is set explicitly, from the origin remote's org rather than
+#     from the working directory. The cwd heuristic misses whenever the call
+#     targets one org from inside another, and the miss looks like a 404 "no
+#     access" rather than "wrong identity".
+#
+# Usage:
+#   pr-open --type <t> [--scope <s>] --release rides|none [--reason "<why>"]
+#           [--base <branch>] [--body "<text>"]
+#
+#   --type      conventional-commit type (feat|fix|refactor|test|docs|...).
+#               Required: it is the face of the PR and this script will not
+#               guess it.
+#   --scope     optional conventional-commit scope.
+#   --release   rides: the version bump is on this branch and rides this PR.
+#               none:  no release rides this PR, and --reason says why.
+#   --reason    required with --release none.
+#   --base      base branch (default: the origin default branch).
+#   --body      body text above the Release line (default: this branch's commit
+#               subjects vs the base).
+#
+# Output split: the COMMAND goes to stdout, everything else to stderr. So
+# `pr-open ... 2>/dev/null` is exactly the command and nothing else.
+#
+set -euo pipefail
+
+TYPE=""
+SCOPE=""
+RELEASE=""
+REASON=""
+BASE=""
+BODY=""
+
+usage() { awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"; exit "${1:-0}"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -t|--type)    TYPE="${2:?--type needs a conventional-commit type}"; shift ;;
+    -s|--scope)   SCOPE="${2:?--scope needs a value}"; shift ;;
+    --release)    RELEASE="${2:?--release needs rides|none}"; shift ;;
+    --reason)     REASON="${2:?--reason needs text}"; shift ;;
+    --base)       BASE="${2:?--base needs a branch}"; shift ;;
+    --body)       BODY="${2:?--body needs text}"; shift ;;
+    -h|--help)    usage 0 ;;
+    *) echo "pr-open: unknown argument: $1" >&2; usage 1 ;;
+  esac
+  shift
+done
+
+die() { echo "pr-open: $*" >&2; exit 1; }
+say() { printf '\033[1;36m> %s\033[0m\n' "$*" >&2; }
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git repo"
+ROOT=$(git rev-parse --show-toplevel)
+
+[ -n "$TYPE" ] || die "--type is required (feat|fix|refactor|test|docs|...). The title is derived from the branch, but the type is yours to state; this script will not guess it."
+printf '%s' "$TYPE" | grep -Eq '^[a-z]+$' || die "--type '$TYPE' must be lowercase letters only: branch-pr-title-guard.sh strips exactly 'type(scope)!:' and anything else slugifies into the title."
+[ -z "$SCOPE" ] || printf '%s' "$SCOPE" | grep -Eq '^[a-z0-9.-]+$' || die "--scope '$SCOPE' must be lowercase alphanumeric, '.' or '-'."
+
+case "$RELEASE" in
+  rides|none) ;;
+  "") die "--release is required and is never defaulted: 'rides' (the version bump is on this branch) or 'none --reason <why>'. Gate D (git-release-guard.sh:566) denies a PR on a release-managed repo without this line, because a PR that merges without its bump creates a deadlock no later gate can fix." ;;
+  *) die "--release must be 'rides' or 'none', got '$RELEASE'" ;;
+esac
+if [ "$RELEASE" = "none" ] && [ -z "$REASON" ]; then
+  die "--release none requires --reason <why>: the gate accepts 'Release: none - <why>' and the why is the part a human reads."
+fi
+
+# ---- branch, and the two things that make a branch unusable ------------------
+BRANCH=$(git branch --show-current)
+[ -n "$BRANCH" ] || die "detached HEAD: no branch to derive a title from. Check out the feature branch."
+case "$BRANCH" in
+  main|master) die "on '$BRANCH': there is no feature branch to open a PR from. Create one first (git checkout -b <slug>), which is also what branch-pr-title-guard.sh would tell you." ;;
+esac
+case "$BRANCH" in
+  *[/.]*) die "branch '$BRANCH' can never match any title: slugifying collapses '/' and '.' to '-', so branch-pr-title-guard.sh denies every title. Rename the BRANCH before any PR exists: git branch -m $(printf '%s' "$BRANCH" | tr '/.' '--')" ;;
+esac
+
+# ---- base branch, both spellings --------------------------------------------
+# BASE is the branch name `gh pr create --base` takes; BASEREF is the remote-
+# tracking ref the version-delta diff is computed against, which is the same
+# ref Gate D uses (git-release-guard.sh:563 default_base).
+if [ -z "$BASE" ]; then
+  BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || true)
+  if [ -z "$BASE" ]; then
+    if   git rev-parse --verify --quiet origin/main   >/dev/null; then BASE=main
+    elif git rev-parse --verify --quiet origin/master >/dev/null; then BASE=master
+    else die "cannot determine the base branch (no origin/HEAD, no origin/main, no origin/master). Pass --base <branch>."; fi
+  fi
+fi
+BASEREF="origin/$BASE"
+git rev-parse --verify --quiet "$BASEREF" >/dev/null || die "$BASEREF does not exist locally. Run 'git fetch origin $BASE' first: the release-intent check compares this branch against it."
+
+# ---- title: derived from the branch, never authored -------------------------
+WORDS=$(printf '%s' "$BRANCH" | tr '-' ' ')
+if [ -n "$SCOPE" ]; then TITLE="$TYPE($SCOPE): $WORDS"; else TITLE="$TYPE: $WORDS"; fi
+
+# ---- release intent, verified the way the gate verifies it ------------------
+# Gate D's `rides` check is: does any version line change in the diff vs the
+# base. Taking the version NUMBER out of that same diff means the number in the
+# body is the number that actually rides, rather than one read from a manifest
+# that may not have been bumped at all.
+RELEASE_LINE=""
+if [ "$RELEASE" = "rides" ]; then
+  VER=$(git diff "$BASEREF...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null \
+        | grep -E '^\+[[:space:]]*"?version"?[[:space:]]*[:=]' \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  [ -n "$VER" ] || die "--release rides, but no version line changes in the diff vs $BASEREF. Gate D denies this claim (git-release-guard.sh:566), so the command is not emitted. Run 'bump --no-tag' on this branch (real work already committed) so the version commit actually rides, or pass '--release none --reason <why>'."
+  RELEASE_LINE="Release: rides this PR (v$VER)"
+else
+  RELEASE_LINE="Release: none - $REASON"
+fi
+
+# ---- body file: a literal, expanded, readable absolute path -----------------
+# Every part of that sentence is load-bearing. The hook reads this file ITSELF,
+# from the raw command text, and resolves $TMPDIR against its own environment,
+# which is not the caller's. So the path is expanded HERE and emitted expanded.
+BODY_DIR="${TMPDIR:-/tmp}/pr-open"
+mkdir -p "$BODY_DIR" || die "cannot create $BODY_DIR for the PR body file"
+BODY_DIR=$(cd "$BODY_DIR" && pwd -P)
+BODY_FILE="$BODY_DIR/$BRANCH.md"
+
+if [ -z "$BODY" ]; then
+  BODY=$(git log --reverse --format='- %s' "$BASEREF..HEAD" 2>/dev/null || true)
+  [ -n "$BODY" ] || BODY="- $(git log -1 --format=%s)"
+fi
+
+printf '%s\n\n%s\n' "$BODY" "$RELEASE_LINE" > "$BODY_FILE"
+chmod 0644 "$BODY_FILE"
+[ -r "$BODY_FILE" ] || die "wrote $BODY_FILE but cannot read it back"
+
+# The gate reads the path out of the unexpanded command text. A path needing
+# quoting survives (lib.sh's flag_value drops quotes), but a path carrying a
+# '$' or a backtick is refused by the hook by design, and one carrying a space
+# is a landmine for every downstream copy of this command. Refuse HERE, loudly,
+# instead of emitting a command that gets denied later for a reason that reads
+# like a policy problem rather than a path problem.
+printf '%s' "$BODY_FILE" | grep -Eq '^/[A-Za-z0-9/._+-]*$' \
+  || die "body-file path '$BODY_FILE' carries a character the gate cannot accept unquoted. Set TMPDIR to a plain absolute path and retry."
+
+# ---- persona: from the remote's org, not from the cwd -----------------------
+# `release`/`pr-open` are bash scripts: the .zshenv gh() persona function does
+# not exist inside them, and the rails tool.call hook rewrites a Bash tool call,
+# not a subprocess. An unset GH_PERSONA resolves to the WORK account even on a
+# personal repo, so the org the remote names is the only honest source.
+ORIGIN=$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)
+ORG=$(printf '%s' "$ORIGIN" | sed -E 's@^.*[:/]([^/:]+)/[^/]+$@\1@')
+case "$ORG" in
+  tatari-tv) PERSONA=work ;;
+  *)         PERSONA=home ;;
+esac
+[ -z "${GH_PERSONA:-}" ] || PERSONA="$GH_PERSONA"
+
+# ---- emit ---------------------------------------------------------------------
+CMD="GH_PERSONA=$PERSONA gh pr create --title \"$TITLE\" --body-file $BODY_FILE --head $BRANCH --base $BASE"
+
+say "branch:   $BRANCH"
+say "title:    $TITLE"
+say "body:     $BODY_FILE"
+say "intent:   $RELEASE_LINE"
+say "persona:  $PERSONA (from the origin org '$ORG')"
+{
+  echo
+  echo "  RUN THE LINE BELOW AS ITS OWN COMMAND."
+  echo "  Agent: as your own Bash tool call, so PreToolUse sees the gh invocation."
+  echo "  Human at a terminal: paste and run it; there is no PreToolUse here, so"
+  echo "  the gates are informational and you are the one opening the PR."
+  echo "  Never 'eval' it, never pipe it into a shell: that hides gh in a"
+  echo "  subprocess again, which is the bug this script exists to remove."
+  echo
+} >&2
+
+printf '%s\n' "$CMD"
+
+{
+  echo
+  echo "  DENIED by a hook: do NOT retry variations. Return the denial text to the"
+  echo "  caller and record that NO PR exists."
+  echo "  FAILED (network, auth): retry the SAME command once, then report."
+  echo "  CREATED: hand the PR url back with 'release --pr <url>', which verifies"
+  echo "  the PR exists before advancing rather than trusting the url."
+  echo
+} >&2

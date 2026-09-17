@@ -82,6 +82,10 @@ tasks:
         HOME/.claude/hooks/inline-token-matcher-test.sh
         HOME/.claude/hooks/inline-name-resolution-test.sh
         HOME/.claude/skills/review-panel/SKILL.md
+        HOME/.claude/bin/pr-open
+        HOME/.claude/bin/pr-open-test.sh
+        HOME/.claude/bin/release
+        manifest.yml
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
@@ -111,6 +115,8 @@ tasks:
       done
       echo "=== bin/hooks-resolve ==="
       bin/hooks-resolve
+      echo "=== HOME/.claude/bin/pr-open-test.sh ==="
+      bash HOME/.claude/bin/pr-open-test.sh
       (cd HOME/.claude/skills/rails/hooks && bun test)
 
   ci:

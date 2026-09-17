@@ -68,6 +68,17 @@ script:
     ln -sf "$HOME/.claude/bin/release" "$HOME/bin/release"
     echo "release driver linked onto PATH (~/bin/release)"
 
+  # Same treatment for `pr-open`, the PR-command composer `release` hands back
+  # to. It has to be callable bare for the same reason `release` does: the
+  # command `release` prints is run by hand or as an agent's own Bash tool call,
+  # and a path-qualified command in that hand-back is one more thing to get
+  # wrong. See bin/pr-open's header for why it prints `gh pr create` instead of
+  # running it.
+  pr-open-on-path: |
+    mkdir -p /home/saidler/bin
+    ln -sf "$HOME/.claude/bin/pr-open" "$HOME/bin/pr-open"
+    echo "pr-open linked onto PATH (~/bin/pr-open)"
+
   # Daily relocation of Rust build artifacts onto the dedicated drive. The engine
   # lives in the relocate-targets skill (single source of truth); this puts it on
   # PATH as ~/bin/relocate-targets and installs the cron. Idempotent: a healthy

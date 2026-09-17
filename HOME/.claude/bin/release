@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# release — deterministic release driver. Removes LLM discretion from the one
+# release: deterministic release driver. Removes LLM discretion from the one
 # layer that keeps failing: gate detection + tag/push ordering.
 #
 # The whole release problem is binary (Scott's framing, and it really is):
@@ -8,7 +8,7 @@
 #                         the feature branch, before merge). AFTER the PR merges:
 #                         pull main, tag the merged tip, push the tag by name.
 #                         NEVER a bump-only release branch. NEVER a tag on a branch
-#                         (squash-merge rewrites the SHA — the tag is burnt forever).
+#                         (squash-merge rewrites the SHA, so the tag is burnt forever).
 #   2. main is UNGATED -> land the VERSION COMMIT first (bump --no-tag), push main,
 #                         WAIT FOR CI TO GO GREEN ON THAT SHA, and only then
 #                         bump --tag-only + push the tag by name.
@@ -22,7 +22,7 @@
 # and the SAME version number gets tagged. Only the tag waits.
 #
 # This script is the mechanical executor of exactly the commands the bump/shipit
-# skills document — same `bump` calls, same safe push order — but with NO room
+# skills document (same `bump` calls, same safe push order) but with NO room
 # for the model to "rationalize" a wrong path mid-flow. Every HALL-OF-SHAME entry
 # is the model exercising discretion at a decision point; this deletes the
 # decision points.
@@ -35,6 +35,23 @@
 #   - never tag a gated repo before the merge (bump --no-tag / bump --tag-only)
 #   - never force-push, never delete tags, never a bump-only release branch
 #
+# THE ONE THING IT NO LONGER DOES: create the PR. It used to run a
+# `--fill` PR creation as a subprocess, which is invisible to PreToolUse for
+# the same reason the bump is, except here the invisibility is the bug: Gate D
+# (the release-intent line) and branch-pr-title-guard (title must match the
+# branch) exist precisely to be applied to THAT command. So the gated flow now
+# stops at `PR creation required` and hands back the literal `pr-open` command;
+# the caller runs it, runs the `gh pr create ...` line pr-open prints, and comes
+# back with `release --pr <url>`, which VERIFIES the PR exists before advancing.
+# Calling `pr-open` from in here would reimplement the bug, so it is not called.
+#
+# Every `gh` call below sets GH_PERSONA explicitly. This is a bash script: the
+# .zshenv gh() persona function does not exist in it and the rails tool.call
+# hook rewrites Bash tool calls, not subprocesses. Unset, gh resolves to the
+# WORK account even on a personal repo, so the caller could create a PR as home
+# that this script then fails to see as work: a successful creation leaving the
+# driver believing no PR exists.
+#
 # Contract: the CODE CHANGE IS ALREADY COMMITTED (clean tree; on the default
 # branch for ungated, on the feature branch for gated). The caller owns the
 # diff-reading judgment (what to commit, the message). This driver owns
@@ -42,8 +59,19 @@
 #
 # Usage:
 #   release [-m|-M] [--install "<cmd>"|--no-install] [-n] [--no-ci-gate] [--ci-timeout N]
+#   release --pr <url> [same flags]   resume after the caller created the PR
 #   release --finish [--install "<cmd>"|--no-install] [-n] [--no-ci-gate] [--ci-timeout N]
 #
+#   --pr <url>       RESUME: the caller ran the `gh pr create` command and got
+#                    this url back. The PR is verified to exist, to be open or
+#                    merged, and to point at THIS branch, before anything
+#                    advances. A url is a claim, not a fact.
+#   --type <t>       conventional-commit type for the hand-back `pr-open`
+#                    command. Default: read off the branch's first commit
+#                    subject. Underivable leaves a literal `<type>` placeholder
+#                    in the printed command, which pr-open refuses rather than
+#                    guessing a type into the PR title.
+#   --scope <s>      conventional-commit scope, same derivation.
 #   --no-ci-gate     tag without waiting for CI. This re-arms the double-tap;
 #                    use it only when there is no CI to wait for.
 #   --ci-timeout N   seconds to wait for checks to finish (default 1800).
@@ -59,6 +87,9 @@ FINISH=0
 CI_GATE=1         # wait for green CI on the pushed SHA before the tag exists
 CI_TIMEOUT=1800   # seconds to wait for checks to complete
 CI_APPEAR=120     # seconds to wait for any check to register at all
+PR_URL=""         # RESUME: the url the caller's own `gh pr create` returned
+PR_TYPE=""        # conventional-commit type for the hand-back pr-open command
+PR_SCOPE=""       # conventional-commit scope for the hand-back pr-open command
 
 # Print the leading comment block, however long it is, so editing the docs
 # above can never desync a hardcoded line range.
@@ -72,6 +103,9 @@ while [ $# -gt 0 ]; do
     --no-install) NO_INSTALL=1 ;;
     -n|--dry-run) DRYRUN=1 ;;
     --finish)     FINISH=1 ;;
+    --pr)         PR_URL="${2:?--pr needs the PR url your own 'gh pr create' returned}"; shift ;;
+    --type)       PR_TYPE="${2:?--type needs a conventional-commit type}"; shift ;;
+    --scope)      PR_SCOPE="${2:?--scope needs a value}"; shift ;;
     --no-ci-gate) CI_GATE=0 ;;
     --ci-timeout) CI_TIMEOUT="${2:?--ci-timeout needs seconds}"; shift ;;
     -h|--help)    usage 0 ;;
@@ -86,6 +120,23 @@ say()  { printf '\033[1;36m▶ %s\033[0m\n' "$*"; }
 run()  { if [ "$DRYRUN" = 1 ]; then echo "  [dry-run] $*"; else echo "  + $*"; eval "$@"; fi; }
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git repo"
+
+# Which GitHub identity every gh call below runs as. Read off the ORG the origin
+# remote names, never off the working directory: the cwd heuristic misses
+# whenever a call targets one org from inside another, and the miss surfaces as
+# a 404 that reads like "no access" instead of "wrong identity". An explicit
+# GH_PERSONA in the environment still wins, which is the escape hatch.
+gh_persona() {
+  local origin org
+  if [ -n "${GH_PERSONA:-}" ]; then printf '%s' "$GH_PERSONA"; return; fi
+  origin=$(git remote get-url origin 2>/dev/null || true)
+  org=$(printf '%s' "$origin" | sed -E 's@^.*[:/]([^/:]+)/[^/]+$@\1@')
+  case "$org" in
+    tatari-tv) printf 'work' ;;
+    *)         printf 'home' ;;
+  esac
+}
+PERSONA=$(gh_persona)
 
 DEFAULT=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || true)
 if [ -z "$DEFAULT" ]; then
@@ -130,12 +181,12 @@ version_commit_pending() {
 # only way to fix anything CI found was a second tag.
 wait_for_green() {
   local sha="$1"
-  if [ "$CI_GATE" = 0 ]; then say "CI gate: SKIPPED (--no-ci-gate) — a red run will cost you a second tag"; return 0; fi
+  if [ "$CI_GATE" = 0 ]; then say "CI gate: SKIPPED (--no-ci-gate): a red run will cost you a second tag"; return 0; fi
   if [ "$DRYRUN" = 1 ]; then echo "  [dry-run] wait for CI to go green on $sha, then tag"; return 0; fi
 
   local repo
-  repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
-  if [ -z "$repo" ]; then say "CI gate: no GitHub repo — nothing to wait on"; return 0; fi
+  repo=$(GH_PERSONA=$PERSONA gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
+  if [ -z "$repo" ]; then say "CI gate: no GitHub repo, nothing to wait on"; return 0; fi
 
   say "CI gate: waiting on checks for $sha (no tag exists yet, so red is free)"
   local start deadline json total incomplete failed
@@ -143,7 +194,7 @@ wait_for_green() {
   deadline=$(( start + CI_TIMEOUT ))
 
   while :; do
-    json=$(gh api "repos/$repo/commits/$sha/check-runs" 2>/dev/null || echo '{"check_runs":[]}')
+    json=$(GH_PERSONA=$PERSONA gh api "repos/$repo/commits/$sha/check-runs" 2>/dev/null || echo '{"check_runs":[]}')
     total=$(printf '%s' "$json"      | jq '[.check_runs[]?] | length')
     incomplete=$(printf '%s' "$json" | jq '[.check_runs[]? | select(.status != "completed")] | length')
     failed=$(printf '%s' "$json"     | jq '[.check_runs[]? | select(.conclusion != null and ([.conclusion] | inside(["success","skipped","neutral"]) | not))] | length')
@@ -156,13 +207,13 @@ wait_for_green() {
     fi
 
     if [ "$total" -gt 0 ] && [ "$incomplete" = 0 ]; then
-      say "CI gate: green ($total checks) — cutting the tag"
+      say "CI gate: green ($total checks): cutting the tag"
       return 0
     fi
 
     local now; now=$(date +%s)
     if [ "$total" = 0 ] && [ $(( now - start )) -ge "$CI_APPEAR" ]; then
-      say "CI gate: no checks registered on $sha after ${CI_APPEAR}s — nothing to wait on"
+      say "CI gate: no checks registered on $sha after ${CI_APPEAR}s, nothing to wait on"
       return 0
     fi
     [ "$now" -lt "$deadline" ] || die "CI gate: timed out after ${CI_TIMEOUT}s with $incomplete check(s) still running on $sha. NO TAG WAS CREATED. Re-run 'release' when they finish (it will reuse the same version), or pass --ci-timeout."
@@ -172,13 +223,13 @@ wait_for_green() {
   done
 }
 
-# install step — shared by both modes
+# install step, shared by both modes
 do_install() {
   if [ "$NO_INSTALL" = 1 ]; then say "install: skipped (--no-install)"; return; fi
   local cmd="$INSTALL_CMD"
   if [ -z "$cmd" ]; then
     if [ -f Cargo.toml ]; then cmd="cargo install --path ."
-    else say "install: no command given and not a Rust crate — skipped"; return; fi
+    else say "install: no command given and not a Rust crate, skipped"; return; fi
   fi
   say "install: $cmd"
   run "$cmd"
@@ -199,13 +250,13 @@ if [ "$FINISH" = 1 ]; then
   run "bump --tag-only"
   if [ "$DRYRUN" = 0 ]; then
     VER=$(git tag --points-at HEAD --list 'v*' | head -1)
-    [ -n "$VER" ] || die "bump --tag-only produced no v* tag at HEAD — STOP, inspect manually"
+    [ -n "$VER" ] || die "bump --tag-only produced no v* tag at HEAD: STOP, inspect manually"
     run "git push origin $VER"
   else
     echo "  [dry-run] git push origin <vX.Y.Z from bump --tag-only>"
   fi
   do_install
-  say "done — gated release finished, tag on origin/$DEFAULT"
+  say "done, gated release finished, tag on origin/$DEFAULT"
   exit 0
 fi
 
@@ -214,7 +265,7 @@ fi
 
 run "git fetch origin $DEFAULT"
 
-# Gate detection — bump checks BOTH layers (classic protection AND repo/org
+# Gate detection: bump checks BOTH layers (classic protection AND repo/org
 # rulesets). This is the single source of truth; never infer gates by hand.
 GATES=$(bump --gates 2>&1 || true)
 echo "$GATES"
@@ -227,9 +278,9 @@ elif printf '%s\n' "$GATES" | grep -qiE 'gated'; then
   GATED=1
 else
   # gh unauthenticated / API error / genuinely indeterminate on a GitHub repo.
-  # REFUSE rather than guess — guessing "ungated" here is exactly how a gated
+  # REFUSE rather than guess: guessing "ungated" here is exactly how a gated
   # repo gets a tag pushed straight at it and orphaned.
-  die "gate status is UNKNOWN for a GitHub repo — refusing to guess. Run 'gh auth status' and retry. Output was:"$'\n'"$GATES"
+  die "gate status is UNKNOWN for a GitHub repo, refusing to guess. Run 'gh auth status' and retry. Output was:"$'\n'"$GATES"
 fi
 
 # ---- UNGATED: version commit lands first, tag waits for green CI --------------
@@ -241,7 +292,7 @@ fi
 if [ "$GATED" = 0 ]; then
   [ "$BRANCH" = "$DEFAULT" ] || die "ungated release runs from the default branch ($DEFAULT); you are on '$BRANCH'. Land your work on $DEFAULT first."
   BEHIND=$(git rev-list --count "HEAD..origin/$DEFAULT" 2>/dev/null || echo 0)
-  [ "$BEHIND" = 0 ] || die "$DEFAULT is $BEHIND commit(s) behind origin/$DEFAULT — pull/rebase before releasing (tagging a stale main is how cr v0.1.8 was orphaned)."
+  [ "$BEHIND" = 0 ] || die "$DEFAULT is $BEHIND commit(s) behind origin/$DEFAULT: pull/rebase before releasing (tagging a stale main is how cr v0.1.8 was orphaned)."
 
   # Both numbers come from bump's own dry-run, never from arithmetic here.
   PREVIEW=$(bump_versions $LEVEL || true)
@@ -252,7 +303,7 @@ if [ "$GATED" = 0 ]; then
     # A previous run landed the version commit and stopped short of the tag,
     # which is exactly what a red CI is supposed to leave behind.
     TAG="v$CURVER"
-    say "RESUMING: $TAG is already committed and carries no tag — tagging that version, NOT bumping past it"
+    say "RESUMING: $TAG is already committed and carries no tag, so tagging that version, NOT bumping past it"
   else
     AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
     [ "$AHEAD" -gt 0 ] || die "nothing to release: HEAD == origin/$DEFAULT and tree is clean. Commit a change first."
@@ -268,7 +319,7 @@ if [ "$GATED" = 0 ]; then
 
   if [ "$DRYRUN" = 0 ]; then
     HEADSHA=$(git rev-parse HEAD)
-    [ "$HEADSHA" = "$(git rev-parse "origin/$DEFAULT")" ] || die "HEAD is not origin/$DEFAULT after the push — STOP, inspect manually before any tag is cut."
+    [ "$HEADSHA" = "$(git rev-parse "origin/$DEFAULT")" ] || die "HEAD is not origin/$DEFAULT after the push: STOP, inspect manually before any tag is cut."
     wait_for_green "$HEADSHA"
   else
     wait_for_green "<HEAD>"
@@ -277,17 +328,17 @@ if [ "$GATED" = 0 ]; then
   # bump --tag-only refuses unless HEAD == origin/<default>, so the tag cannot
   # land on a commit that is not already published.
   if tag_exists_local "$TAG"; then
-    say "tag $TAG already exists locally (prior interrupted run) — pushing it"
+    say "tag $TAG already exists locally (prior interrupted run), pushing it"
   else
     run "bump --tag-only"
   fi
   if [ "$DRYRUN" = 0 ]; then
     TAG=$(git tag --points-at HEAD --list 'v*' | head -1)
-    [ -n "$TAG" ] || die "bump --tag-only produced no v* tag at HEAD — STOP, inspect manually"
+    [ -n "$TAG" ] || die "bump --tag-only produced no v* tag at HEAD: STOP, inspect manually"
   fi
   run "git push origin $TAG"
   do_install
-  say "done — $TAG pushed; tag on origin/$DEFAULT, cut on green CI"
+  say "done, $TAG pushed; tag on origin/$DEFAULT, cut on green CI"
   exit 0
 fi
 
@@ -298,10 +349,10 @@ fi
 if [ "$BRANCH" = "$DEFAULT" ]; then
   AHEAD=$(git rev-list --count "origin/$DEFAULT..HEAD" 2>/dev/null || echo 0)
   if [ "$AHEAD" = 0 ]; then
-    die "gated repo, nothing to release from $DEFAULT. The version bump rides the FEATURE PR: run this from the feature branch (code committed) and it will 'bump --no-tag' + push + open the PR. If a PR already merged WITHOUT its bump: STOP — never create a bump-only release branch; fold the bump into the next feature PR or ask Scott."
+    die "gated repo, nothing to release from $DEFAULT. The version bump rides the FEATURE PR: run this from the feature branch (code committed) and it will 'bump --no-tag' + push, then hand back the PR-creation command. If a PR already merged WITHOUT its bump: STOP, never create a bump-only release branch; fold the bump into the next feature PR or ask Scott."
   fi
   # Commits stranded on local $DEFAULT of a gated repo can never push directly.
-  # Move them to a feature branch (named after the change, NOT release-*) — this
+  # Move them to a feature branch (named after the change, NOT release-*): this
   # IS the feature branch: it carries the code, and the bump joins it below.
   SUBJ=$(git log --reverse --format=%s "origin/$DEFAULT..HEAD" | head -1)
   SLUG=$(printf '%s' "$SUBJ" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40)
@@ -313,32 +364,84 @@ if [ "$BRANCH" = "$DEFAULT" ]; then
   BRANCH="$SLUG"
 fi
 
-say "GATED release — bump rides the feature PR '$BRANCH' (no tag until it merges)"
+say "GATED release: bump rides the feature PR '$BRANCH' (no tag until it merges)"
 
 # Idempotency: if this branch already carries the version bump (re-run after a
 # failed push / PR revision), don't double-bump.
 if git diff "origin/$DEFAULT...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null | grep -Eq '^\+version'; then
-  say "version already bumped on this branch — skipping 'bump --no-tag'"
+  say "version already bumped on this branch, skipping 'bump --no-tag'"
 else
   run "bump --no-tag $LEVEL"               # version commit joins the PR; NO tag exists
 fi
 
 run "git push --no-follow-tags -u origin $BRANCH"
 
-if [ "$DRYRUN" = 0 ]; then
-  PRSTATE=$(gh pr view "$BRANCH" --json state -q .state 2>/dev/null || true)
+# The conventional-commit type/scope for the hand-back command, read off the
+# branch's first commit subject rather than invented. Underivable leaves the
+# placeholder in place: pr-open refuses `--type '<type>'` loudly, which beats a
+# guessed type riding into the PR title.
+if [ -z "$PR_TYPE" ]; then
+  FIRSTSUBJ=$(git log --reverse --format=%s "origin/$DEFAULT..HEAD" 2>/dev/null | head -1)
+  PR_TYPE=$(printf '%s' "$FIRSTSUBJ" | sed -nE 's/^([a-z]+)(\([^)]*\))?!?:.*/\1/p')
+  [ -n "$PR_TYPE" ] || PR_TYPE="<type>"
+  [ -n "$PR_SCOPE" ] || PR_SCOPE=$(printf '%s' "$FIRSTSUBJ" | sed -nE 's/^[a-z]+\(([^)]*)\)!?:.*/\1/p')
+fi
+PROPEN="pr-open --type $PR_TYPE${PR_SCOPE:+ --scope $PR_SCOPE} --release rides"
+
+# The PR-creation hand-back. `release` does NOT create the PR and does NOT call
+# `pr-open`: either one puts `gh pr create` inside a subprocess, where
+# PreToolUse cannot see it, which is the exact bug the --fill call was. The
+# caller runs both printed commands itself, each as its own command.
+if [ "$DRYRUN" = 1 ]; then
+  echo "  [dry-run] 1. $PROPEN"
+  echo "  [dry-run] 2. the 'gh pr create ...' line it prints, run verbatim as its own command"
+  echo "  [dry-run] 3. release --pr <url it returns>"
+  echo "  [dry-run] after the PR merges: release --finish"
+  say "PR creation required"
+  exit 0
+fi
+
+if [ -n "$PR_URL" ]; then
+  # RESUME. A url from the caller is a claim; this verifies it. The persona
+  # matters here: created as one identity and verified as another, a private
+  # repo answers 404 and the driver concludes no PR exists when one does.
+  say "verifying the PR you created: $PR_URL"
+  PRJSON=$(GH_PERSONA=$PERSONA gh pr view "$PR_URL" --json url,state,headRefName 2>/dev/null || true)
+  [ -n "$PRJSON" ] || die "cannot see a PR at '$PR_URL' as persona '$PERSONA'. NOT advancing: a url that does not resolve is not a PR. Re-run your 'gh pr create' command (or check the persona the creation ran as), then re-run 'release --pr <url>'."
+  PRSTATE=$(printf '%s' "$PRJSON" | jq -r '.state // ""')
+  PRHEAD=$(printf '%s' "$PRJSON" | jq -r '.headRefName // ""')
+  [ "$PRHEAD" = "$BRANCH" ] || die "the PR at '$PR_URL' has head branch '$PRHEAD', not '$BRANCH'. NOT advancing: that PR does not carry this branch's version commit."
+  case "$PRSTATE" in
+    OPEN|MERGED) say "PR verified: $PR_URL ($PRSTATE, head $PRHEAD)" ;;
+    *) die "the PR at '$PR_URL' is $PRSTATE, not OPEN or MERGED. NOT advancing." ;;
+  esac
+else
+  PRSTATE=$(GH_PERSONA=$PERSONA gh pr view "$BRANCH" --json state -q .state 2>/dev/null || true)
   if [ "$PRSTATE" = "OPEN" ]; then
-    PRURL=$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null || true)
+    PRURL=$(GH_PERSONA=$PERSONA gh pr view "$BRANCH" --json url -q .url 2>/dev/null || true)
     say "PR already open${PRURL:+: $PRURL}"
   else
-    run "gh pr create --fill --head $BRANCH --base $DEFAULT"
-    PRURL=$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null || true)
-    say "PR opened${PRURL:+: $PRURL}"
+    echo
+    echo "  Branch pushed, version commit on it, NO PR yet. Two commands, each run"
+    echo "  on its own so the PreToolUse gates can see the gh invocation:"
+    echo
+    echo "    1.  $PROPEN"
+    echo "    2.  the 'gh pr create ...' line that prints (run it verbatim, never"
+    echo "        piped into a shell, never inside \$( ))"
+    echo "    3.  release --pr <url it returns>${NO_INSTALL:+ --no-install}${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
+    echo
+    echo "  Agent: steps 1 and 2 are your own Bash tool calls. If step 2 is DENIED"
+    echo "  by a hook, report the denial text and record that NO PR exists: do not"
+    echo "  retry variations. If it FAILS (network, auth), retry it once, then report."
+    echo "  Human at a terminal: run them yourself. There is no PreToolUse here, so"
+    echo "  nothing else is going to open this PR for you."
+    echo
+    say "PR creation required"
+    exit 0
   fi
-  echo
-  echo "  This is a GATED repo — the tag cannot exist until the PR merges."
-  echo "  After it merges (CI + review), run:   release --finish${NO_INSTALL:+ --no-install}${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
-else
-  echo "  [dry-run] gh pr create --fill --head $BRANCH --base $DEFAULT  (then, after merge: release --finish)"
 fi
-say "paused — waiting on PR merge"
+
+echo
+echo "  This is a GATED repo: the tag cannot exist until the PR merges."
+echo "  After it merges (CI + review), run:   release --finish${NO_INSTALL:+ --no-install}${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
+say "paused, waiting on PR merge"
