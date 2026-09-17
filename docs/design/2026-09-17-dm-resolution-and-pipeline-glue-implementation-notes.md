@@ -418,3 +418,77 @@ append-only.
 
 ### Open questions
 - None.
+
+## Phase 6: name resolution
+
+### Design decisions
+- **Plugin/namespaced enumeration reads `~/.claude/plugins/installed_plugins.json`'s resolved
+  `installPath`, not a marketplace-cache crawl** (`inline/resolve.py:plugin_skill_names`). The
+  cache holds many hash-versioned directories per plugin (`.../marquee/a90f82b7cbd7-5e689e2b`)
+  with no single stable "current" pointer visible from `.in_use` (every version in
+  `skill-creator`'s cache carries an `.in_use` marker from some past PID), and
+  `known_marketplaces.json` plus each `marketplace.json`'s `source` field would require
+  re-deriving version resolution the harness already did. `installed_plugins.json` is that same
+  resolution, already done, keyed exactly on the `settings.json` `enabledPlugins` entries this
+  phase already has to read. Verified live: `platform@tatari-skills` resolves to
+  `.../cache/tatari-skills/platform/1.8.3`, whose `skills/` holds `argocd-ops`, `k8s-debug`,
+  `plan-eval`, `pod-placement-audit`, `search-loki`, `turbolift` -- six skills the same as the
+  live `plugin_skill_names(...)` call returns for that key.
+- **Rule 3 needs no post-hoc filtering step, by construction.** The design doc's own reference
+  generator (`docs/design/.../phase0/inline-token/m4.py`) computes a `STRICT` set by starting
+  from an `ALL` name list that already contains bare aliases (`argocd-ops`, `k8s-debug`,
+  `search-loki` all appear bare in `skillnames.json` with no personal-skill directory backing
+  them) and then subtracting them. This implementation's `plugin_skill_names` never emits a bare
+  form for a plugin skill in the first place: the only name it produces is `plugin:skill`, read
+  from that plugin's own `installPath`. `resolve()`'s exact-match (`n == token`) then has no bare
+  alias to accidentally match. `PluginSkillNamesTest.test_no_bare_alias_is_ever_emitted_for_a_plugin_skill`
+  pins this directly against a real example from live `skillOverrides` (`platform:argocd-ops`).
+- **`skillnames.json` was deliberately NOT reused as the live "ALL" set**, despite the parent
+  task pointing at it as the generator's reference. Cross-checking it against live state shows
+  it is not a raw, unfiltered name list: `marquee:slides-reveal` (currently off), all of
+  `slack:{delete,repost,search,write}` (currently off, only `slack:read` survives) and
+  `platform:{argocd-ops,plan-eval,pod-placement-audit,turbolift}` (currently off, only
+  `k8s-debug`/`search-loki` survive) are absent from it even though their plugins are installed
+  and enabled today. That means the 2026-09-17 harvest already reflects `skillOverrides` state
+  as of harvest time, so replaying it now would double-apply (or mis-apply, given
+  `skillOverrides` has grown from ~50 to 81 entries since) rule 2 against a stale snapshot. Live
+  enumeration plus this module's own `off_skill_names` is the only way to keep rule 2 correct as
+  `skillOverrides` continues to change. Recorded here because it is a direct deviation from the
+  literal instruction to "match" the generator.
+- **`off_skill_names` matches on the literal string `"off"`**, not truthiness or any other
+  value, because that is the only value observed in the live 81-entry map and it is what the
+  harness's own error text names ("disabled via skillOverrides").
+- **The generic-word deny list is applied case-insensitively** (`n.lower() not in deny`) even
+  though every observed skill name and every deny-list word is already lowercase-hyphenated per
+  `rules/general.md`. Free, and it means a future typo in a skill name's case does not silently
+  bypass the deny list.
+- **`resolvable_skills` and `resolve` take every data source as an injectable keyword
+  argument** (`skills_dir`, `settings`, `installed_plugins`, `skills`), defaulting to the real
+  live paths only when omitted, per the phase's constraint to read live state without writing to
+  it. Every unit test except the three in `LiveStateTest` injects synthetic fixtures instead.
+
+### Deviations
+- **Test file is `inline/resolve_tests.py`, not `inline/tests.py`.** Phase 5 already claimed
+  `tests.py` for `inline.matcher`'s suite, and a package cannot hold two files of the same name.
+  Forced, not stylistic: the phase's instruction to "match Phase 5's house style" is honored in
+  every other respect (stdlib `unittest`, a `*-test.sh` wrapper picked up by the existing glob).
+- **Did not reuse `docs/design/.../phase0/inline-token/skillnames.json` or `m4.py`'s `STRICT`
+  computation verbatim.** See the design decision above: `skillnames.json` is itself a filtered,
+  point-in-time snapshot (post-override, as of 2026-09-17), not the raw universe the parent
+  task's framing implied. The *effective behavior* m4.py's `STRICT` rule encodes (a plugin
+  skill's bare form never resolves) is preserved, and preserved more robustly (by construction
+  rather than by set subtraction against a name list that itself needs to stay in sync with
+  what plugins are actually enabled).
+
+### Tradeoffs
+- **`plugin_skill_names` fails a single plugin quietly (WARN-logged) rather than raising** when
+  an enabled plugin has no `installed_plugins.json` record or an unreadable `installPath`. A
+  `UserPromptSubmit` hook (Phase 7's consumer) runs on every typed prompt; one malformed plugin
+  entry should not take down name resolution for every other skill. Covered by
+  `test_enabled_plugin_missing_install_record_is_skipped_not_raised`.
+- **No caching of `enumerate_skills()`'s result across calls.** Phase 7 will call this once per
+  `UserPromptSubmit` invocation (a fresh process each time, per the existing hook pattern), so
+  there is no long-lived process to cache against yet; premature to add here.
+
+### Open questions
+- None.
