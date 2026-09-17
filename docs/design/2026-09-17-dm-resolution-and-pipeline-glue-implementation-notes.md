@@ -217,3 +217,85 @@ Phase 1's own dispatch**, so it genuinely finished later than Phase 1 did.
 - None for Phase 0. The two carried forward are already written down: 0b-4/0b-5 need an
   interactive session, and Phase 7's hook wording must corroborate itself against the visible
   prompt (0b-3a).
+
+## Phase 2: slack-cli fills `dms`, eagerly and on a miss
+
+Commit: `tatari-tv/slack-cli` branch `dms-cache-and-fill`, on top of Phase 1's `873e417`.
+
+### Design decisions
+- **One predicate, three fillers.** `edge(&Channel) -> Option<(&str, &str)>` (`src/slack/dm.rs`)
+  is the single place that decides what a recordable DM is: `is_im` AND a non-empty `user`.
+  `sync_dms`, `record_edge` and `resolve_dm_user` all go through it, so the eager and lazy halves
+  cannot disagree about what lands in the map.
+- **`record_edge` is the single `dms` writer** (`src/slack/dm.rs`). The lazy resolver and the
+  opportunistic read-path fill both call it rather than each building their own patch; the sync
+  builds one patch for the whole listing because it is one `upsert`, not N.
+- **`resolve_dm_user` re-tests `is_im` itself** instead of reading it off `record_edge`'s `None`.
+  The two `None`s are different facts and `rules/logging.md` requires the exit log to say which:
+  `not-an-im` (nothing will ever resolve this id) vs `miss` (it IS a DM whose counterpart Slack
+  did not report). Writing is still gated by `edge` alone.
+- **`Ok(None)` is an answer, `Err` is a failure to ask.** `slack cache resolve` exits 0 with
+  `.user: null` for a non-DM or a counterpart-less DM, and propagates auth/transport failures.
+  Phase 4's backstop needs to distinguish "answered: nobody" (a decision) from "could not ask"
+  (a fail-closed deny), and a single non-zero exit for both would collapse them. The JSON shape
+  `{"dm": …, "user": …|null}` is the documented contract for the guard; the text form is human.
+- **`fill_dms` carries no `dms_filled_this_run` flag and no staleness gate**
+  (`src/slack/mention.rs`), unlike its three siblings. There is no watermark, no TTL, and no
+  reverse-lookup miss that could trigger a second fill inside one run, so there is nothing for a
+  once-per-run bound to bound. The cold-miss path is one `conversations.info`, not a re-listing.
+- **`sync_dms` extends and stamps nothing.** It copies `sync_channels`'s cursor loop exactly but
+  goes through the extending `cache::upsert`, not `upsert_full_channel_sync`: the `D…` -> `U…`
+  edge is immutable, so a DM absent from the listing (Slack omits closed DMs) has not changed
+  owner and must not be evicted. A test pins that a listing-absent edge survives.
+- **`dms` is ENUMERATED in `render()`, not counted** like `profiles`. A count cannot answer
+  "whose DM is this `D…`", which is the map's whole purpose.
+- **A missing `im` listing scope is NOT tolerated** the way `usergroups:read` is: `fill_dms`'s
+  error propagates out of `refresh`. The usergroup `MissingScope` warn arm is an argued
+  exception in that code, and the doc gives no equivalent ruling here; the MCP path already
+  lists `im` types, so the scope is held. Fail loudly rather than invent a second silent arm.
+
+### Deviations
+- **`src/surface.rs` gained a `cache resolve` leaf and an `id` positional arg, plus a re-blessed
+  `plugin/README.md`.** Not in the phase's bullets, but the repo's `surface::tests` hard-fails on
+  any clap capability with no classification row, and `otto ci` cannot go green without it. Same
+  effect as the doc's intent (the verb ships reachable and documented), at the seam the repo
+  actually has. The generated README block was regenerated with `BLESS_SURFACE=1`, not hand-edited.
+- **`mock_full_refresh` now returns FOUR mocks and both `users.conversations` listings are matched
+  on `types=`** (`src/slack/mention/tests.rs`). The DM fill hits the same endpoint as the channel
+  fill, so the previously unmatched mock absorbed both calls and reported two against an
+  `expect(1)`. Five existing refresh tests, plus three more that build their own mocks
+  (`command/cache/tests.rs` x2, `command/users/tests.rs`), were updated the same way. This is the
+  "a phase changes behavior, so the old test is updated by name, not deleted" case.
+- **`command::read::tests::sole_users_writer_keys_on_a_user_id` was INVERTED, not deleted.** Its
+  last assertion was `assert!(cache.dms.is_empty())` with the comment "Phase 1 adds the map, not
+  the fill: nothing on the read path populates `dms` yet". Phase 2 makes that false on purpose, so
+  it now asserts the edge IS recorded (keyed `D…` in `dms`), and the `users`-key invariant it
+  exists for is still asserted beside it.
+- **Phase 1's open question folded in, attributed to the orchestrator, not the doc.** The stale
+  `IdCache` doc comment at `cache.rs:55-57` rendered the on-disk shape as
+  `{channels, users, handles, self}`, omitting `subteams`, `profiles` and `dms`. Fixed in this
+  commit: it now lists every map plus the watermarks, and carries a line saying it is the whole
+  shape rather than a sample, since that is the defect that let it drift for two phases.
+- **`channel_display_name`'s new `cache_path` is for the EDGE, not the name.** The doc ordered the
+  signature change; what it buys is documented on the function, because a reader would otherwise
+  see a path threaded into a function that returns a name and never touches disk for one.
+
+### Tradeoffs
+- **`record_edge` as a third public function in `dm.rs`** vs having `read` call `resolve_dm_user`
+  (which would re-fetch `conversations.info`) or inlining a patch at the read site (a second
+  writer). The doc names two functions; a third, narrow one keeps the writer single and the
+  opportunistic fill free, and it is what `resolve_dm_user` itself writes through.
+- **`is_im` from the API is the only DM discriminator; no `D…` prefix short-circuit.** A prefix
+  check would save one call on an obviously-wrong id, at the cost of a second, weaker truth about
+  what a DM is. `resolve_dm_user` asks the authority and reports `not-an-im`.
+- **`sync_dms` requires `is_im` on listed entries even though it asks Slack for `types=im`.**
+  Redundant on the happy path, but it is the same predicate the lazy half uses, and a listing that
+  ever returns something else writes nothing rather than a wrong edge.
+- **The `dms` enumeration in `render()` grows the inspector by one line per DM.** Accepted for the
+  reason above; `profiles`' count-only treatment exists because its records are multi-field, which
+  a `D… -> U…` pair is not.
+
+### Open questions
+- None for Phase 2. One thing for the operator, already in the doc's "Operator steps": Phase 3
+  needs the INSTALLED binary (`cargo install`) and every resident `slack mcp serve` restarted,
+  since an old writer drops `dms` on `save()`.
