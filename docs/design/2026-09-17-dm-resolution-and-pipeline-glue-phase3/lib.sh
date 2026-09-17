@@ -1,0 +1,1 @@
+../../../HOME/.claude/hooks/lib.sh

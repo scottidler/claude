@@ -92,6 +92,13 @@ tasks:
         docs/design/2026-09-17-dm-resolution-and-pipeline-glue.md
         docs/design/2026-09-17-dm-resolution-and-pipeline-glue-implementation-notes.md
         docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/evidence.md
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/derive.py
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/tally.py
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/must-deny.sh
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/variant-a.sh
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/variant-b.sh
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/variant-c.sh
         manifest.yml
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then

@@ -979,3 +979,87 @@ with the payload fed on stdin: no PR was opened to find out.
   the output as the reported artifact. The first live exercise available is `tatari-tv/slack-cli`
   #51: it is a CLI release carrying `Release: rides this PR (v0.14.0)`, so on merge it runs the
   ENTRY-finish path and criterion 2 is observable then.
+
+## Phase 3: measure the TARGET variants
+
+Measurement phase, no product code. Deliverable is the table and the decision in the
+design doc; the arms, the raw counts and the deny lists live in
+`docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/`.
+
+**Result: TARGET 8 (shipped, re-derived) / 14 (DM-only) / 25 (all recipients). Bar was 8.
+Neither candidate clears, so nothing ships in Phase 4 and the shipped rule stands.**
+
+### Design decisions
+- The arms are DERIVED, not hand-written: `phase3/derive.py` reads
+  `HOME/.claude/hooks/slack-post-guard.sh` at run time and applies exact-match string
+  substitutions, refusing to run if any anchor matches other than once. A hand-edited copy
+  drifts from the guard silently, which is the failure that invalidated `variantA.sh`.
+- Variant A is a byte copy of the guard, verified by md5 on both sides and by the shipped
+  matrix scoring it `pass=129 fail=0`. The harvested `phase0/replay/variantA.sh` is not
+  used: its `posting_intent` greps the raw prompt while the shipped guard strips harness
+  tags first, so it would have measured the tag fix rather than the TARGET rule.
+- Variants B and C both carry Phase 4's `resolve_names` change (the `dms` map replacing
+  the `.users` DM branch in both jq programs) and differ ONLY in the TARGET loop. Holding
+  resolution constant across the two candidates is what makes the 14-vs-25 comparison mean
+  the loop shape rather than the cache.
+- `is_dm_spelling` (variant B only) treats a `D…` or `U…` id as a DM by construction, a
+  bare spelling as a DM when it resolves to a handle and not to a channel, and an
+  unresolvable spelling as not-a-DM so the weak condition still covers it.
+- The TARGET deny class is widened in a NEW `phase3/tally.py` rather than by editing
+  `phase0/replay/slackrecall.py`. The variants deny with a second, truthful sentence
+  ("nothing in the last 3 typed turns names ..."), which the phase 0 classifier files as
+  `other`; both are the TARGET rule firing. A prior phase's committed artifact is not
+  edited to make a later phase's numbers come out.
+- The three must-still-deny cases are asserted directly in `phase3/must-deny.sh`, not read
+  off the replay: the corpus copy of the `**MCP write test**` post went to `EXEMPT_DM`, so
+  it allows by design, and the driver wipes the ledger per post so no RESEND deny can ever
+  appear in a replay. Its fixture cache carries `dms` on purpose, so the recipient resolves
+  and TARGET passes, leaving TEST-TEXT and RESEND as the rules under test.
+- Phase 4's heading, the Overview table row, the D2 goal, the ship-order bullet and
+  acceptance criterion 3 are all updated in the same pass. A null result that only lands in
+  one section leaves the doc asserting a phase that will never run.
+
+### Deviations
+- **The Phase 3 bullet's "pinned 216-row corpus" was stale and is corrected in the doc.**
+  216 is `rowsFinal.json`, chunk D's record; Phase 0a re-pinned the baseline as
+  `rows-0a.json`, 241 posts, md5 `4c70205d279a87ad19c8f73159bf5e07`, and the Resolved
+  Decisions entry from round 3 says so. Replaying the 216 file would have scored a
+  different denominator against a guard that has since gained the multi-statement rule.
+- The phase brief names `variantB.sh` as the starting point for the variants. It is used as
+  a reference for the unwrapped loop shape only; the arms are derived from the shipped
+  guard instead, for the same reason `variantA.sh` is rejected as the baseline. Measured:
+  the harvested `variantB.sh` shape (name mandatory only when the recipient resolves to
+  more than its own spelling) scores identically on this corpus, because all five DM ids it
+  would have exempted resolve through `dms` today.
+- Acceptance criterion 3 is ticked as MET with no variant selected. It asks that the
+  selected variant not exceed the shipped count and that all three counts be in the doc;
+  the measurement answered "none qualifies", which is one of the three outcomes the phase
+  specified in advance, so the criterion is discharged rather than left open.
+- Phase 4's bullets are kept in the doc rather than deleted, under a heading that says it
+  does not ship. Deleting them would erase the record of what was designed and what the
+  measurement cost it.
+
+### Tradeoffs
+- Deriving the arms at run time vs. committing three hand-written guards: derivation costs
+  an extra script and a fragile set of anchors (it fails loudly on drift), but a committed
+  hand-written copy is exactly the artifact that went stale between chunk D and this phase.
+- Naming variant C's 17 introduced denies in the design doc vs. only in the phase evidence:
+  the doc carries all of them because the success criterion says "named, not summarized",
+  and no variant was selected, so the honest reading is to name both candidate sets.
+- Running the full shipped matrix against all three arms was not asked for. It is cheap,
+  and it independently confirms that variant A IS the shipped guard (129/0) and that
+  variant C contradicts two fixtures the repo already asserts. Kept as corroboration, not
+  as the decision.
+
+### Open questions
+- **`--output` is missing from `WRITE_VALUE_FLAGS` (`slack-post-guard.sh:191`).** A command
+  spelled `slack write --at 7d --output json '#clipboard' ...` has its target parsed as
+  `json`, so the exempt `#clipboard` is never seen. Three of variant C's introduced denies
+  are this, and it is latent in the SHIPPED guard today (hidden by `posting_intent`, which
+  is precisely the cover the dropped Phase 4 would have removed). It is a one-token fix to
+  a live guard and it belongs to nobody's phase. Scott routes it: fold it into a later
+  phase of this doc, take it as a targeted fix, or leave it latent.
+- The `dms` map is now live at 232 edges and no guard reads it. Phases 1 and 2 stand on
+  their own (the cache answers a question it could not answer before), but nothing consumes
+  the field. Scott decides whether that is acceptable as a capability parked for a future
+  chunk or whether a consumer should be found.

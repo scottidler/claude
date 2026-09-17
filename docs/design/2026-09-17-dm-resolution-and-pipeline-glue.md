@@ -85,8 +85,8 @@ Three prescriptions do not survive first contact. This is the third consecutive 
 
 ### Goals
 
-- D2: a DM channel id resolves to a user id, filled once and cached, so TARGET can require the named recipient.
-- D2: which TARGET variant ships is decided by measurement against the harvested corpus, not asserted.
+- D2: a DM channel id resolves to a user id, filled once and cached, so TARGET can require the named recipient. **Met in the cache (232 edges live), not taken up by the guard: Phase 3 measured the tightening and it did not clear its bar.**
+- D2: which TARGET variant ships is decided by measurement against the harvested corpus, not asserted. **Met, and the measurement's answer was none of them.**
 - E7: an inline `/name` becomes an explicit instruction the model acts on, with a false-positive rate that does not make Scott's own prompts fire skills.
 - E8: the post-merge arc runs as one chain from one ask.
 - E8: a plan executes every phase and dispatches its own implementation audit, with a visible heartbeat during each wait.
@@ -111,7 +111,7 @@ Three independent workstreams, one ship order forced by one cross-repo dependenc
 |---|---|---|---|
 | 0 | claude | opus | all three (0a D2, 0b E7, 0c E8) |
 | 1, 2 | **slack-cli** | opus | D2, the fill |
-| 3, 4 | claude | opus | D2, measure then tighten |
+| 3, 4 | claude | opus | D2, measure then tighten (3 measured, 4 dropped on that measurement) |
 | 5, 6 | claude | sonnet | E7, matcher and name resolution |
 | 7, 8 | claude | opus / sonnet | E7, hook and shim |
 | 9 | claude | opus | E8, `pr-open` |
@@ -304,7 +304,7 @@ Twelve phases. Phase 0 is four independent zero-code spikes (0a, 0b, 0c, 0d) and
 - Prerequisite: Phase 2 merged, bumped, tagged and **installed**. The guard reads a cache only the installed binary writes.
 - **Re-derive variant A from the guard on disk. Do NOT use the harvested `variantA.sh` as the baseline arm.** It is not functionally identical: `variantA.sh:354-356` greps the raw prompt, while the shipped guard pipes through `sed 's/<[^>]*>/ /g'` first (`slack-post-guard.sh:396-405`) to strip harness tags. The shipped comment quantifies the gap at 58 of 400 sampled transcripts carrying the `<command-message>` wrapper. Comparing a post-fix variant against a pre-fix baseline invalidates the whole measurement.
 - **The replay driver is already repaired, tested, and committed.** It isolates through `HOME`, which is the seam the guard already has: `IDS` (`:112`), `LEDGER` (`:113`) and a `~/` body-file expansion (`:248`) are its only `$HOME` uses, so a scratch `HOME` holding a copy of the ids cache redirects the ledger without touching the guard or inventing an env var the guard does not read. Verified: live ledger 10 entries before the run and 10 after. Do not reintroduce a `REPLAY_LEDGER` variable; the driver's header records why that shape failed.
-- Replay the pinned 216-row corpus against three variants: the re-derived shipped rule, name-mandatory for non-exempt DMs only, and name-mandatory for every non-exempt recipient (`variantB.sh` is the starting point, its loop already unwrapped at `:621-630`).
+- Replay the pinned corpus against three variants: the re-derived shipped rule, name-mandatory for non-exempt DMs only, and name-mandatory for every non-exempt recipient (`variantB.sh` is the starting point, its loop already unwrapped at `:621-630`). **The pinned corpus is `phase0/replay/rows-0a.json`, 241 posts, md5 `4c70205d279a87ad19c8f73159bf5e07`.** An earlier draft of this bullet said "the pinned 216-row corpus", which is `rowsFinal.json`, chunk D's record. Phase 0a re-pinned the baseline and the Resolved Decisions entry below says so; the stale number is corrected here rather than left to mislead an implementer into replaying the wrong file.
 - The first-cut guard survives in no file, so the "79 denies in 216" number cannot be re-derived and is not restated as a live measurement.
 - **Decision rule, all three outcomes specified:** the variant that ships is the strictest whose **TARGET deny count** does not exceed the shipped guard's TARGET count on the same Phase 0a snapshot.
 - **It scopes to TARGET denies, not to all non-artifact denies.** The guard gained a multi-statement rule after `rowsFinal.json` was cut, and it contributes 9 denies that have nothing to do with which TARGET variant ships. Counting all non-artifact denies made the old form unsatisfiable by the SHIPPED guard: measured `posts=236 allow=202 deny=34`, splitting 17 artifacts / 8 TARGET / 9 multi-statement, so "non-artifact denies <= 9" fails at 17 before any variant is tried.
@@ -313,9 +313,58 @@ Twelve phases. Phase 0 is four independent zero-code spikes (0a, 0b, 0c, 0d) and
   - **Neither clears** -> nothing ships in Phase 4 and the shipped rule stands. That is a null result, not a failure: it says `dms` did not buy back enough, and it is recorded here with the counts rather than worked around. Phases 1 and 2 still stand on their own (the cache answers a question it could not answer before) and Phase 4 closes as `dropped (measured)`.
 - **Success criteria:** three deny counts in a table in this doc; every deny the selected variant introduces is read individually and named; the 2026-07-10 shakedown posts, the `**MCP write test**` marker and the duplicate-body case still deny in the selected variant.
 
-### Phase 4: TARGET requires the named recipient
+#### Measured 2026-09-17: neither variant clears, and nothing ships in Phase 4
+
+Run on `desk.lan` with `slack v0.14.0` installed and `slack cache refresh` done, so `~/.cache/slack/ids.json` carried `dms` at 232 edges for the first time. Corpus: `phase0/replay/rows-0a.json`, 241 posts, md5 `4c70205d279a87ad19c8f73159bf5e07`, replayed through `phase0/replay/slackrecall.py --from-rows`. Variant A is a byte copy of `slack-post-guard.sh` (`md5 576fad060ac0197ae788217068f9a5d4`, identical on both sides), so the baseline arm is the shipped rule and not the harvested `variantA.sh`. Scripts, raw counts and the full deny lists: `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/`.
+
+| variant | rule | posts | allow | deny | TARGET | artifact | multi-statement | clears TARGET <= 8 |
+|---|---|---|---|---|---|---|---|---|
+| A | the shipped rule, re-derived from the guard on disk | 241 | 207 | 34 | **8** | 17 | 9 | baseline |
+| B | name mandatory for non-exempt DMs, `posting_intent` still covers channels | 241 | 201 | 40 | **14** | 17 | 9 | **no** |
+| C | name mandatory for every non-exempt recipient | 241 | 190 | 51 | **25** | 17 | 9 | **no** |
+
+Variant A reproduces Phase 0a exactly, down to byte-identical scored rows (`f23c42e6230549396f4c62495d52f0b1`). Every replay ran twice and was byte-identical to itself. The live send ledger was never opened: zero entries written during six full replays.
+
+**Neither variant clears the bar, so nothing ships in Phase 4. The shipped TARGET rule stands and Phase 4 closes as `dropped (measured)`.** That is the third outcome this phase specified in advance, and it is recorded with its counts rather than worked around.
+
+**`dms` bought back zero denies, and the reason is structural rather than a shortfall in the map.** Every DM id in the corpus resolves through `dms` today, including the one the shipped rule already denies (`D0C0W882C93` to Roman Pavlushkov). Resolution can only buy back a deny where the prompt NAMES the person and the id failed to resolve, and the shipped guard already allowed every one of those through `posting_intent`. Making the name mandatory removes that cover, and what it exposes is that Scott's posting asks are routinely collective: "lets send a slack to each group of owners as DMs or Group DM" names nobody by construction, and cannot be satisfied by any name-mandatory rule however good the resolution is.
+
+**The six TARGET denies variant B introduces, read individually.** All six resolve to a person, so none of them is a resolution failure:
+
+1. `D01VB7QMKJ7`, Brian Feldman. Body "hey brian, need an approval from you as the `@tatari-tv/fe` codeowner on the tatari-skills stack". Window ends "actually lets hold off merging the 285 and instead lets ping". Session `71390a78`.
+2. `D03G74VF2T1`, Lin O'Driscoll. Body "hey lin, need a `@tatari-tv/data-science` approval on the tatari-skills stack". Same window and session as 1: one "lets ping" covering several codeowners, naming none of them.
+3. `D08UME8GC82`, Tantum Nilkaew. Body "tantum, closing the loop: the access you gave worked". Window "Loose ends, 3 Tech Specs reviewed in Slack, never labelled || if was off || can you fix all of these". Session `c640cd94`.
+4. `D042EB42T1C`, Kyle Zou. Body "doing a tech spec cleanup: getting every TS labelled `eng-tech-spec`". Window "yes update the doc || lets send a slack to each group of owners as DMs or Group DM || if you cant send multiple, send to the page's author". Session `dbda303f`.
+5. `D08UME8GC82`, Tantum Nilkaew. Same body, window and session as 4.
+6. `D0B36NE6VFA`, David Ontiveros. Same body, window and session as 4.
+
+Items 4, 5 and 6 are one instruction fanned out to three recipients, and it is the clearest case in the corpus: the ask is explicit, it is unambiguously a posting ask, and the rule denies all three because the recipients were named by role rather than by name.
+
+**The seventeen TARGET denies variant C introduces, read individually.** Six are the DM cases above (items 1, 2, 3 and 4, 5, 6 recur), and the eleven that are additional to variant B are:
+
+7. `C0C11ND3SAV`, the group DM with Vlad Belik and Andrii Bashuk. The window names Vlad by full name; the recipient spelling is the `mpdm-scott.idler--vlad.belik--andrii.bashuk-1` channel, which no prompt ever types. Session `16181e66`.
+8. `C0C11NDHZSM`, the group DM with Vlad, Roman, Dmitriy and Serhii. Same window and session as 7.
+9. `C0C0ZGUP273`, the group DM with Vlad and Roman. Session `dbda303f`, the tech-spec cleanup window.
+10. `#ai-foundry` via `slack write '#ai-foundry' --edit`, window "yes, edit it to lead with slack-cli". Session `427be5a9`. An edit of an existing post, which cannot fan out and cannot duplicate.
+11. `C0AUBBY21S6`, `#ai-helpdesk`. Window "send the announcement to #engineering, copy the link and sha". The ask names a DIFFERENT channel, and the crosspost to the second one is what denies. Session `46a34eeb`.
+12. `C0ACWPXHLPK`, `#ai-foundry`. Body opens `<@U02G958R3GA> this was good, worked all of it`. Window ends "lets ping". Session `71390a78`.
+13. `C0AA8UBU5MX`, `#tech-spec-reviews`. Window "drop the quick missive to Mike in that thread". Session `d5cbd237`. This one is a fixture in the shipped matrix, asserted to ALLOW ("a missive to Mike in a channel the prompt does not name").
+14. `C0ACWPXHLPK`, `#ai-foundry`. Window "send it || i didnt ask for a draft. I asked you to send it. I showed yo || this is not fucking rocket science". Session `eee0d5db`. Also a shipped fixture asserted to ALLOW.
+15. `json`, from `slack write --at 7d --output json '#clipboard'`. Session `798c79d4`. The target is `#clipboard`, which is EXEMPT; `--output` is missing from `WRITE_VALUE_FLAGS` (`slack-post-guard.sh:191`) so the parser reads its operand as the target.
+16. `json`, from `date '+now=%s %H:%M:%S'; slack --version; slack write ... --output json ...`. Session `c8b815bd`. Same parser gap.
+17. `json`, from `date '+scheduled_at=%H:%M:%S'; slack write --at ... --output json ...`. Same session, same gap.
+
+**Two of variant C's denies break fixtures the shipped matrix asserts must allow** (13 and 14), and three more are a parser gap rather than a rule (15, 16, 17). Corroborating measurement, run against the whole shipped matrix: variant A `pass=129 fail=0`, variant B `pass=124 fail=5`, variant C `pass=117 fail=12`. Variant A's perfect score is the second confirmation that the baseline arm is the shipped guard.
+
+**The `--output` parser gap is real today and is not this phase's to fix.** `WRITE_VALUE_FLAGS` (`:191`) lists eight value-taking flags and `--output` is not among them, so `slack write --output json '#clipboard' ...` authorizes against the target `json` instead of against the exempt `#clipboard`. Today `posting_intent` hides it, so it is a latent gap rather than a live one. It is recorded here for Scott to route rather than folded into a phase nobody asked for.
+
+**The must-still-deny cases hold in all three variants**, asserted directly rather than through the replay, because the corpus copy of the marker post went to the exempt DM and the driver wipes the ledger per post: `phase3/must-deny.sh` reports 12 passed, 0 failed over the `**MCP write test**` marker into a named coworker DM, the 2026-07-10 shakedown turn, the `/cli-shakedown` command wrapper, and a duplicate body inside the hour, each against A, B and C. Its fixture cache carries `dms` on purpose, so the recipient resolves and TARGET passes: a deny that landed because the id no longer resolved would prove nothing about whether TEST-TEXT and RESEND still bite.
+
+### Phase 4: TARGET requires the named recipient (dropped, measured)
 **Model:** opus
 **Repo:** `scottidler/claude`
+
+**This phase does not ship. Phase 3 measured its two candidate rules at TARGET 14 and 25 against a bar of 8, and the decision rule this doc set in advance closes it as `dropped (measured)`.** The bullets below are kept as the record of what was designed and what it would have cost, not as work to do. Phases 1 and 2 stand on their own: the cache answers a question it could not answer before, and the `dms` map is live at 232 edges.
 
 - `resolve_names` gains its `dms` clause in BOTH jq programs; the `.users` DM branch is removed. `U…` resolution is unaffected: it runs through `$uits` over `.handles` at `:294`, a separate branch.
 - The recipient loop stops being wrapped in `if ! posting_intent` (`:705`). Phase 3's result decides whether the weak condition remains as a per-recipient fallback for channels or disappears.
@@ -400,7 +449,7 @@ Twelve phases. Phase 0 is four independent zero-code spikes (0a, 0b, 0c, 0d) and
 ## Blast radius and ship order
 
 - **Two repos.** `tatari-tv/slack-cli` (Phases 1 and 2) and `scottidler/claude` (everything else).
-- **The order is forced for D2 only.** slack-cli ships the fill first; the guard tightens last, because it cannot read a field the client does not write and must not tighten before the cache can answer.
+- **The order is forced for D2 only.** slack-cli ships the fill first; the guard tightens last, because it cannot read a field the client does not write and must not tighten before the cache can answer. **The guard half did not ship: Phase 3's measurement dropped Phase 4, so D2's blast radius ends at `slack-cli` plus this doc.**
 - **Phase 3 waits for an INSTALLED binary, not a merged PR.** A merged-but-uninstalled slack-cli leaves `dms` empty, and tightening against an empty map denies every name-only DM post.
 - **`tatari-tv/slack-cli` is gated on BOTH gates, checked live 2026-09-17.** Classic protection present (`required_approving_review_count: 1`, `require_code_owner_reviews: true`), and org ruleset `126206` carries `deletion`, `non_fast_forward` and a `workflows` rule. `enforce_admins: false` bypasses only the classic half. PR flow only: `bump --no-tag` on the branch, release-intent line in the body, `bump --tag-only` on main after merge, push the tag by name.
 - **`slack-cli` is release-managed.** `Cargo.toml:3` carries `version = "0.13.1"`, so Gate D applies to its PR.
@@ -472,9 +521,10 @@ Every criterion names a literal command. Per the ready-to-build gate, each was r
 - [ ] **2. `slack-cli` stays under the bloat gate.** `otto ci` exits 0 in `tatari-tv/slack-cli`, including the `bloat` task.
   - `Observed on main:` the `bloat` stanza run standalone returns `All files within 1500 line limit`; the top four by size are `write/tests.rs` 1494, `write.rs` 1484, `mcp/tests.rs` 1400, `scheduled.rs` 1382. **Full `otto ci` was NOT run** (it compiles and tests the crate); the bloat half was run as the part this doc puts at risk. **Passes today, and that is the point: the margin is the risk**, headroom 6 and 16. This criterion bites only after Phase 2 adds code, which is why `resolve_dm_user` goes in a new file.
 
-- [ ] **3. The selected TARGET variant does not deny more than the shipped rule.** Replaying Phase 0a's committed rows file, the selected variant's **TARGET** deny count is no greater than the shipped guard's TARGET count on that same file, with all three variants' counts in this doc and the baseline arm re-derived from the guard on disk.
+- [x] **3. The selected TARGET variant does not deny more than the shipped rule.** Replaying Phase 0a's committed rows file, the selected variant's **TARGET** deny count is no greater than the shipped guard's TARGET count on that same file, with all three variants' counts in this doc and the baseline arm re-derived from the guard on disk.
   - **Rewritten twice.** Round 1: the premise that `variantA.sh` is the shipped rule was false. Round 3: "deny count no greater than 9, artifacts excluded" is unsatisfiable by the shipped guard itself, measured `deny=34` splitting 17 artifacts / 8 TARGET / 9 multi-statement, so non-artifact denies are 17 against a bar of 9. The multi-statement rule postdates the old baseline and is orthogonal to this decision, so the criterion scopes to TARGET.
   - `Observed on main:` the shipped guard scores `posts=236 allow=202 deny=34` (TARGET 8). `rowsFinal.json`'s `216/26/9/0` is chunk D's record, not a target. The denominator moves until Phase 0a commits one, which is why 0a's deliverable is the file.
+  - **Measured in Phase 3 on 2026-09-17: A=8 (baseline), B=14, C=25 on `rows-0a.json`.** The criterion is met as a measurement and no variant is selected: neither clears the bar, so nothing ships in Phase 4. All three counts, the baseline re-derivation and the named deny lists are in the Phase 3 section above.
 
 - [ ] **4. The plan executor stops instructing a denied command.** `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` returns zero lines.
   - `Observed on main:` two lines, `496:git push && git push --tags` and `533:│  5. git push && git push --tags     [if approved]│`. Correctly failing. Ships in Phase 10.
@@ -499,6 +549,8 @@ Every criterion names a literal command. Per the ready-to-build gate, each was r
 
 ## Resolved Decisions
 
+- **2026-09-17 (Phase 3, measured): Phase 4 is dropped and the shipped TARGET rule stands.** Replaying `rows-0a.json` against the three arms scored TARGET 8 (shipped, re-derived from disk), 14 (name-mandatory for DMs) and 25 (name-mandatory for every recipient). The bar was 8 and neither candidate clears it, which is the null outcome this doc specified in advance. `dms` bought back zero denies because resolution only helps where the prompt names the person, and those posts were already allowed by `posting_intent`; what a name-mandatory rule actually hits is Scott's collective asks ("lets send a slack to each group of owners as DMs"), which name nobody by construction. Evidence: the Phase 3 section above and `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/`.
+- **2026-09-17 (Phase 3): the pinned Phase 3 corpus is `rows-0a.json` (241 posts), not `rowsFinal.json` (216).** The Phase 3 bullet still said "the pinned 216-row corpus" after Phase 0a re-pinned the baseline; the bullet is corrected in place rather than left to send an implementer at the wrong file.
 - **2026-09-17 (Scott): D2 and E ship in one design doc, D2 first.** Overrides the program's one-chunk-per-doc rule at `:22` and the no-folding rule at `:26`. The override is recorded here and in the tracker; it is not treated as a precedent for later chunks.
 - **2026-09-17: the audit's item 7 mechanism is rejected on measurement.** A `prompt.submit` hook cannot fire a skill; expansion is position-0 and runs first. Mechanism A ships and the platform limit is stated in the doc rather than implied away.
 - **2026-09-17: the audit's item 8 direction is inverted on measurement.** A blocked parent has no seam for mid-wait output, so synchronous dispatch would make silent waits universal. The wait becomes legible instead. Zero of 652 `phase-implementer` dispatches ever returned inline, which is exact as history. The 82%-silent figure from the first pass did not survive round 1's join correction and is not load-bearing.
