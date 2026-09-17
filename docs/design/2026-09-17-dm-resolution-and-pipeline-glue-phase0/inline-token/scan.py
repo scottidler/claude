@@ -41,7 +41,7 @@ def scan(path):
             ts=d.get('timestamp') or ''
             s=t.lstrip()
             if s.startswith(SKIP_PREFIX): continue
-            if '/' not in t: 
+            if '/' not in t:
                 out.append((ts,None,t))
                 continue
             out.append((ts,True,t))
