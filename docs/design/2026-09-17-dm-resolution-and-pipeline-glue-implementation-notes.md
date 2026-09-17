@@ -5,20 +5,20 @@ Append-only. Design doc: `docs/design/2026-09-17-dm-resolution-and-pipeline-glue
 ## Phase 0a: re-pin the baseline; add a replay mode
 
 ### Design decisions
-- The snapshot stores full payloads, not the scored rows — `replay/slackrecall.py:walk` —
+- The snapshot stores full payloads, not the scored rows (`replay/slackrecall.py:walk`):
   the scored rows clip `target` to 60 and `text` to 90 chars, so replaying them would hand
   the guard a different body than the one that was posted. The doc said "replays committed
   payloads"; this is what that requires.
-- Snapshot named `rows-0a.json` — matches criterion 3's phrase "Phase 0a's committed rows
+- Snapshot named `rows-0a.json`: matches criterion 3's phrase "Phase 0a's committed rows
   file" and the `--from-rows` flag, and does not collide with `rowsFinal.json`, which is
   chunk D's scored record.
-- Posts sorted by `(session, tool_name, tool_input)` — `replay/slackrecall.py:walk` —
+- Posts sorted by `(session, tool_name, tool_input)` (`replay/slackrecall.py:walk`):
   `rglob` returns filesystem order, so a re-walk reshuffles. The gate only asks for equal
   counts; the sort buys a byte-identical comparison, which is a stronger check for free.
-- `deny_class()` added as a named function rather than inline grepping —
-  `replay/slackrecall.py:deny_class` — Phase 3's decision rule scopes to TARGET, so the
+- `deny_class()` added as a named function rather than inline grepping
+  (`replay/slackrecall.py:deny_class`): Phase 3's decision rule scopes to TARGET, so the
   three deny families have to be separable by the driver, not by eye.
-- Converted to `argparse` with a positional `out` plus `--guard` — the old interface read
+- Converted to `argparse` with a positional `out` plus `--guard`: the old interface read
   `sys.argv[2]` for the guard path, which cannot carry two more modes. Space-separated
   hyphenated flags per `rules/cli.md`.
 
@@ -820,3 +820,33 @@ with the payload fed on stdin: no PR was opened to find out.
 - `manifest -s pr-open-on-path` and the two `manifest -l` links were run scoped, outside the
   sandbox (the sandbox denies writes under `~/.claude/bin` with "Read-only file system").
   `~/bin/pr-open` and `~/.claude/bin/pr-open` exist and `command -v pr-open` resolves.
+
+## Audit fix: this file violated the em-dash rule, and CI could not see it
+
+### Design decisions
+- **Removed six em-dashes from the Phase 0a section above.** They were mine, written in the
+  first notes commit of this run, and they sat there through eight phases because this file was
+  never in `.otto.yml`'s lint list. Recast as parens and colons per `rules/safety.md`, which is
+  explicit that documentation is in scope and that there is no exemption.
+- **Added this file, the design doc and `phase0/evidence.md` to the lint list.** That matches
+  the precedent already in it: the guard-precision and panel-round-cap chunks each list their
+  doc, their notes and their `phase0/evidence.md`. Both of the other two were already clean, so
+  nothing was hiding; the list simply did not reach them.
+- This is the structural remedy `rules/safety.md` demands in as many words: "A convention with
+  no lint re-accumulates." Phase 9 found the six and correctly refused to edit an append-only
+  file it did not own. Fixing it is the orchestrator's job, and so is closing the hole.
+
+### Deviations
+- **Edited a prior section of an append-only file.** The append-only rule protects decisions
+  from being rewritten, not typography. No claim, number or reasoning changed: the six edits are
+  punctuation only, and the diff shows exactly that.
+
+### Tradeoffs
+- None. The alternative was leaving a rule violation in the tree with the lint permanently
+  unable to see it.
+
+### Open questions
+- Carried forward for Phase 11, raised by Phase 9: `HOME/.claude/skills/bump/SKILL.md:100`
+  still says `release` "opens PR", which Phase 9 made false. Phase 11 owns routing `bump`,
+  `shipit` and `babysit`, so it belongs there, and that file needs adding to the lint list too
+  (it carries an em-dash at `:101`).

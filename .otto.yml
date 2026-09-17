@@ -85,6 +85,9 @@ tasks:
         HOME/.claude/bin/pr-open
         HOME/.claude/bin/pr-open-test.sh
         HOME/.claude/bin/release
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue.md
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-implementation-notes.md
+        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md
         manifest.yml
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
