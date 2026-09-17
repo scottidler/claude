@@ -398,18 +398,27 @@ ingest_heredocs=$(printf '%s' "$command" | awk '
     i = index($0, "<<")
     if (i > 0) {
       left = substr($0, 1, i - 1)
-      if (left ~ /\.sh[\047"]?[[:space:]]*$/) {
-        rest = substr($0, i + 2)
-        sub(/^-/, "", rest)
-        gsub(/[[:space:]]/, "", rest)
-        gsub(/[\047"]/, "", rest)
-        if (rest != "") { delim = rest; capture = 1 }
+      rest = substr($0, i + 2)
+      sub(/^-/, "", rest)
+      gsub(/[[:space:]]/, "", rest)
+      gsub(/[\047"]/, "", rest)
+      if (rest != "") {
+        # Enter body state for EVERY heredoc, and decide separately whether to
+        # emit. The old form only entered on a `.sh` target, so the body of a
+        # `.md` heredoc was still scanned line by line and any line inside it
+        # that quoted a `.sh` redirect re-armed capture. Writing this very
+        # design document to a `.md` file denied, which is the self-reference
+        # class the `.sh` bound exists to avoid and the opposite of what the
+        # paragraph above claims.
+        delim = rest
+        capture = 1
+        emit = (left ~ /\.sh[\047"]?[[:space:]]*$/) ? 1 : 0
       }
     }
     next
   }
-  $0 == delim { capture = 0; next }
-  { print }
+  $0 == delim { capture = 0; emit = 0; next }
+  emit { print }
 ')
 
 while IFS= read -r -d '' stmt; do

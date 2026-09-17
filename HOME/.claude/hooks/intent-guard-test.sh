@@ -307,6 +307,29 @@ run allow 'echo "sb borg ingest https://a and sb borg ingest https://b"'
 # `--all` was covered for `reingest` only, so the sibling verb walked through.
 run deny  'sb borg ingest --all'
 
+echo "=== round-6 C3: a .md heredoc body must not arm the .sh extractor ==="
+# The extractor entered body state only for a `.sh` target, so the body of a
+# `.md` heredoc was still scanned line by line and any line inside it ending in
+# `.sh` before a `<<` re-armed capture. Measured on the real artifact: writing
+# `2026-09-15-intent-guards.md` through a quoted heredoc made the OLD extractor
+# emit 1145 lines and deny; the two-state form emits 0.
+#
+# Carries single quotes and newlines, so it is asserted directly rather than
+# through wrap_shapes (shapes.sh:45).
+MD_HEREDOC=$(printf '%s\n' \
+  "cat > notes.md <<'DOC'" \
+  "The incident wrote a script:" \
+  "    cat > \"\$S/ingest.sh\" <<'EOF'" \
+  "    while IFS= read -r url; do sb borg ingest \"\$url\"; done" \
+  "    EOF" \
+  "DOC")
+SH_HEREDOC=$(printf '%s\n' \
+  "cat > \"\$S/ingest.sh\" <<'EOF'" \
+  "while IFS= read -r url; do sb borg ingest \"\$url\"; done" \
+  "EOF")
+run allow "$MD_HEREDOC"
+run deny  "$SH_HEREDOC"
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]
