@@ -330,6 +330,21 @@ SH_HEREDOC=$(printf '%s\n' \
 run allow "$MD_HEREDOC"
 run deny  "$SH_HEREDOC"
 
+echo "=== PUBLIC-REPO push: redirects are not refspecs ==="
+# Walking EVERY refspec instead of just the second operand (M5) made the tokens
+# of a redirect into refspecs of their own, so `git push origin <branch>:main
+# 2>&1 | tail -5` denied on a source ref that cannot resolve. It denied the
+# push of this very branch. The redirect operator AND its operand are stripped
+# before tokenising now, attached (`2>&1`) or separated (`> /dev/null`).
+#
+# These assert the PARSE, not repo state: run outside a git repo with a
+# sensitive path, they exercise the refspec walk and must not deny on a
+# redirect token. The repo-state cases live in the scratch-repo probe.
+run allow 'git push origin main 2>&1'
+run allow 'git push origin main 2>&1 | tail -5'
+run allow 'git push origin HEAD:main > /dev/null 2>&1'
+run allow 'git push origin main >/dev/null'
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

@@ -756,7 +756,17 @@ CPATHS
     fi
 
     if [ -n "${git_push_stmt:-}" ]; then
-      pargs=$(printf '%s' "$git_push_stmt" | args | sed -n '/^push$/,$p' | tail -n +2)
+      # Redirects are stripped BEFORE tokenising, the same way the LN path does
+      # it. Walking every refspec instead of just the second operand meant the
+      # tokens of `2>&1` became refspecs of their own, and `git push origin
+      # <branch>:main 2>&1 | tail -5` then denied on a source ref that cannot
+      # resolve because it is a redirect. The single-refspec form never saw them.
+      # Same class as the slack guard's `2>&1` target bug.
+      # The redirect's OPERAND goes too, whether attached (`2>&1`) or separated
+      # (`> /dev/null`). Stripping only the operator left `/dev/null` standing
+      # as a refspec, which does not resolve, so a perfectly ordinary
+      # `git push origin HEAD:main > /dev/null 2>&1` denied.
+      pargs=$(printf '%s' "$git_push_stmt" | sed -E 's/[0-9]*>>?&?[[:space:]]*[^[:space:]]*//g' | args | sed -n '/^push$/,$p' | tail -n +2)
       ptoks=$(printf '%s' "$pargs" | grep -v '^-')
       remote=$(printf '%s' "$ptoks" | sed -n '1p')
       [ -n "$remote" ] || remote="origin"
