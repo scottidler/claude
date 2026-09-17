@@ -97,6 +97,8 @@ in this session (31 sessions). Re-asking settled context, or asking a yes/no
 about something he just explained, is a top trigger. If he said it once, treat
 it as said.
 
+A `/name` typed mid-prompt is surfaced mechanically now, not by this sentence: the `inline-skill-tokens.py` UserPromptSubmit hook names every inline token that resolves to a live skill, leaving only invoke-or-not to the prompt's own wording.
+
 ## Acknowledge corrections; never get defensive
 
 When Scott corrects you, acknowledge it plainly in one line and change course

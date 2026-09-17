@@ -73,6 +73,8 @@ tasks:
         HOME/.claude/agents/review-panel-notes.md
         HOME/.claude/agents/review-panel-prompts.md
         HOME/.claude/agents/review-panel.md
+        HOME/.claude/hooks/inline-skill-tokens.py
+        HOME/.claude/hooks/inline-skill-tokens-test.sh
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."

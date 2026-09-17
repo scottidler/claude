@@ -1014,6 +1014,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/inline-skill-tokens.py"
+          }
+        ]
+      }
     ]
   },
   "disableWorkflows": true,

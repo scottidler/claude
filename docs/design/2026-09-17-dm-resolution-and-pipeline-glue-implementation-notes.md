@@ -541,3 +541,90 @@ neither of them.
   doc's stated position (Alternative 6, and the 34% discussion class accepted in writing), not a
   preference of mine. If you would rather suppress quoted prose, that is a doc change to
   Alternative 6 first, and criterion 7's floor has to move with it.
+
+## Phase 7: wire the hook
+
+Files: `HOME/.claude/hooks/inline-skill-tokens.py` (new, the hook),
+`HOME/.claude/hooks/inline-skill-tokens-test.sh` (new, 21 assertions),
+`HOME/.claude/settings.json` (registered under `UserPromptSubmit`),
+`HOME/repos/.claude/rules/interaction.md` (one line), `.otto.yml` (the two new
+files joined the em-dash lint list).
+
+### Design decisions
+- **The hook composes Phases 5 and 6 and scores nothing itself** (`inline-skill-tokens.py:main`).
+  `find_matches` decides which `/token`s are invocations, `resolve` decides which name a live
+  skill. The hook's only judgments are the two bails below and the wording.
+- **`sys.path` is seeded from `os.path.realpath(__file__)`, not `__file__`**
+  (`inline-skill-tokens.py:38`). The registration is the `~/.claude/hooks/inline-skill-tokens.py`
+  symlink, and `inline/` sits beside the link TARGET in the repo, never beside the link. A
+  `dirname(__file__)` would have imported nothing through the live path, which is the only path
+  that runs.
+- **The `startsWith("/")` bail is at PROMPT scope, not per-occurrence** (`tokens_in`). Phase 5's
+  matcher implements `dSt`'s rule as `offset == 0 -> False`, which drops only the LEADING token:
+  measured, `find_matches("/bump then /cli-shakedown")` returns `[(11, "cli-shakedown")]`. Without
+  the prompt-scope bail, a prompt the harness already expanded would get its trailing token
+  injected on top. Phase 0b-3 established the payload carries the raw pre-expansion slash text,
+  so this is decidable in the hook.
+- **`resolvable_skills()` is enumerated once per prompt and shared across tokens**
+  (`tokens_in`), and it runs only after `find_matches` returns a candidate. No candidate means no
+  settings read and no skills-tree walk.
+- **The wording is measured, not styled** (`instruction`, with the measurement in its docstring).
+  It quotes every token verbatim with its slash, because 0b-3a's uncorroborated injected nonce
+  was refused as prompt injection ("Flagging per prompt-injection policy rather than acting on
+  it") while 0b-1b's corroborated one produced a real `Skill` call. It is conditional (invoke vs
+  invoke-nothing), because the doc's Part 2 requires room to decline and rejects a lexical
+  suppressor as Alternative 6.
+- **Every failure path logs and exits 0** (`main`). This is the one place the file departs from
+  `taste.md`'s fail-loudly default, and the comment says so: a raising `UserPromptSubmit` hook
+  costs a prompt that will not submit, and this hook only ever ADDS context, so going quiet costs
+  exactly the feature. `~/.cache/claude/inline-skill-tokens.log` (env-overridable) carries one
+  `INJECT`/`BAIL` line per invocation so "is it working?" is answered rather than inferred, the
+  `rewrite-cd-read.py` precedent. The prompt is previewed at 200 chars, never logged whole.
+- **The no-provenance cost is written into the code, not designed away** (`main`'s opening
+  comment), per 0b's accepted-cost branch. Observed live during this phase: the hook fired on an
+  `<agent-message from="ad36058e1fcf0307a">` subagent hand-back and on a `<task-notification>`,
+  both logged `BAIL no-candidate`.
+- **The test matrix draws the line where a shell matrix can decide** (`inline-skill-tokens-test.sh`
+  header). It pins the hook's behavior, including that the two discussion prompts still INJECT
+  (a hook that suppressed them would BE Alternative 6), and pins the wording's two branches. What
+  the model does with the injection is the live-session measurement below.
+
+### Deviations
+- **The nested `claude -p` ran against the LIVE registration rather than a scratch `--settings`
+  file.** `~/.claude/settings.json` is a symlink to the repo copy, so the Phase 7 edit is already
+  the live registration; adding a scratch settings file registering the same hook would have
+  injected the context twice per prompt and measured a shape that does not ship. Same effect,
+  correct seam.
+- **The hook was symlinked into `~/.claude/hooks/` via `manifest -l HOME/.claude/hooks/inline-skill-tokens.py | bash`.**
+  That is a step outside the repo, and it is the step acceptance criterion 6 ("that path exists
+  and is executable") and Phase 7's preflight criterion both require. Scoped to the single file,
+  per `rules/interaction.md`. `bin/hooks-resolve` remaps to the repo tree, so CI never depended
+  on it.
+- **`.otto.yml`'s em-dash lint list gained the two new files.** Not named in the phase, but the
+  gate is only as wide as that list (the chunk B audit's finding M3), so a new file outside it is
+  unguarded.
+- **Success criterion 1 is PARTIAL in the nested harness. Stated rather than claimed.** See below.
+
+### Tradeoffs
+- **Conditional wording vs 0b-1b's flat imperative.** 0b-1b's line ("The user typed these as
+  imperatives, not as discussion. Invoke each one with the Skill tool now") fires harder, and
+  would fire on the discussion class too, which criteria 2 and 3 forbid. The conditional form was
+  measured to still fire: `merge, pull main, /chisle-help, install` produced
+  `{"name":"Skill","input":{"skill":"chisle-help"}}` under THIS hook's wording.
+- **Registered under `UserPromptSubmit` with `matcher: "*"`**, matching `SessionStart`, the other
+  non-tool event in this file that emits `additionalContext`. `Stop`/`SubagentStop` use `""`;
+  the field is ignored for non-tool events either way.
+- **One hook file rather than a shell wrapper around the Python.** `rewrite-cd-read.py` is
+  already registered directly as a `.py`, so the wrapper would buy nothing and add a process.
+
+### Open questions
+- **Criterion 1 needs a live interactive session to close, and it is one command for Scott.**
+  In a nested `claude -p` the prompt `merge, pull main, /bump, install, /cli-shakedown` injects
+  correctly (hook log: `INJECT count=2 ... bump,cli-shakedown`) and the model reads both tokens
+  as skills, but it stops on the FIRST clause and asks which repo/PR "merge" means, so the turn
+  never reaches the tokens. That is the harness having no merge to perform, not the hook: the
+  same wording on `merge, pull main, /chisle-help, install` invoked the skill inline, because
+  `chisle-help` has no unmet precondition. Typing the criterion's prompt in a session where
+  "merge" has a target is what closes it.
+- **Phase 5's and Phase 6's `inline/*.py` are still outside `.otto.yml`'s em-dash lint list.**
+  Left alone deliberately: not this phase's files. Worth a one-line fix in a later phase.
