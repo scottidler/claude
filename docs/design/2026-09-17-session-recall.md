@@ -9,7 +9,7 @@
 
 Chunk F1 of the setup-audit program, audit item 9. 73 sessions open by asking Claude to go find a previous session, and nothing in the setup encodes that. This builds the retrieval path (a `session-recall` skill over clyde's MCP surface), a narrow `UserPromptSubmit` hook that points at it when the prompt names a session, an always-on `rules/recall.md`, and a vocabulary section in WHOAMI.
 
-The audit's prescribed hook trigger is not built. Measured, it fires on 38.2% of typed prompts. The trigger here fires on 0.41%: 46 of 11,225 human prompts, and zero across all 6,820 non-human records.
+The audit's prescribed hook trigger is not built. Measured, it fires on 38.2% of typed prompts. The trigger here fires on 0.41%: 46 of 11,225 human prompts, and zero across all 6,820 non-human records. Those are the design-time figures; Phase 2's frozen snapshot re-measures the shipped hook at **48 fires and zero non-human fires**, both differences accounted for in AC2.
 
 ## Problem Statement
 
@@ -108,7 +108,7 @@ Five bails, then two triggers. Bails run first and short-circuit.
   - `that doc|design|spec we wrote|made|did`
   - **"yesterday" is NOT in the list.** 14 of its fires are diff text and it names no target.
 
-**Result: 46 fires on 11,225 human prompts (0.41%), and 0 across all 6,820 non-human records.**
+**Result: 46 fires on 11,225 human prompts (0.41%), and 0 across all 6,820 non-human records.** Design-time figures, on round 3's 18,048-record extraction. Phase 2's frozen snapshot re-measures the shipped hook at 48 and 0; AC2 pins that figure and reconciles both differences.
 
 ### The corpus has a provenance flag, and this doc was not using it
 
@@ -234,7 +234,7 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 - **Add `session-recall-guard.sh`, its test, and this design doc to `.otto.yml`'s em-dash lint `FILES` list, which is enumerated rather than globbed and already names every prior chunk's doc/hook/test triple.** Round 3 found this; it is the same missed-registration class as the `manifest -l` finding in round 1.
 - **`manifest -l HOME/.claude/hooks/session-recall-guard.sh` runs in THIS phase.** `~/.claude/hooks` is 36 per-file symlinks, so a new hook file has none and does not go live on commit. Pass 1 put the link step only in Phase 3 for the rule and missed that the hook needs its own; round 1 caught it, and it is chunk B's four-failed-guards lesson exactly.
 - Registered in `settings.json` in this phase, after the symlink exists.
-- **Success criteria:** corpus replay over the frozen snapshot fires on every non-meta human record the predicate selects (**46** with both arms, **38** if Phase 0 killed the phrase arm, whichever Phase 0 settled) and zero on all 6,820 non-human records; `otto ci` exits 0. The count is not hardcoded to 46: Phase 0's verdict decides which figure this phase is held to.
+- **Success criteria:** corpus replay over the frozen snapshot fires exactly on the id list this phase commits as a fixture, and zero on every non-human record in that snapshot; `otto ci` exits 0. The count is not hardcoded: Phase 0's verdict decides which arms ship, and the snapshot decides the figure. **Settled:** Phase 0 found no refusal on either arm, so both ship, and Phase 2's snapshot measures **48 and 0** (AC2 carries the pinned figure and the reconciliation to round 3's 46).
 
 #### Phase 3: `rules/recall.md`
 **Model:** sonnet
