@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-17
-**Status:** Draft
+**Status:** Implemented. Phases 0 through 3 and 5 through 11 shipped; **Phase 4 is `dropped (measured)`**, which is the third outcome Phase 3's decision rule specified in advance: its two candidate rules scored TARGET 14 and 25 against a bar of 8. D2 landed in `tatari-tv/slack-cli` as `1adbfdd`, tagged `v0.14.0` and installed; `dms` is live at 232 edges. Open and named rather than closed: Phase 7's criterion 1 needs an interactive prompt, Phase 10's three and Phase 11's two criteria need a live run, and 0b-4/0b-5 are not measurable by the nested-`claude -p` method.
 **Review Passes Completed:** 5/5, then panel rounds 1, 2 and 3 as design reviews. **The round cap is spent.** Round 1: 7 must-fix. Round 2: 6 must-fix, and it found three of round 1's folds had not fixed their finding. Round 3: 4 must-fix, all foldable without a fourth round, and it confirmed four of round 2's six folds by execution. Every finding from all three rounds is folded, and each was re-measured here before folding. Round 3 ran with ONE seat: the staff-engineer seat timed out on both attempts and produced no review.
 
 ## Summary
