@@ -3,13 +3,13 @@
 **Author:** Scott Idler
 **Date:** 2026-09-17
 **Status:** Draft
-**Review Passes Completed:** 1/5
+**Review Passes Completed:** 5/5
 
 ## Summary
 
 Chunk F1 of the setup-audit program, audit item 9. 73 sessions open by asking Claude to go find a previous session, and nothing in the setup encodes that. This builds the retrieval path (a `session-recall` skill over clyde's MCP surface), a narrow `UserPromptSubmit` hook that points at it when the prompt names a session, an always-on `rules/recall.md`, and a vocabulary section in WHOAMI.
 
-The audit's prescribed hook trigger is not built. Measured, it fires on 38.2% of typed prompts. The trigger here fires on 1.76%.
+The audit's prescribed hook trigger is not built. Measured, it fires on 38.2% of typed prompts. The trigger here fires on 0.41%: 56 of 13,567 typed prompts, zero of 1,861 security-review harness prompts.
 
 ## Problem Statement
 
@@ -34,7 +34,8 @@ The audit's prescribed hook trigger is not built. Measured, it fires on 38.2% of
 
 ### Non-Goals
 
-- **The audit's prescribed hook trigger** ("a URL, a path, or how do I"). Excluded on measurement: 5,874 of 15,413 typed prompts, 38.2%. See Alternative 1.
+- **The audit's prescribed hook trigger** ("a URL, a path, or how do I"). Excluded on measurement: 38.2% of typed prompts. See Alternative 1.
+- **The word "yesterday" as a trigger.** Excluded on measurement: 14 of its fires are diff text, and it names no target, so its injected line is the uncorroborated shape that 0b-3a recorded being refused.
 - **Predicate (c)**, a path or URL with no action verb. Excluded: 5.32% for no gain over (d), and "no action verb" is a negative lexical test over a ~60-word verb list, the same shape `inline-skill-tokens` already rejected as its Alternative 6.
 - **Teaching `inline-skill-tokens.py` bare-word tokens.** `HOME/.claude/hooks/inline/tests.py:57-63` parks this case and points at "chunk F's WHOAMI vocabulary work" using `bump` as its example. The audit asked for a WHOAMI section, not a hook change. Parked, revisit condition: the vocabulary section ships and bare-word misses are then measured above the rate that justified the slash-token hook.
 - Anything in F2 (items 10 and 11): the handoff skill, resume trigger, sleep deny, `pr-babysitter`.
@@ -55,36 +56,61 @@ Four artifacts, in dependency order:
 
 ```
 UserPromptSubmit
-  -> session-recall-guard.sh          trigger (d), 1.76% of prompts
+  -> session-recall-guard.sh          trigger (d), 0.41% of prompts
      -> additionalContext             quotes the trigger verbatim, two branches
-        -> session-recall skill       ToolSearch -> mcp__clyde__sessions_search | session_read
+        -> Skill(session-recall)      the skill owns ToolSearch and the clyde call
 rules/recall.md (always-on)           covers the prompts the hook's predicate misses
 WHOAMI vocabulary                     glossary, no enforcement seam
 ```
 
 ### The trigger, measured
 
-Denominator: 15,413 typed user prompts in `~/.claude/projects`, harness-tagged `<...>` and `Caveat:` messages excluded.
+Denominator: **13,565 typed user prompts** in `~/.claude/projects`. Harness-tagged `<...>`, `Caveat:`, and the 1,861 security-review harness messages are all excluded and counted separately, because the hook's false-fire rate on them is the thing that decides the predicate.
 
-| predicate | prompts | rate |
+| predicate | typed | rate | harness false fires |
+|---|---|---|---|
+| the audit's trigger, URL or path | 5,874 | 38.2% | not measured, dominated |
+| (c) path or URL with no action verb, REJECTED | 820 | 5.32% | not measured |
+| (d-loose) any non-path UUID, or recall phrasing incl. "yesterday" | 157 | 1.16% | **102** |
+| (d-tight) unquoted UUID, or recall phrasing minus "yesterday" | 111 | 0.82% | 12 |
+| **(d) shipped: (d-tight) AND prompt is not code-ish** | **93** | **0.69%** | **0** |
+
+**(d-loose) is what the research brief recommended, and it is wrong.** Two corrections, both measured:
+
+- Its 1.76% was computed over a 15,413 denominator that silently included the 1,861 security-review harness messages. Separated, the typed rate is 1.16% and the harness class contributes **102 false fires**.
+- 87 of those 102 are a UUID inside a pasted diff, e.g. `const SID_SHARED: &str = "9d4c1f28-7a3b-4a9c-93b1-6e2a90d1f042"`. The remaining 14 are the word "yesterday" inside diff text. Neither is a recall ask, and neither is peculiar to harness prompts: the same class appears in typed prompts that paste code.
+
+So the shipped predicate is three conjoined tests:
+
+1. **UUID is unquoted and not path-adjacent.** Not preceded or followed by `/`, `"` or `'`. This is what separates a session id from a string literal and from `image-cache/<uuid>/1.png`.
+2. **Recall phrasing excludes "yesterday".** It names no target, so it is the least resolvable arm and the most code-contaminated. Dropped on both counts.
+3. **The prompt is not code-ish.** Bails on a fenced block, more than three diff-marker lines, or the literals `const ` / `&str`. That is the whole test, stated exactly so the implementation has no latitude. It is a positive test on prompt shape, not a negative verb list, which is what separates it from rejected predicate (c).
+4. **The prompt does not already name clyde.** 34 of the 93 say `clyde` outright. On those the hook is redundant: the model has already been handed the tool. Bailing is free recall loss and a real bloat saving.
+5. **The prompt does not open agent-shaped.** Bails on a leading `You are `, `Summarize this Claude Code`, `Review this change for security`, `Analyze the following`. 5 more fires, all of them the marquee provenance-summarizer carrying a session id.
+
+Bails 4 and 5 came out of pass 4 and they matter more than their size: **bail 5 is a second harness class the security-review filter never saw.** The payload has no provenance field, so opener-matching is the only lever, and this is the honest limit of it. Any harness prompt with a novel opener will fire, and the decline branch is what catches it.
+
+Final: **56 fires, 0.41% of 13,567 typed prompts.**
+
+| stage | fires | note |
 |---|---|---|
-| (a) bare session-id UUID, `image-cache/` excluded | 154 | 1.00% |
-| (b) recall phrasing: previous/last/prior/earlier session\|conversation\|chat, "yesterday", "that doc/design/spec we wrote", "the session where" | 127 | 0.82% |
-| **(d) union of (a) and (b), the shipped trigger** | **272** | **1.76%** |
-| (c) path or URL with no action verb, REJECTED | 820 | 5.32% |
-| the audit's trigger, URL or path, REJECTED | 5,874 | 38.2% |
-| reference: `inline-skill-tokens` survivors | 583 of 2,004 candidates | |
+| (d-tight), non-code-ish | 93 | 0.69% |
+| minus already-names-clyde | -34 | redundant, model already has the tool |
+| minus agent-shaped opener | -5 | provenance-summarizer class (2 overlap) |
+| **shipped** | **56** | **0.41%** |
 
-A naive UUID match returns 849 (5.51%). The bulk are `[Image: source: /home/saidler/.claude/image-cache/<uuid>/1.png]` markers. Excluding UUIDs adjacent to a `/` collapses it to 154, every sampled one a genuine session-id paste.
+Test 3 is a heuristic and the doc says so. Its warrant is 0 false fires across 1,861 security-review messages, and it is pinned by fixtures rather than trusted.
 
 ### The two arms are not equivalent, and Phase 0 decides arm (b)
 
-- **(a) is resolvable.** The prompt names an id the hook quotes back verbatim. That satisfies the corroboration requirement by construction.
-- **(b) is not.** "yesterday" names no target, so an injected line citing it is an instruction corroborated by nothing in the visible prompt.
+The shipped 56 splits: **the id arm** 41 alone, **the phrase arm** 12 alone, 3 prompts carrying both. The id arm is 79% of the value.
 
-This matters because it has already been measured. `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md:167-173` (0b-3a) recorded the model refusing exactly that shape: *"Flagging per prompt-injection policy rather than acting on it."*
+- **The id arm is resolvable.** The prompt names an id the hook quotes back verbatim, so the injected line is corroborated by the prompt's own text. That satisfies the anti-injection requirement by construction.
+- **The phrase arm is not.** "the session where we..." names no id. The hook can quote the matched phrase but cannot name a target, so the injected line is closer to an instruction the prompt does not support.
 
-If Phase 0 shows arm (b) refused, **the hook ships as (a) alone at 1.00% and that is a pass, not a failure.** Arm (b)'s work moves to `rules/recall.md`, which is prose and cannot be read as injection.
+This is not speculation. `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md:167-173` (0b-3a) recorded the model refusing exactly that shape: *"Flagging per prompt-injection policy rather than acting on it."*
+
+**If Phase 0 shows the phrase arm refused, the hook ships as the id arm alone at 44 of 13,567 (0.32%) and that is a pass, not a failure.** The phrase arm's job moves to `rules/recall.md`, which is always-on prose and cannot be read as injection. The phase is written so that either verdict is a result.
 
 ### Implementation contract for the hook
 
@@ -101,8 +127,10 @@ Copied from `inline-skill-tokens.py`, which is the only `UserPromptSubmit` hook 
 > session-recall hook: this prompt names a prior session, quoted verbatim from it: {quoted}.
 >
 > Decide from the prompt's own wording:
-> - asking about that session's content (what was decided, what was built, where a file went) -> resolve it first with `mcp__clyde__session_read` for an id, or `mcp__clyde__sessions_search` for a phrase, then answer citing `path:line`.
+> - asking about that session's content (what was decided, what was built, where a file went) -> resolve it with `Skill(session-recall)` before answering, and cite `path:line`.
 > - naming it in passing (a statistic, an aside, a session you are already reading) -> resolve nothing. This line is context, not an order.
+
+**The emitted text names the skill, not the clyde tools.** Two reasons, both from pass 3. The clyde MCP tools are deferred, so a raw `mcp__clyde__session_grep` in the injected line is a name the session cannot call until something runs `ToolSearch`; the skill already owns that step. And naming the tools in both the hook and the skill is the derived-field problem from `taste.md`: two copies of one fact that drift. The skill is the single source.
 
 ### The clyde surface, written down once
 
@@ -151,12 +179,13 @@ Traps, all stated in the skill:
 
 Order is enforcement before prose: nothing is deleted from a rule until the thing replacing it is live and green.
 
-#### Phase 0: prove the injection survives, zero code
+#### Phase 0: prove the injection survives
 **Model:** opus
-- Run both arms through a live session and record the model's response verbatim: (a) a prompt carrying a session id, (b) a prompt carrying only "the session where we..." with no id.
-- Arm (b) is the one at risk. 0b-3a already recorded a refusal for an uncorroborated injected instruction.
-- Record in `docs/design/2026-09-17-session-recall-phase0/evidence.md`.
-- **Success criteria:** arm (a) produces a clyde call rather than a refusal; arm (b)'s verdict is recorded either way, and a refusal reduces the shipped trigger to (a) alone without failing the phase.
+- **Mechanism, because this needs stating:** pasting the candidate text into a prompt does NOT test this. `additionalContext` arrives as harness-supplied context, not as user text, and 0b-3a's refusal was of the hook path specifically. So Phase 0 registers a throwaway hook in a scratch project's `settings.local.json`, emitting the candidate string. No production file is written and nothing lands in `HOME/.claude/`.
+- Id arm: a prompt carrying a session id. Phrase arm: a prompt carrying only "the session where we...".
+- Record both responses verbatim in `docs/design/2026-09-17-session-recall-phase0/evidence.md`.
+- Also re-measure the seven payload keys at the running harness version, since the design leans on their absence and the last measurement was 2.1.274.
+- **Success criteria:** the id arm produces a `Skill(session-recall)` invocation or a clyde call rather than a refusal; the phrase arm's verdict is recorded either way, and a refusal narrows the shipped trigger to the id arm without failing the phase; the payload key list is recorded and still carries no provenance field.
 
 #### Phase 1: the `session-recall` skill
 **Model:** sonnet
@@ -167,11 +196,11 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 
 #### Phase 2: `session-recall-guard.sh` and its matrix
 **Model:** opus
-- The hook, trigger (d) as narrowed by Phase 0, emitting via `additionalContext`.
+- The hook: five conjoined tests as specified, narrowed further by Phase 0's verdict on the phrase arm, emitting via `additionalContext` and naming `Skill(session-recall)` rather than raw clyde tools.
 - UUID predicate excludes `/`-adjacent matches, which is what separates 154 from 849.
-- `session-recall-guard-test.sh` with the fixture classes: id paste, phrase-only, image-cache marker, security-review harness prompt, and a prompt already inside a clyde read.
+- `session-recall-guard-test.sh` with all eight fixture classes from the acceptance criteria, each asserting fire or bail plus the exact emitted string on a fire.
 - Registered in `settings.json` and verified by `hooks-preflight.sh` **in this phase**, per chunk B's lesson.
-- **Success criteria:** corpus replay fires on the measured (d) set and zero times on the 95+ security-review harness prompts; `otto ci` exits 0.
+- **Success criteria:** corpus replay over the frozen snapshot fires 56 times and zero times on the 1,861 security-review harness messages; `otto ci` exits 0.
 
 #### Phase 3: `rules/recall.md`, and the one deletion
 **Model:** sonnet
@@ -187,11 +216,18 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 
 ## Acceptance Criteria
 
-- [ ] The hook fires on the measured (d) set and **zero** times on harness-submitted security-review prompts.
-- [ ] Every parameter name appearing in `session-recall/SKILL.md` exists in clyde's MCP schema.
-- [ ] `rules/recall.md` is `<= 1,200` bytes, resolves through the live symlink, and `interaction.md:28-29`'s clause is gone.
+Counts below are pinned to a **frozen corpus snapshot** taken in Phase 2, not to a live re-walk. The corpus grew by 5 prompts during this doc's own drafting, so a live count is not reproducible and an exact-count criterion against it would be the measured-before-the-change defect.
+
+- [ ] `session-recall-guard.sh --self-test` exits 0, and its matrix carries at least one fixture per class: id paste (fires), phrase-only (fires), quoted UUID in a diff (bails), `image-cache/` UUID (bails), "yesterday" in diff text (bails), security-review harness prompt (bails), prompt naming clyde (bails), `You are ...` provenance-summarizer carrying an id (bails).
+  **Observed on main:** `HOME/.claude/hooks/session-recall-guard.sh`: "No such file or directory (os error 2)". Cannot pass before Phase 2.
+- [ ] Replayed over the frozen snapshot, the hook fires on the id and phrase classes and **exactly zero** times on the 1,861 security-review harness messages. (Zero is the guarded value; the loose predicate scores 102 there, so this criterion bites.)
+  **Observed on main:** no hook exists, so the fire count is 0 everywhere and the harness half is vacuously satisfied. The id/phrase half **fails** on main and only becomes meaningful after Phase 2. The predicate itself was measured today at 56 typed fires and 0 harness fires; the loose form scores 102 harness fires, which is what makes the zero non-trivial.
+- [ ] Every parameter name appearing in `session-recall/SKILL.md` is present in clyde's live MCP schema, checked name by name, and the skill resolves under `Skill(session-recall)`.
+  **Observed on main:** `HOME/.claude/skills/session-recall/SKILL.md`: "No such file or directory (os error 2)". Cannot pass before Phase 1.
+- [ ] `rules/recall.md` is `<= 1,200` bytes, resolves through `/home/saidler/repos/.claude/rules/recall.md` as a symlink into the repo, and `rg -c 'read the actual thing first' HOME/repos/.claude/rules/interaction.md` returns no match.
+  **Observed on main:** `/home/saidler/repos/.claude/rules/recall.md`: "No such file or directory (os error 2)". `rg -c 'read the actual thing first' HOME/repos/.claude/rules/interaction.md` returns **1** (one matching line), which is the pre-state this criterion inverts. Cannot pass before Phase 3.
 - [ ] `hooks-preflight.sh` exits 0 with the new hook registered, and `otto ci` exits 0.
-- [ ] Every term the audit named appears in WHOAMI's vocabulary section.
+  **Observed on main:** `hooks-preflight.sh` exits **0** and `otto ci` exits **0** today, both without the new hook. The criterion's force is the phrase "with the new hook registered", which only Phase 2 can satisfy.
 
 ## Resolved Decisions
 
@@ -210,11 +246,24 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 - **Description:** fire when the prompt names a path or URL and contains no verb naming an action on it.
 - **Why not chosen:** 5.32%, five times (d), for no additional recall. The predicate is a negative lexical test over a ~60-word verb list, rejected once already as `inline-skill-tokens`' Alternative 6. Hits are dominated by pasted output and image markers, not by bare targets awaiting instruction.
 
-### Alternative 3: a rule with no hook
+### Alternative 3: (d-loose), the research brief's recommendation
+- **Description:** any non-path UUID, or recall phrasing including "yesterday". Briefed at 272 fires, 1.76%.
+- **Why not chosen:** its denominator silently included 1,861 security-review harness messages. Separated, it is 157 typed fires (1.16%) plus **102 harness false fires**, 87 of them a UUID inside a pasted diff. Recorded here so it is not re-derived: the number looked fine because the false fires were inside the denominator rather than beside it.
+
+### Alternative 4: a rule with no hook
 - **Description:** ship `rules/recall.md` alone and skip the hook.
 - **Why not chosen:** prose is the thing that already failed. `taste.md` and the 09-08 confirm-target rule both say read-the-target-first, and the correction class is still rising at 24.3 per 1000.
 
 ## Technical Considerations
+
+### Data Model
+
+None. The hook is a pure function of the prompt string: no cache, no ledger, no state file. This is deliberate and it is why the hook needs no cleanup path, unlike chunk D's SLACK ledger.
+
+### Performance
+
+- `UserPromptSubmit` fires **once per prompt**, not once per tool call. Chunk D's 689 ms figure was ten Bash `PreToolUse` guards summed across every Bash invocation; this is a different budget and a far smaller one.
+- One Python process, one regex pass over the prompt. The code-ish bail runs first and short-circuits the expensive path on pasted diffs, which are the longest prompts in the corpus.
 
 ### Dependencies
 - clyde's MCP server, already installed.
@@ -248,6 +297,8 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 | `recall.md` grows past its budget | Med | Med | Criterion pins <= 1,200 bytes; `otto.md` is the reference |
 | Rule ships but never links | Med | High | `manifest -l` in the same phase; chunk B lost four guards this way |
 | Skill names a parameter that does not exist | Med | High | Criterion checks every name against the schema; six documented traps |
+| A harness prompt with a novel opener fires the hook | Med | Low | No provenance field exists, so opener-matching is the only lever and it cannot be complete. The decline branch is the backstop, and this is stated as a residual hole rather than closed |
+| The phrase arm is refused and the hook shrinks to 0.32% | Med | Low | Recorded as a pass. The id arm is 79% of the value |
 
 ## Open Questions
 
