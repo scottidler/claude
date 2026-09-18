@@ -321,3 +321,61 @@ None.
   the orchestrator; section order is now Devices, Identity, Tools & workflow, Vocabulary. Ten
   terms and their glosses are unchanged. Found by reading the file rather than the report, which
   is the reason the audit reads code and not phase reports.
+
+## Mode-2 implementation audit fold
+
+Four must-fix from the audit (synthesis: `/tmp/review-panel/11jHoo0u/synthesis.md`), all folded
+before anything was pushed, bumped, or tagged. Two were false statements that had shipped.
+
+### Deviations
+- **MF1, `WHOAMI.md` told every session the `handoff` skill was "not yet built".** It exists at
+  `HOME/.claude/skills/handoff/SKILL.md`, committed at `5faca7d` ("feat(skills): own the handoff
+  skill and give it a resume mode"), and is already registered at `.otto.yml:18`. Verified by
+  listing the directory and reading the commit. The gloss now says the skill is live and that F2
+  owes the resume *trigger*, not the skill. Root cause: Phase 4 grounded this one term against the
+  program doc's `queued` F2 row instead of the filesystem, against its own stated method, and
+  because baseline WHOAMI said nothing about `handoff`, the error made always-on context
+  actively wrong rather than merely silent.
+- **MF2, the skill and the doc's clyde table both stated two false facts about clyde.** Verified
+  against live `--help`: (a) `clyde session resume` is not the CLI form of `session_open`, it
+  chdirs to the session's recorded cwd and fork/execs `claude --resume <id>`, replacing the
+  calling process, where `session_open` only reports a resume command, a staged path, or
+  `unavailable`; (b) "MCP is the only path to transcript content" is false, because
+  `clyde session export --id <id> --with-body` returns the parsed body, with `--max-body-bytes`
+  capping at a message boundary. Both fixed in `session-recall/SKILL.md` step 5 and in the doc's
+  table plus two new trap bullets. This is the most serious finding of the chunk: the artifact
+  whose stated Goal is "the clyde tool surface written down once, correctly" was wrong about
+  clyde, so `session_grep` is the tool with no CLI equivalent and `session_read` is the one that
+  has one, the reverse of what shipped.
+- **MF3, AC2's set-equality sentence hid a known fire.** The unrestricted fire set is 49, not 48:
+  `22a56659-7581-452b-b285-92af1ba18d75.jsonl:5` is an `isMeta` `/doctor` expansion quoting "last
+  session", a genuine fire the hook makes in production. It is excluded from the fixture because
+  the fixture's denominator is non-meta human records. The criterion now says "restricted to
+  non-meta human records" and names the 49th record and the reason. Wording only; the measurement
+  did not move.
+- **MF4, seven files this chunk added were absent from `.otto.yml`'s enumerated `FILES` array**:
+  `session-recall/SKILL.md`, this notes file, `phase0/spike-hook.sh`, and all four phase-2
+  artifacts (`fires.tsv`, `freeze.py`, `replay.py`, `tally.py`). The prior chunk registered its
+  notes, its phase-0 evidence and all five phase-3 reproducers (`.otto.yml:94-103`), so precedent
+  is direct. All seven measured em-dash-clean before registering, so CI stays green.
+
+### Design decisions
+- **`phase0/evidence.md` is deliberately NOT registered in the lint array**, and this is a stated
+  exception rather than an oversight. It carries one em-dash at `:228` inside a verbatim capture of
+  a model response, where fidelity is the deliverable. The prior chunk DID register its phase-0
+  evidence (`.otto.yml:96`), so this departs from precedent on purpose: registering it would force
+  either editing a verbatim quote or narrowing the lint to skip fenced blocks, and neither is worth
+  one character. Recorded here so a later chunk does not "fix" it blind.
+
+### Tradeoffs
+- The audit's one correction to my own reasoning is accepted: I cited Phase 0's `grep -oiP` as
+  evidence that case-insensitive matching was the probed form, and `spike-hook.sh:29` in fact
+  folded case on the *id* arm too (which production correctly did not copy), while the phrase
+  probe input was all lower case. So the spike shows intent, not a measured result. The AC2
+  amendment stands on its other two grounds: the doc's own frozen-snapshot preamble, and folding
+  widening rather than narrowing the predicate.
+
+### Open questions
+- None. One known limit recorded instead: the 95 MB frozen snapshot lives on tmpfs and `freeze.py`
+  takes no cutoff argument, so after a reboot AC2's left side has no reproducer. The sha256 in the
+  fixture header remains the only provenance check.

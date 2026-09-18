@@ -170,9 +170,9 @@ The skill states these exactly. Every one of these is a name the model has guess
 |---|---|---|---|
 | `mcp__clyde__sessions_search` | `query` | `limit`, `include_archived`, `sort` | `clyde session search` |
 | `mcp__clyde__sessions_ls` | | `repo`, `since`, `tag`, `model`, `limit`, `include_archived` | `clyde session ls` |
-| `mcp__clyde__session_open` | `id` | | `clyde session resume` |
-| `mcp__clyde__session_grep` | `id`, `query` | `context_lines`, `limit` | none |
-| `mcp__clyde__session_read` | `id` | `offset`, `limit` | none |
+| `mcp__clyde__session_open` | `id` | | none (see the trap below) |
+| `mcp__clyde__session_grep` | `id`, `query` | `context_lines`, `limit` | none (grep an export) |
+| `mcp__clyde__session_read` | `id` | `offset`, `limit` | `clyde session export --id <id> --with-body` |
 | `mcp__clyde__session_efficiency` | `id` | | `clyde efficiency session` |
 
 Traps, all stated in the skill:
@@ -181,6 +181,8 @@ Traps, all stated in the skill:
 - `context_lines`, not `context` or `-C`. `include_archived`, not `archived`. `since`, with no `until`.
 - `id` takes a unique prefix, not only a full UUID.
 - `session_grep.query` is a plain case-insensitive substring. `sessions_search.query` is FTS. Same field name, different language.
+- **`clyde session resume` is NOT the CLI form of `session_open`**, and the mode-2 audit caught this table and the skill both saying it was. `session_open` RESOLVES a session and returns a resume command, a staged path, or `unavailable`; `clyde session resume` chdirs to the session's recorded cwd and fork/execs `claude --resume <id>`, replacing the calling process. One reports, the other hijacks the terminal. There is no read-only CLI form of `session_open`.
+- **MCP is not the only path to transcript content**, which this doc also had wrong. `clyde session export --id <id> --with-body` returns the parsed body, with `--max-body-bytes` capping the read at a message boundary. So `session_read` has a CLI equivalent and `session_grep` does not: for grep, export and search the body.
 
 ### `rules/recall.md`
 
@@ -253,7 +255,8 @@ Counts below are pinned to a **frozen corpus snapshot** taken in Phase 2, not to
 
 - [ ] `session-recall-guard.sh --self-test` exits 0, and its matrix carries at least one fixture per class: id paste (fires), phrase-only (fires), quoted UUID in a diff (bails), `image-cache/` UUID (bails), "yesterday" in diff text (bails), fenced block carrying an id (bails), prompt naming clyde (bails), `You are ...` provenance-summarizer (bails), **leading `<` tag (bails)**, **`Another Claude session sent a message:` wrapper (bails)**.
   **Observed on main:** `HOME/.claude/hooks/session-recall-guard.sh`: "No such file or directory (os error 2)". Cannot pass before Phase 2.
-- [ ] Replayed over the frozen snapshot, the hook's fire set is **exactly equal** to the enumerated id list committed in Phase 2 at `docs/design/2026-09-17-session-recall-phase2/fires.tsv`, and empty across every non-human record in that snapshot. **Set equality, not coverage.** Round 3 broke the coverage form two ways: a regex selecting zero records "fires on all of them" and passes, and `predicate OR prompt=="hello"` fires 56 times, misses none of the 46, hits no non-human record, and also passes. Phase 2 commits the id list as a fixture file so the comparison has a fixed left side.
+- [ ] Replayed over the frozen snapshot, the hook's fire set **restricted to non-meta human records** is **exactly equal** to the enumerated id list committed in Phase 2 at `docs/design/2026-09-17-session-recall-phase2/fires.tsv`, and empty across every non-human record in that snapshot. **Set equality, not coverage.** Round 3 broke the coverage form two ways: a regex selecting zero records "fires on all of them" and passes, and `predicate OR prompt=="hello"` fires 56 times, misses none of the 46, hits no non-human record, and also passes. Phase 2 commits the id list as a fixture file so the comparison has a fixed left side.
+  **The restriction is stated because the unrestricted fire set is 49, not 48**, and the mode-2 audit caught this sentence hiding the difference. The 49th is `22a56659-7581-452b-b285-92af1ba18d75.jsonl:5`, an `isMeta` `/doctor` expansion whose args quote "last session". It is a genuine fire and the hook fires on it in production; it is excluded from the fixture because the fixture's denominator is non-meta human records, which is the bucketing round 2 ordered. A set-equality criterion whose left side silently omits a known fire is the vacuous-criterion class three rounds were spent killing, so the exclusion is named here rather than left to the reader to discover. Wording fixed, measurement unchanged.
   **Pinned figure, Phase 2's snapshot** (18,093 records, taken 2026-09-18 06:44 local, sha256 `8cdb7907cce747a554d0ca44ba2f51925d4d22ad20d14770b9b7d4222aef687e`): **48 non-meta human fires, 0 across all 6,843 non-human records.** Round 3's figures were 46 and 6,820 on an 18,048-record extraction, and both differences are accounted for rather than tuned:
   - `00938fec-3b63-42df-bbc1-3d603e13da61.jsonl:543` is a record typed at 06:25 local on 2026-09-18, after round 3's fold commit at 00:52. This is the case the preamble above pre-authorises: a live count is not reproducible, so 46 was always a snapshot-era figure.
   - `59d90b84-06ce-4305-8069-e6b65a30f7fa.jsonl:94` fires only under the phrase arm's case folding, now stated explicitly in `The predicate`. Round 3's count implied a case-sensitive phrase arm that the doc never specified.

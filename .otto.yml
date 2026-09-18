@@ -105,6 +105,13 @@ tasks:
         HOME/.claude/hooks/session-recall-guard.sh
         HOME/.claude/hooks/session-recall-guard-test.sh
         docs/design/2026-09-17-session-recall.md
+        HOME/.claude/skills/session-recall/SKILL.md
+        docs/design/2026-09-17-session-recall-implementation-notes.md
+        docs/design/2026-09-17-session-recall-phase0/spike-hook.sh
+        docs/design/2026-09-17-session-recall-phase2/fires.tsv
+        docs/design/2026-09-17-session-recall-phase2/freeze.py
+        docs/design/2026-09-17-session-recall-phase2/replay.py
+        docs/design/2026-09-17-session-recall-phase2/tally.py
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."

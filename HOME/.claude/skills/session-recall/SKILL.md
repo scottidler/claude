@@ -17,7 +17,7 @@ Scott's Claude Code sessions are catalogued by clyde (title, tags, summary, repo
 
 4. From the search or list hits, pick the session(s) that match, then use `session_read` or `session_grep` (same `id` + params as step 2) to pull the actual content, not just the summary.
 
-5. If the MCP tools are unavailable, fall back to the CLI: `clyde session search`, `clyde session ls`, `clyde session resume` (in place of `session_open`). There is no CLI equivalent for `session_grep` or `session_read`; MCP is the only path to transcript content.
+5. If the MCP tools are unavailable, fall back to the CLI: `clyde session search`, `clyde session ls`, and `clyde session export --id <id> --with-body` for transcript content (`--max-body-bytes` caps the read at a message boundary). There is no CLI equivalent of `session_grep`'s substring search: grep the exported body instead. **`clyde session resume` is not a read path and is not a stand-in for `session_open`**: it resolves the session's recorded cwd, chdirs there, and fork/execs `claude --resume <id>`, replacing the current process. Never reach for it to inspect a session.
 
 6. Weave what you found into the task: cite the session id (or resume command) and quote or summarize the relevant part, don't just say a session exists.
 
