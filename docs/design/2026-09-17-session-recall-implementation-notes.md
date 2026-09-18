@@ -214,3 +214,50 @@ pre-authorises a snapshot-era count ("a live count is not reproducible"); the un
 is a doc defect of the same class the doc already fixed once on the id arm; and a phrase arm
 that misses a sentence-initial `Previous session` misses the most common written form of its
 own trigger, while the case-sensitive form is an arm Phase 0 never probed.
+
+## Phase 3: `rules/recall.md`
+
+### Design decisions
+- **Frontmatter is exactly `---` / `alwaysApply: true` / `---`**, matching every sibling
+  rule file (`otto.md`, `marquee.md`) and satisfying `.otto.yml:112-116`'s "literal `---` at
+  line 1" gate. This is the form round 3 settled once AC4 and AC5 were shown mutually
+  unsatisfiable at line 1.
+- **Content covers exactly the gap the hook's predicate cannot see**: a recall ask carrying
+  neither a session id nor one of the enumerated phrases (e.g. "go find that earlier thing").
+  Bullet 1 states the hook's trigger surface so the rule reads as a complement, not a
+  duplicate; bullet 2 is the dispatch to `Skill(session-recall)` naming five clyde tools;
+  bullet 3 states the vocabulary-independence closer, mirroring the skill's own "even if he
+  doesn't mention clyde" framing from Phase 1.
+- **The phrase list is copied verbatim from `The predicate` section**, not paraphrased: the
+  same three-line enumeration Phase 1's skill description already carries, kept traceable to
+  one source rather than a third independent copy.
+- **`manifest -l 'HOME/repos/.claude/rules/recall.md'` ran successfully inside the sandbox**
+  this time (no `Read-only file system` error, unlike Phase 2's hook symlinks). The command was
+  still scoped to the single file by glob, never an unscoped `manifest -l` or full apply.
+- **`HOME/repos/.claude/rules/recall.md` is registered in `.otto.yml`'s em-dash lint `FILES`
+  array**, added after this phase's first pass missed it. The registration was missed because
+  the doc's Phase 3 bullets never name `.otto.yml` while Phase 2's bullets explicitly call out
+  adding the hook, its test, and the design doc to that same array. The em-dash lint is
+  enumerated, not globbed (only the frontmatter check globs `rules/*.md`), so a new rules file
+  is invisible to it until listed by path. Same missed-registration class round 3 logged for
+  Phase 2's artifacts.
+
+### Deviations
+- None. Frontmatter, budget, content coverage and the no-deletion constraint all match the
+  doc's Phase 3 bullets and the AC4 wording.
+
+### Tradeoffs
+- **747 bytes against a 1,200 budget**, not maximized to the ceiling. Three bullets carry the
+  gap, the phrase list and the tool names; a fourth bullet restating `interaction.md`'s
+  read-the-actual-thing-first clause was considered and dropped; that clause already stays
+  per the verdict table (disjoint domains: repos/files/configs vs. prior sessions), so
+  repeating it here would be the two-copies-of-one-fact problem `taste.md` warns against.
+- **Five clyde tool names listed, not the doc's floor of three.** `sessions_search`,
+  `session_grep`, `session_read`, `sessions_ls`, `session_open` all appear so the rule names
+  the same tool surface Phase 1's `## Steps` opens with (`ToolSearch` over
+  `sessions_search`, `session_read`, `session_grep`), plus the two list/resume tools, rather
+  than an arbitrary subset that would need re-justifying later if the skill's step order
+  changes.
+
+### Open questions
+None.

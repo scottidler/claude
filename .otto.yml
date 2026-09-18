@@ -31,6 +31,7 @@ tasks:
         HOME/repos/.claude/rules/voice.md
         HOME/repos/.claude/rules/interaction.md
         HOME/repos/.claude/rules/secrets.md
+        HOME/repos/.claude/rules/recall.md
         HOME/.claude/output-styles/edges.md
         HOME/.claude/hooks/ssh-agent-check.sh
         HOME/.claude/hooks/prose.sh
