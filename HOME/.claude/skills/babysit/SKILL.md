@@ -78,9 +78,17 @@ early stop is a decision that genuinely needs the user (an approving review, a
 scope call, a 2-strike blocker), and the report says exactly which.
 
 **Do not hand-poll the user's patience.** If work remains and it is only a matter
-of waiting, put it on a timer yourself before the turn ends:
-`/loop 10m /babysit <pr-url>`. Never end a turn with "I'll check back" and no timer
-armed, and never make the user ask twice for a step already written above.
+of waiting, put it on a timer yourself before the turn ends. Pick the interval to
+the thing you're actually waiting on, not one default for everything:
+
+- **Waiting on CodeRabbit** (rollup still `PENDING`, no review posted yet): it
+  usually comes back in 2-3 minutes. Use `/loop 2m /babysit <pr-url>` (or 3m).
+- **Waiting on CI** (builds, tests, other checks still running) or on a human
+  review: those run longer and nobody's refreshing every two minutes. Use
+  `/loop 10m /babysit <pr-url>`.
+
+Never end a turn with "I'll check back" and no timer armed, and never make the
+user ask twice for a step already written above.
 
 ## Check the base before saying one word about mergeability
 
