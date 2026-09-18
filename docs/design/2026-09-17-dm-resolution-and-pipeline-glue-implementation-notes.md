@@ -1063,3 +1063,42 @@ Neither candidate clears, so nothing ships in Phase 4 and the shipped rule stand
   their own (the cache answers a question it could not answer before), but nothing consumes
   the field. Scott decides whether that is acceptable as a capability parked for a future
   chunk or whether a consumer should be found.
+
+## Targeted fix: the WRITE_VALUE_FLAGS bypass Phase 3 found
+
+Scott chose option A on 2026-09-17: fix it now, before finalization, rather than routing it to
+its own chunk. Not a phase of this doc; recorded here because this is where it was found.
+
+### Design decisions
+- **Replaced the hand-written list with `slack write --help`'s complete specification**, rather
+  than adding the one flag Phase 3 named. The list claimed to be "every value-taking flag" and
+  omitted **six**: `--output`, `--log-level`/`-l`, `--valet-url`, `--timeout-secs`,
+  `--max-message-chars`, `--config`/`-c`. This is the omitted-skip-list pattern chunk D's round 6
+  fixed on `gh api`, and the remedy there was the same.
+- **Developed against a copy under a scratch name and probed it before writing the live file**,
+  per chunk D's copy-before-live rule. The candidate was removed after.
+- The scar tissue and the measured commands are written into the comment above the constant, so
+  the next reader sees why the list is a transcription rather than a curated set.
+
+### Deviations
+- **I told Scott the fix was "one token" when I recommended option A. That was wrong**, and the
+  count came from Phase 3's report rather than from reading `--help` myself. It is six flags plus
+  two short forms. Corrected to him before making the change.
+
+### Tradeoffs
+- **Wrote five biting cases, not eight.** `--config`, `-c` and `--valet-url` take PATHS, and a
+  path mis-parsed as a target lands on a different deny rule: verified against the pre-fix guard
+  recovered from git, `slack write --config /tmp/c.yml engineering` denies both before and after.
+  A case asserting deny there passes unfixed, so it cannot bite and was not written. The flags
+  stay in the list because consuming the value is correct regardless.
+- Two positive cases guard the other direction: `--output json` and `-l debug` must still ALLOW
+  when the post IS asked for. Consuming the value is the fix; refusing the flag is not.
+
+### Open questions
+- **A fixture of mine was bad before it was good, and the matrix caught it.** The prompt
+  "read /tmp/c.yml and tell me what is in it" ALLOWS a post to `#engineering` with **no flag at
+  all**, while "whats in /tmp/c.yml" denies. Something in that phrasing reads as posting intent.
+  Not investigated, not this fix's scope, and possibly nothing. Named because it was measured.
+- The matrix carries a flaky latency gate: "5001913 byte transcript, non-Slack call took N ms
+  (want < 50)" failed once at high load and passed at 32 ms twice after. `rules/taste.md` says
+  flaky tests get hardened rather than retried. Pre-existing.

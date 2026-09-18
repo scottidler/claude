@@ -186,9 +186,22 @@ LIB_OK=1
 
 # ---------------------------------------------------------------- parsing ---
 
-# Every value-taking flag `slack write` has. A token matching one of these
-# consumes the NEXT token, so that operand is never mistaken for the target.
-WRITE_VALUE_FLAGS=" --thread --broadcast --at --follow-up --edit --file --markdown-to-mrkdwn --blocks-file "
+# Every value-taking flag `slack write` has, transcribed from `slack write --help`
+# rather than hand-listed. A token matching one of these consumes the NEXT token,
+# so that operand is never mistaken for the target.
+#
+# Scar tissue: this list was hand-written and omitted SIX of them (`--output`,
+# `--log-level`/`-l`, `--valet-url`, `--timeout-secs`, `--max-message-chars`,
+# `--config`/`-c`). Each omission is a deny-to-allow bypass whenever the flag's
+# VALUE happens to appear in the prompt, because the guard then authorizes against
+# that value instead of the real target. Measured 2026-09-17 against the shipped
+# guard: `slack write --at 7d --output json '#engineering' hi` ALLOWED on a prompt
+# reading "can you give me the json output of that report", where the same command
+# without the flag correctly denied. Same for `--log-level debug` with "turn on
+# debug", and `--timeout-secs 5` with "the timeout was 5 seconds". This is the
+# omitted-skip-list pattern chunk D's round 6 fixed on `gh api`, and the answer is
+# the same: replace the hand-list with the complete `--help` specification.
+WRITE_VALUE_FLAGS=" --thread --broadcast --at --follow-up --edit --file --markdown-to-mrkdwn --blocks-file --output --log-level -l --valet-url --timeout-secs --max-message-chars --config -c "
 
 is_write_value_flag() { case "$WRITE_VALUE_FLAGS" in *" $1 "*) return 0;; esac; return 1; }
 

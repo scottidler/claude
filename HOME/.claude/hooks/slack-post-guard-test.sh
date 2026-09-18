@@ -482,6 +482,38 @@ runb deny 'slack write scott.idler r6f && slack write general r6g' "$TX_ENG"
 reset_ledger
 runb allow 'slack write engineering r6h' "$TX_ENG"
 
+echo "=== WRITE_VALUE_FLAGS: a flag's value must never be read as the target ==="
+# Found 2026-09-17 by Phase 3 of the DM-resolution chunk. The list was hand-written
+# and omitted six value-taking flags, so the guard authorized against the flag's
+# VALUE. Each case below ALLOWED before the list was replaced with `slack write
+# --help`'s complete specification: the prompt names no target and asks for no post,
+# so the only reason to allow is the mis-parse.
+TX_JSON=$(transcript vfjson  'can you give me the json output of that report')
+TX_DBG=$(transcript vfdebug  'can you turn on debug for that run')
+TX_SECS=$(transcript vfsecs  'the timeout was 5 seconds right')
+# No case for `--config`/`-c`/`--valet-url`. They are in WRITE_VALUE_FLAGS because
+# consuming the value is correct regardless, but their values are PATHS, and a path
+# mis-parsed as a target lands on a different deny rule. Verified against the
+# pre-fix guard from git: `slack write --config /tmp/c.yml engineering` denies both
+# before and after the fix. A case asserting deny there would pass unfixed, which is
+# a test that cannot bite, so it is not written.
+reset_ledger
+runb deny 'slack write --output json engineering v1' "$TX_JSON"
+reset_ledger
+runb deny 'slack write --log-level debug engineering v2' "$TX_DBG"
+reset_ledger
+runb deny 'slack write -l debug engineering v3' "$TX_DBG"
+reset_ledger
+runb deny 'slack write --timeout-secs 5 engineering v4' "$TX_SECS"
+reset_ledger
+runb deny 'slack write --max-message-chars 5 engineering v5' "$TX_SECS"
+# The flags must still be transparent when the post IS asked for: consuming the
+# value is the fix, refusing the flag is not.
+reset_ledger
+runb allow 'slack write --output json engineering v9' "$TX_ENG"
+reset_ledger
+runb allow 'slack write -l debug engineering v10' "$TX_ENG"
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
