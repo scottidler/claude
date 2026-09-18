@@ -302,7 +302,11 @@ None. The hook is a pure function of the prompt string: no cache, no ledger, no 
 
 ## Open Questions
 
-- [ ] None yet. Pass 1 has not been reviewed.
+None. Five passes run, and the three questions they raised are closed in the doc rather than parked:
+
+- **Is the audit's trigger shippable?** No. 38.2%. Closed by measurement, Alternative 1.
+- **Does the phrase arm survive the injection policy?** Unknown until Phase 0 runs, but it is not an open question because the design specifies both outcomes: refusal narrows the hook to the id arm at 0.32% and that is a recorded pass.
+- **Does the WHOAMI change have an enforcement seam?** No, and it ships as documentation with that stated.
 
 ## References
 
