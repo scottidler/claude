@@ -3,7 +3,7 @@
 **Author:** Scott Idler
 **Date:** 2026-09-17
 **Status:** Draft
-**Review Passes Completed:** 5/5, then panel rounds 1 and 2 folded (7 then 6 must-fix, every one verified against the corpus or the code before folding). Round 2 sustained round 1's pushback on the result and overturned its reason. **The round cap is 3; round 3 has not been spent.**
+**Review Passes Completed:** 5/5, then panel rounds 1, 2 and 3 folded (7, 6 and 9 must-fix, every one verified against the corpus or the code before folding). Round 2 sustained round 1's pushback on the result; round 3 sustained the result again and overturned the reason a second time. **All three rounds are spent: 7, 6 and 9 must-fix, every one folded. A fourth needs Scott's `PANEL_ROUNDS_ORDERED_BY_SCOTT=4`.**
 
 ## Summary
 
@@ -49,7 +49,7 @@ Four artifacts, in dependency order:
 
 1. `session-recall` skill: the retrieval path. Everything else points at it.
 2. `session-recall-guard.sh`: `UserPromptSubmit` hook, trigger (d), pointing at 1.
-3. `rules/recall.md`: always-on prose for what the hook cannot see, plus deletion of the one clause it replaces.
+3. `rules/recall.md`: always-on prose for what the hook's predicate cannot see. **Deletes nothing**: see the verdict table.
 4. WHOAMI vocabulary section.
 
 ### Architecture
@@ -117,7 +117,7 @@ Round 2's correction, and it is a methodology fix rather than a predicate fix. T
 - 2,052 records in the human bucket carry `isMeta`, including 1,187 `Base directory for this skill:` preambles, 505 `[Request interrupted...]` records, 2 summarizer prompts and 1 compaction continuation.
 - **One of the 47 is one of them**, a `/doctor` expansion. True non-meta human fires: **46**.
 - Phase 2's replay buckets on `isMeta` rather than on prefix guessing. The prefix bails stay, because the live hook has no flag to read; the replay does, and a measurement that guesses when it could read is the thing `taste.md` forbids.
-- **The fence bail's stated purpose was also wrong.** Its 12 suppressed prompts are not humans pasting code: 10 are skill preambles and 2 are summarizer prompts, all machine records. The clause stays, because dropping it moves the number, but it earns its place by suppressing machine records, not by the reason pass 4 gave.
+- **The fence bail's stated purpose was also wrong.** Its 12 suppressed records are 9 skill preambles, 2 summarizer prompts and 1 compaction continuation, all machine records, not humans pasting code. The clause stays because dropping it moves the number, but it earns its place by suppressing machine records, not by the reason pass 4 gave.
 
 ### Why bails 1 and 2 replace the opener list as the sound answer
 
@@ -127,13 +127,13 @@ Bails 1 and 2 are prefix tests on how the harness delivers a record, not guesses
 
 ### Pushback recorded: the code-ish bail is one clause, not four
 
-Round 1's architect seat held that fence-only leaves 24 security-review candidates where the 4-part bail leaves 0, and that `>3 lines starting +` is therefore load-bearing. **Measured, that is not so**, and the reason is ordering: bail 5 removes the entire security-review bucket before any code-ish test runs. With bails 1, 2, 4 and 5 in place, fence-only, fence-plus-diff-lines, and the full 4-part form all score **47 human / 0 false**, identically. The Rust literals `const ` and `&str` are dead weight, and so is the diff-line count.
+Round 1's architect seat held that fence-only leaves 24 security-review candidates where the 4-part bail leaves 0, and that `>3 lines starting +` is therefore load-bearing. **Measured, that is not so**, and the reason is ordering: bail 5 removes the entire security-review bucket before any code-ish test runs. With bails 1, 2, 4 and 5 in place, fence-only, fence-plus-diff-lines, and the full 4-part form all score **46 non-meta human / 0 false**, identically. The Rust literals `const ` and `&str` are dead weight, and so is the diff-line count.
 
-Dropping code-ish **entirely** is the one variant that does move: 59 human fires, so the fence clause is suppressing 12 prompts that paste a fenced block containing a UUID. That is the class it exists for, so it stays. It stays as one clause.
+Dropping code-ish **entirely** is the one variant that does move: **49 non-meta human fires**, so the fence clause suppresses 12 records carrying a fenced block and a UUID. Those 12 are **9 skill preambles, 2 summarizer prompts and 1 compaction continuation**, all machine records, not humans pasting code. The clause stays because dropping it moves the number, and its warrant is machine-record suppression. It stays as one clause.
 
 ### The two arms are not equivalent, and Phase 0 decides the phrase arm
 
-The 46 split: **the id arm** 35 alone, **the phrase arm** 9 alone (one of which was the `isMeta` record), 3 carrying both. The id arm is 81% of the value.
+The 46 split: **the id arm** 35 alone, **the phrase arm** 8 alone, 3 carrying both. The id arm is **82.6%** of the value (38 of 46).
 
 - **The id arm is resolvable.** The prompt names an id the hook quotes back verbatim, so the injected line is corroborated by the prompt's own text. That satisfies the anti-injection requirement by construction.
 - **The phrase arm is not.** "the session where we..." names no id. The hook can quote the matched phrase but cannot name a target, so the injected line is closer to an instruction the prompt does not support.
@@ -184,7 +184,7 @@ Traps, all stated in the skill:
 
 ### `rules/recall.md`
 
-- Frontmatter: `alwaysApply: true`, inside `---` fences, starting line 1. That is the only key.
+- Frontmatter: `---` at line 1, `alwaysApply: true` at line 2, `---` at line 3. That is the only key. **`.otto.yml:112-116` fails CI unless every `rules/*.md` except `voice.md` has `---` as its literal first line**, so a criterion demanding `alwaysApply: true` AT line 1 cannot coexist with a green `otto ci`. Round 3 caught exactly that contradiction between this doc's AC4 and AC5.
 - **Budget target: <= 1,200 bytes**, the `otto.md` size class (1,085). Current always-on total is 43,706 across 11 files; effective prefix is 50,738 once `voice.md` (2,815, no frontmatter, loaded anyway) and `safety.md` (4,217, glob `**/*`) are counted.
 - Carries what the hook's predicate cannot see: a recall ask with no id and no trigger phrase, and the tool-surface pointer.
 - **Deletes nothing.** Enforcement-before-prose is satisfied vacuously here, as it was in chunk D: no existing clause is subsumed by this hook.
@@ -224,13 +224,14 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 - `HOME/.claude/skills/session-recall/SKILL.md`, mirroring `vault-recall/SKILL.md` structure exactly: frontmatter `name` + `description` (description carries the whole trigger surface with quoted phrases and the "even if he doesn't mention clyde" closer), H1, one-paragraph why, `## Steps` as numbered imperatives, `## Rules` as bullets.
 - Steps open with ToolSearch (`select:mcp__clyde__sessions_search,mcp__clyde__session_read,mcp__clyde__session_grep`), then the tools with named params, then the documented fallback.
 - `## Rules` copies `vault-recall:22-26`'s shape: context-loading step not a deliverable, keep the summary short; zero results is a fine answer, say so in one line; do not pad.
-- **Success criteria:** every parameter name in `SKILL.md` appears in clyde's MCP schema; the skill resolves under `Skill(session-recall)`.
+- **Success criteria:** `SKILL.md` names at least the five retrieval tools and their required parameters; every parameter name it does name appears in clyde's MCP schema; the skill resolves under `Skill(session-recall)`. The floor is required here for the same reason AC3 carries it: the conformance half alone passes for a stub naming nothing.
 
 #### Phase 2: `session-recall-guard.sh` and its matrix
 **Model:** opus
 - The hook: five bails then two triggers as specified, narrowed further by Phase 0's verdict on the phrase arm, emitting via `additionalContext` and naming `Skill(session-recall)` rather than raw clyde tools.
 - UUID predicate excludes `/`-adjacent matches, which is what separates 154 from 849.
-- `session-recall-guard-test.sh` with all ten fixture classes from the acceptance criteria, each asserting fire or bail plus the exact emitted string on a fire.
+- `session-recall-guard-test.sh` with all ten fixture classes from the acceptance criteria, each asserting fire or bail plus the exact emitted string on a fire. The test matrix needs no `.otto.yml` edit: `:126` globs `HOME/.claude/hooks/*-test.sh`.
+- **Add `session-recall-guard.sh`, its test, and this design doc to `.otto.yml`'s em-dash lint `FILES` list, which is enumerated rather than globbed and already names every prior chunk's doc/hook/test triple.** Round 3 found this; it is the same missed-registration class as the `manifest -l` finding in round 1.
 - **`manifest -l HOME/.claude/hooks/session-recall-guard.sh` runs in THIS phase.** `~/.claude/hooks` is 36 per-file symlinks, so a new hook file has none and does not go live on commit. Pass 1 put the link step only in Phase 3 for the rule and missed that the hook needs its own; round 1 caught it, and it is chunk B's four-failed-guards lesson exactly.
 - Registered in `settings.json` in this phase, after the symlink exists.
 - **Success criteria:** corpus replay over the frozen snapshot fires on every non-meta human record the predicate selects (**46** with both arms, **38** if Phase 0 killed the phrase arm, whichever Phase 0 settled) and zero on all 6,820 non-human records; `otto ci` exits 0. The count is not hardcoded to 46: Phase 0's verdict decides which figure this phase is held to.
@@ -252,11 +253,11 @@ Counts below are pinned to a **frozen corpus snapshot** taken in Phase 2, not to
 
 - [ ] `session-recall-guard.sh --self-test` exits 0, and its matrix carries at least one fixture per class: id paste (fires), phrase-only (fires), quoted UUID in a diff (bails), `image-cache/` UUID (bails), "yesterday" in diff text (bails), fenced block carrying an id (bails), prompt naming clyde (bails), `You are ...` provenance-summarizer (bails), **leading `<` tag (bails)**, **`Another Claude session sent a message:` wrapper (bails)**.
   **Observed on main:** `HOME/.claude/hooks/session-recall-guard.sh`: "No such file or directory (os error 2)". Cannot pass before Phase 2.
-- [ ] Replayed over the frozen snapshot, the hook fires **exactly zero** times across all 6,820 non-human records AND **fires on every one of the non-meta human records the predicate selects** (46 with both arms, 38 if Phase 0 kills the phrase arm). Both halves are required: round 2 found the zero-only form passes for a hook that never fires at all.
+- [ ] Replayed over the frozen snapshot, the hook's fire set is **exactly equal** to the enumerated id list committed in Phase 2 (46 record ids under both arms, 38 under id-only, whichever Phase 0 settled), and empty across all 6,820 non-human records. **Set equality, not coverage.** Round 3 broke the coverage form two ways: a regex selecting zero records "fires on all of them" and passes, and `predicate OR prompt=="hello"` fires 56 times, misses none of the 46, hits no non-human record, and also passes. Phase 2 commits the id list as a fixture file so the comparison has a fixed left side.
   **Observed on main:** no hook exists, so the zero half is vacuously true and the fire half **fails**. The predicate itself measures 46 non-meta human fires and 0 non-human; without bails 1 and 2 it is 46 and 30.
-- [ ] `session-recall/SKILL.md` names **at least the five tools and their required parameters** from the clyde table below, every parameter name it does name is present in clyde's live MCP schema, and the skill resolves under `Skill(session-recall)`. The floor is there because round 2 found the schema-conformance half passes universally for a stub naming no parameters at all.
+- [ ] `session-recall/SKILL.md` names **at least the five retrieval tools and their required parameters** from the clyde table above (the table lists six; `session_efficiency` is not required), every parameter name it does name is present in clyde's live MCP schema, and the skill resolves under `Skill(session-recall)`. The floor is there because round 2 found the schema-conformance half passes universally for a stub naming no parameters at all.
   **Observed on main:** `HOME/.claude/skills/session-recall/SKILL.md`: "No such file or directory (os error 2)". Cannot pass before Phase 1.
-- [ ] `rules/recall.md` is `<= 1,200` bytes, resolves through `/home/saidler/repos/.claude/rules/recall.md` as a symlink into the repo, carries `alwaysApply: true` at line 1, and **contains the enumerated phrase list and at least three clyde tool names**. Size and symlink alone passed for an empty file, which round 2 flagged as the reason the +1,200 bytes looked unearned.
+- [ ] `rules/recall.md` is `<= 1,200` bytes, resolves through `/home/saidler/repos/.claude/rules/recall.md` as a symlink into the repo, opens with `---` at line 1 and `alwaysApply: true` at line 2, and **contains the enumerated phrase list and at least three clyde tool names**. Size and symlink alone passed for an empty file, which round 2 flagged as the reason the +1,200 bytes looked unearned.
   **Observed on main:** `/home/saidler/repos/.claude/rules/recall.md`: "No such file or directory (os error 2)". Cannot pass before Phase 3. The deletion half of this criterion is **withdrawn**: `interaction.md:28-29` stays.
 - [ ] `readlink -e ~/.claude/hooks/session-recall-guard.sh` resolves into the repo, **`jq` finds `session-recall-guard.sh` under `hooks.UserPromptSubmit` in `HOME/.claude/settings.json`**, and `otto ci` exits 0.
   **Why the registration check is explicit:** `hooks-preflight.sh` exits 0 unconditionally (final line) and warns only through `additionalContext`, so an exit-code criterion passes with the hook absent. Round 2 went further and ran it against an in-memory `{"hooks":{}}` fixture: exit 0, empty stdout, empty stderr, with the symlink still resolving. Preflight iterates registrations that exist and never asserts a required one is present, so **linked does not mean registered** and readlink-plus-empty-stdout was vacuous too. Only the `jq` assertion bites. The same hole sits in chunk D's shipped criterion 4 and is handed on.
@@ -264,6 +265,15 @@ Counts below are pinned to a **frozen corpus snapshot** taken in Phase 2, not to
 
 ## Resolved Decisions
 
+- **2026-09-18 (panel round 3): AC4 and AC5 were mutually unsatisfiable.** AC4 required `alwaysApply: true` at line 1; `.otto.yml:112-116` fails CI unless every `rules/*.md` except `voice.md` has `---` as its literal first line; AC5 required `otto ci` green. A file satisfying AC4 as written failed CI. Frontmatter is now `---` / `alwaysApply: true` / `---`.
+- **2026-09-18 (panel round 3): AC2 was the sixth vacuous criterion**, and coverage was the wrong relation. A regex selecting zero records satisfied "fires on every record the predicate selects", and so did `predicate OR prompt=="hello"` at 56 fires. Replaced with set equality against an id list committed as a fixture in Phase 2.
+- **2026-09-18 (panel round 3): probe 3's carve-out branch admits exactly one record, and it is a human ask.** `22a56659...jsonl:4`, a `/doctor` whose args read "in the last session". The prefix bucketing filed it as non-human. The branch reclassifies it (47 fires, 11,226 human) rather than booking a false fire. Measured before the probe runs, so neither branch is a surprise.
+- **2026-09-18 (panel round 3): the deletion recurred in two more places**, the Overview and the ship-order note, after round 2 fixed four. Same class both times: a reversed decision landing in the table and the log but not everywhere the plan repeats it.
+- **2026-09-18 (panel round 3): Phase 1's success criterion still carried the universal-only schema check** that round 2 fixed in AC3. The fix landed in the AC block and not in the phase gate.
+- **2026-09-18 (panel round 3): the pushback's reason is overturned a second time, and the result stands a third.** Round 1 said fence-only is equivalent; round 2 said the ordering argument was right on the result and wrong on the reason; round 3 measured the 12 security records directly: fence-only leaves 11, while the diff-line clause, bail 4 and bail 5 each independently leave 0. The equivalence is held jointly, not by ordering.
+- **2026-09-18 (panel round 3): the new artifacts need adding to `.otto.yml`'s em-dash lint `FILES` list**, which is enumerated, not globbed. Neither seat found it. The test matrix does not, because `:126` globs `*-test.sh`.
+- **2026-09-18 (panel round 3): the hook is `bash`, not Python.** Performance said "One Python process" from the `inline-skill-tokens.py` precedent, which is cited for its contract, not its language.
+- **2026-09-18 (panel round 3): all four load-bearing counts re-derived and confirmed** on a fresh 18,048-record extraction: 46 non-meta human fires, 38 id-arm-only, 29 for bail 4, and the 12/11 security split. The 43,706 and 50,738 byte figures also confirmed. No count changed.
 - **2026-09-18 (panel round 2): the corpus carries `isMeta`, and this doc was guessing instead of reading it.** 2,052 meta records sit inside the 11,225, one of them among the fires. 47 -> **46**. Phase 2's replay buckets on the flag. The "no provenance field" claim is true of the live payload only, and the doc now says which.
 - **2026-09-18 (panel round 2): the id-arm regex goes in the doc verbatim.** The prose form ("not adjacent to `/`, `\"` or `'`") omits `\w` and `-` and scores 50, not 46. An implementer working from the prose would fail Phase 2.
 - **2026-09-18 (panel round 2): Phase 3 stopped ordering a deletion that round 1 had already withdrawn.** Title, body, success criterion and AC4 all still carried it. The fold-in updated the verdict table and the decision log and missed the plan, which is the class of defect an implementation audit catches late.
@@ -278,7 +288,7 @@ Counts below are pinned to a **frozen corpus snapshot** taken in Phase 2, not to
 - **2026-09-17 (panel round 1): "hooks-preflight exits 0" is not a criterion.** It exits 0 unconditionally and warns through `additionalContext`. Replaced with a `readlink -e` plus empty-stdout assertion. The same defect is live in chunk D's shipped criterion 4 and is handed to whichever chunk owns it.
 - **2026-09-17 (panel round 1): Phase 0 names the clyde tools, not the skill.** It runs before Phase 1 creates the skill, so a skill-invocation criterion passes on an unresolvable attempt. The signal is refusal versus no-refusal.
 - **2026-09-17 (panel round 1): the phrase list is enumerated in the doc.** It was unreproducible, which mattered because it is the arm Phase 0 decides.
-- **2026-09-17, pushback sustained on measurement: the code-ish bail is one clause.** The architect seat held that fence-only leaves 24 security-review candidates. Measured with bails 1, 2, 4 and 5 in place, fence-only and the full 4-part form both score 47 human / 0 false, because bail 5 removes that bucket first. Dropping code-ish entirely does move the number (59 human), so the fence clause stays and the Rust literals and diff-line count go.
+- **2026-09-17, pushback sustained on measurement: the code-ish bail is one clause.** The architect seat held that fence-only leaves 24 security-review candidates. Measured with bails 1, 2, 4 and 5 in place, fence-only and the full 4-part form both score 46 non-meta human / 0 false. Round 3 overturned the *reason*: it is not that bail 5 runs first. Of the 12 security records passing the trigger, fence-only leaves 11 while the diff-line clause, bail 4 AND bail 5 each independently leave 0, and bail 4 does so only because all 12 are reviews of the clyde repo. Dropping code-ish entirely moves the number (49 non-meta human), so the fence clause stays and the Rust literals and diff-line count go.
 - **2026-09-17: the audit's hook trigger is not built.** 38.2% of typed prompts. Recorded as Alternative 1.
 - **2026-09-17: predicate (c) is dropped**, not deferred. 5.32% for no gain, and its negative lexical test is a shape already rejected once.
 - **2026-09-17: a refusal of arm (b) in Phase 0 shrinks the trigger rather than failing the chunk.**
@@ -311,7 +321,7 @@ None. The hook is a pure function of the prompt string: no cache, no ledger, no 
 ### Performance
 
 - `UserPromptSubmit` fires **once per prompt**, not once per tool call. Chunk D's 689 ms figure was ten Bash `PreToolUse` guards summed across every Bash invocation; this is a different budget and a far smaller one.
-- One Python process, one regex pass over the prompt. The code-ish bail runs first and short-circuits the expensive path on pasted diffs, which are the longest prompts in the corpus.
+- One `bash` process, one pass over the prompt. The hook is `session-recall-guard.sh`, matching the tree's other guards; `inline-skill-tokens.py` is cited for its `additionalContext` contract and its verbatim-quoting discipline, not for its language. The bails run first and short-circuit on pasted diffs, which are the longest prompts in the corpus.
 
 ### Dependencies
 - clyde's MCP server, already installed.
@@ -333,7 +343,7 @@ None. The hook is a pure function of the prompt string: no cache, no ledger, no 
 ## Blast radius and ship order
 
 - One repo. No cross-repo work, unlike D2.
-- Phase 2 before Phase 3: the hook is live and green before its prose is deleted.
+- Phase 2 before Phase 3: the rule points at the hook's behaviour, so the hook is live and green first. No prose is deleted in either phase.
 - Phase 1 before Phase 2: both the hook and the rule point at the skill by name.
 
 ## Risks and Mitigations
@@ -354,7 +364,7 @@ None. Everything the five passes and two panel rounds raised is closed in the do
 
 - **Is the audit's trigger shippable?** No. 38.2%. Closed by measurement, Alternative 1.
 - **Does the phrase arm survive the injection policy?** Phase 0 probe 1. Not open, because the design specifies both outcomes: refusal narrows the hook to the id arm at 38 of 11,225 (0.34%) and that is a recorded pass.
-- **Does bail 1 eat slash commands?** Phase 0 probe 3, added in round 2. Not open for the same reason: if the live payload's `prompt` begins with `<`, bail 1 gets a `<command-` carve-out. Round 1's architect seat asserted this breaks the hook outright; that was never established, and the probe settles it either way.
+- **Does bail 1 eat slash commands?** Phase 0 probe 3. Not open, and round 3 measured both branches so neither is a surprise. A `<command-` carve-out admits **exactly one** additional tagged record: `22a56659-7581-452b-b285-92af1ba18d75.jsonl:4`, a `/doctor` whose `command-args` read "...after you cleaned a bunch of things up in the last session". It fires on the phrase arm. **That record is a genuine human recall ask that this doc's prefix bucketing filed as non-human**, so the carve-out branch reclassifies it into the human set (47 human fires, 11,226 human records) rather than counting it as a false fire. The non-human zero survives either way. Under id-only both branches are unchanged.
 - **Does the WHOAMI change have an enforcement seam?** No, and it ships as documentation with that stated.
 - **Is `rules/recall.md` worth +1,200 bytes with no prose offset?** Settled against the architect seat: it is named in F1's scope, so cutting it is unrequested scope removal. The defect was the acceptance test, now fixed to fail on an empty file.
 
