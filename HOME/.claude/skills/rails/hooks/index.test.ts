@@ -348,6 +348,17 @@ describe('rmRewrite: wrapper forms are denied', () => {
         expect(r.deny).toBeUndefined()
         expect(r.note).toBe('')
     })
+    test('docker rm and docker compose rm are the tool s own verb, not a delegated rm', async () => {
+        const a = await rmRewrite('docker rm c1 c2', env())
+        expect(a.deny).toBeUndefined()
+        expect(a.command).toBe('docker rm c1 c2')
+        const b = await rmRewrite('docker compose rm -f', env())
+        expect(b.deny).toBeUndefined()
+        expect(b.command).toBe('docker compose rm -f')
+    })
+    test('docker exec still delegates, so it stays denied', async () => {
+        expect((await rmRewrite('docker exec c rm -rf /x', env())).deny).toBeDefined()
+    })
 })
 
 /** The live list as of 2026-09-13, already stripped of the ` *` glob. */

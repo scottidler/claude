@@ -281,6 +281,15 @@ const WRAPPERS = new Set(['sudo', 'xargs', 'find', 'sh', 'bash', 'ssh', 'docker'
 const SCRATCH = ['$TMPDIR', '/tmp/claude', '/tmp/review-panel']
 /** Words a wrapper carries that are verbs, not paths. */
 const WRAPPER_VERBS = new Set(['rm', 'exec'])
+/**
+ * For docker/kubectl only: the subcommands that hand off to an arbitrary
+ * INNER command rails cannot see into (`docker exec c rm -rf /x`, `docker run
+ * --rm -v host:/host img rm -rf /host/x`). Absent one of these, an `rm` word
+ * is the tool's OWN resource verb (`docker rm`, `docker rmi`, `docker volume
+ * rm`, `docker compose rm`), which deletes containers/images/volumes, not
+ * host files, so rkvr rmrf does not apply and it is not this rule's business.
+ */
+const DOCKER_DELEGATES = new Set(['exec', 'run'])
 /** An `rm` word, including one inside a quoted `sh -c` payload. */
 const RM_WORD = /(?:^|[\s;&|(])rm(?=\s|$)/
 /** The only flags a rewritable `rm` may carry. */
@@ -442,6 +451,8 @@ async function rmRewrite(command: string, env: Env): Promise<RmResult> {
         const seg = segment(command, head.at)
         if (WRAPPERS.has(head.word)) {
             const words = splitWords(seg)
+            const isDockerLike = head.word === 'docker' || head.word === 'kubectl'
+            if (isDockerLike && !words.some((w) => DOCKER_DELEGATES.has(w.value))) { continue }
             if (!deletes(words)) { continue }
             if (wrapperDenied(words)) { return { deny: RM_DENY } }
             notes.push(rmMiss('wrapper delete confined to scratch'))
