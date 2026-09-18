@@ -156,11 +156,22 @@ bigline=$(jq -c -n --rawfile f "$T/filler.txt" '{type:"assistant",message:{conte
 for _ in $(seq 1 25); do printf '%s\n' "$bigline" >> "$BIG"; done
 bigsize=$(stat -c %s "$BIG")
 runb allow 'git status --porcelain' "$BIG"
-start=$(date +%s%N)
-printf '%s' "$(bash_payload 'git status --porcelain' "$BIG")" | HOME="$FHOME" bash "$HOOK" >/dev/null
-elapsed=$(( ($(date +%s%N) - start) / 1000000 ))
+# BEST of 5, not a single run. What this gate protects is that a non-Slack call
+# takes the fast path and never reads the transcript at all; a single wall-clock
+# sample measures the scheduler as much as the guard, and it failed once at high
+# load during the round 4 work (32 ms on the reruns). The minimum is stable under
+# load and still catches the regression this exists for: a guard that actually
+# read 5 MB could not hit 50 ms on ANY of five attempts. `taste.md` says flaky
+# tests get hardened rather than retried.
+elapsed=999999
+for _ in 1 2 3 4 5; do
+  start=$(date +%s%N)
+  printf '%s' "$(bash_payload 'git status --porcelain' "$BIG")" | HOME="$FHOME" bash "$HOOK" >/dev/null
+  sample=$(( ($(date +%s%N) - start) / 1000000 ))
+  [ "$sample" -lt "$elapsed" ] && elapsed=$sample
+done
 [ "$bigsize" -gt 4000000 ] && [ "$elapsed" -lt 50 ]
-ok $? "[gate] $bigsize byte transcript, non-Slack call took ${elapsed} ms (want < 50)"
+ok $? "[gate] $bigsize byte transcript, non-Slack call took ${elapsed} ms best-of-5 (want < 50)"
 runb allow 'slackify --input notes.md' "$TX_NONE"
 runb allow 'slack read engineering --since 1h' "$TX_NONE"
 runb allow 'slack channels --query eng' "$TX_NONE"

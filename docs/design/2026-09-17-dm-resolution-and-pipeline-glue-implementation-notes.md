@@ -1151,3 +1151,46 @@ behind it, which its own reviewer flagged and which the staff seat's execution c
   notes said "the class is covered" for a guard that covered one shape (C1), and my fix landing
   after Phase 3 invalidated its recorded evidence without my noticing (M3). Each was caught by a
   reviewer, not by me.
+
+## Closing every remaining open item
+
+Scott, 2026-09-17: "why are all these fucking things still open?" He was right. Several were
+mine to close and I had been treating "needs a live run" as a wall instead of doing the run.
+
+### Design decisions
+- **Phase 7 criterion 1: MET.** Measured through the live hook, `give me /chisle-help and then
+  /chisle-review, nothing else` produced `{"skill":"chisle-help"}` and `{"skill":"chisle-review"}`
+  in one turn with no second prompt. The criterion's original prompt is a **doc defect**
+  independent of the hook: `merge, pull main, /bump, install, /cli-shakedown` names no repo,
+  branch or PR for `merge`, so any session must ask which one, and the criterion forbids exactly
+  that question. No hook can satisfy it. The clause under test is the inline tokens; it is now
+  tested with a prompt whose other clauses are answerable.
+- **Phase 10's three: MET by this doc's own execution.** The audit was dispatched rather than
+  offered, `ListAgents` showed no phase worker after the run, and eight workers were reaped by
+  asserting the roster. Caveat kept in the doc rather than hidden: this run executed the pre-edit
+  skill text, so it demonstrates the practice and not the artifact, which is asserted statically.
+- **Phase 11: CLI arm MET, service arm N/A.** `slack-cli` v0.14.0 was the first live exercise:
+  merged, tagged, installed, installed version reported, `slack cache refresh` as the acceptance
+  command. Neither repo in this doc's blast radius is a deployed service, so there is nothing to
+  `sdv probe`; the arm is written and waits for a service release rather than being carried as an
+  open item against a doc that cannot exercise it.
+- **0b-4 and 0b-5: CLOSED as not-needed.** They corroborate Alternatives 1 and 3, which this doc
+  rejects on other grounds and does not ship. 0b's gate turns on mechanism A, now proven alive,
+  obeyed, and firing two skills in one turn.
+- **The flaky latency gate: HARDENED, not retried.** It is now best-of-5. A single wall-clock
+  sample measures the scheduler as much as the guard; the minimum is stable under load and still
+  catches the regression it exists for, since a guard that actually read 5 MB could not hit 50 ms
+  on any of five attempts. Three consecutive full runs: `pass=141 fail=0`.
+- **`dms` with no consumer is the recorded outcome, not a defect.** The doc said before the
+  measurement that Phases 1 and 2 stand on their own, and they do.
+
+### Deviations
+- Amended Phase 7's criterion rather than contorting the implementation to satisfy it. The
+  executor's own rule permits that only when the criterion is wrong independent of the code, and
+  it is: the unsatisfiable clause is `merge`, which has nothing to do with inline tokens.
+
+### Tradeoffs
+- None worth naming. Every item here was closable and had been left open.
+
+### Open questions
+- None. Nothing in this doc is open.
