@@ -350,11 +350,13 @@ None. The hook is a pure function of the prompt string: no cache, no ledger, no 
 
 ## Open Questions
 
-None. Five passes run, and the three questions they raised are closed in the doc rather than parked:
+None. Everything the five passes and two panel rounds raised is closed in the doc or converted into a Phase 0 probe, which is a phase, not a parked question.
 
 - **Is the audit's trigger shippable?** No. 38.2%. Closed by measurement, Alternative 1.
-- **Does the phrase arm survive the injection policy?** Unknown until Phase 0 runs, but it is not an open question because the design specifies both outcomes: refusal narrows the hook to the id arm at 0.32% and that is a recorded pass.
+- **Does the phrase arm survive the injection policy?** Phase 0 probe 1. Not open, because the design specifies both outcomes: refusal narrows the hook to the id arm at 38 of 11,225 (0.34%) and that is a recorded pass.
+- **Does bail 1 eat slash commands?** Phase 0 probe 3, added in round 2. Not open for the same reason: if the live payload's `prompt` begins with `<`, bail 1 gets a `<command-` carve-out. Round 1's architect seat asserted this breaks the hook outright; that was never established, and the probe settles it either way.
 - **Does the WHOAMI change have an enforcement seam?** No, and it ships as documentation with that stated.
+- **Is `rules/recall.md` worth +1,200 bytes with no prose offset?** Settled against the architect seat: it is named in F1's scope, so cutting it is unrequested scope removal. The defect was the acceptance test, now fixed to fail on an empty file.
 
 ## References
 
