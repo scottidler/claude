@@ -186,9 +186,16 @@ bails 'phrase, no noun'        'what was the last thing you said'
 bails 'phrase, no adjective'   'this session is fine as it is'
 bails 'phrase, wrong verb'     'that doc we argued about is stale'
 
-echo "=== bail 5's remaining two openers, and bail 4's case folding ==="
+echo "=== bail 5's remaining three openers, and bail 4's case folding ==="
 bails 'Summarize this Claude Code' "Summarize this Claude Code session $SID in one line"
 bails 'Analyze the following'      "Analyze the following transcript from $SID"
+# The security-review opener had NO fixture until the mode-2 audit measured it:
+# deleting its case arm cost 0 test failures while every other bail-5 literal
+# cost 1. It carries weight the others do not, because the doc's own accounting
+# says the fence clause alone leaves 11 of the 12 security-review records and
+# bail 4 zeroes them only through the coincidence that all 12 name `clyde`.
+# Deliberately names no `clyde` and carries no fence, so only bail 5 can bail it.
+bails 'Review this change for security' "Review this change for security issues, then check session $SID"
 bails 'clyde capitalised'          "Clyde had the session $SID indexed"
 bails 'clyde uppercase'            "CLYDE indexed $SID"
 bails 'clyde mid-word'             "the clydeish index has $SID"

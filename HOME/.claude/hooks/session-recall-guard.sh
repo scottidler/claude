@@ -5,8 +5,10 @@
 # 73 sessions open by asking Claude to go find a previous session and nothing in
 # the setup encoded that. The audit's prescribed trigger ("a URL, a path, or how
 # do I") was measured at 38.2% of typed prompts and is NOT built. This predicate
-# fires on 0.41%: 46 of 11,225 human prompts, and zero across all 6,820
-# non-human records.
+# fires on 0.41%: 48 non-meta human prompts on Phase 2's frozen snapshot, and
+# zero across all 6,843 non-human records. (Design-time figures were 46 and
+# 6,820 on round 3's smaller extraction; AC2 in the design doc pins the snapshot
+# figure and reconciles the two.)
 #
 # WIRING: registered in ~/.claude/settings.json under hooks.UserPromptSubmit on
 # matcher `*`. The harness pipes the prompt payload to stdin. This hook emits
@@ -47,7 +49,8 @@
 # Bail 3 is ONE clause, deliberately. An earlier form also tested for `const `,
 # `&str` and ">3 lines starting +". Measured with bails 1, 2, 4 and 5 in place,
 # fence-only and the full four-part form score identically (46 non-meta human /
-# 0 false), so the Rust literals and the diff-line count are dead weight.
+# 0 false on round 3's extraction), so the Rust literals and the diff-line count
+# are dead weight.
 # Dropping the fence clause entirely DOES move the number, to 49, and its 12
 # suppressed records are 9 skill preambles, 2 summarizer prompts and 1
 # compaction continuation. So it earns its place by suppressing MACHINE

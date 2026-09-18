@@ -28,8 +28,11 @@
 # RESULT: 48 non-meta human fires, 0 across all 6,843 non-human records.
 #
 # The doc's figure is 46, measured in panel round 3 on an 18,048-record
-# extraction. Both extra fires are accounted for, and neither is a predicate
-# change. Restricting this snapshot to records older than round 3's fold commit
+# extraction. Both extra fires are accounted for, and neither was tuned to hit a
+# number: one is a record newer than round 3's extraction, and the other is the
+# phrase arm's case folding, which IS a predicate change (it widens what the
+# predicate matches, by one record) and was ordered explicitly after the delta
+# was reported. Restricting this snapshot to records older than round 3's fold commit
 # (2026-09-18 00:52:01 -0700) and folding the phrase arm case-sensitively
 # reproduces 46 / 0 exactly, and the same restriction reproduces the doc's
 # denominators (isMeta 2,052 and security-review 1,862 to the record).

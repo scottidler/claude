@@ -379,3 +379,31 @@ before anything was pushed, bumped, or tagged. Two were false statements that ha
 - None. One known limit recorded instead: the 95 MB frozen snapshot lives on tmpfs and `freeze.py`
   takes no cutoff argument, so after a reboot AC2's left side has no reproducer. The sha256 in the
   fixture header remains the only provenance check.
+
+### Audit cheap wins, all five folded
+- **MW1**: the shipped hook's own header still carried the pre-amendment 46 / 6,820 figures at
+  `session-recall-guard.sh:8-9` and `:49`. My `b398189` was titled "doc reads 48/0 as current
+  everywhere" and touched only the doc, so the artifact a reader opens first was the one place
+  still wrong. Header now states the snapshot figure and marks the design-time one as such.
+- **MW2**: `fires.tsv:30` claimed "neither is a predicate change" when the phrase arm's case
+  folding is exactly that. Reworded to say what was true (neither was tuned to hit a number)
+  and to call the folding a predicate change ordered after the delta was reported.
+- **MW3**: bail 5's `Review this change for security` literal had NO fixture. Measured: deleting
+  its case arm cost 0 test failures while every other bail-5 literal cost 1. Added a fixture
+  that names no `clyde` and carries no fence, so only bail 5 can bail it, then proved it bites:
+  deleting the arm now costs 1 failure (pass=59 fail=0 intact, 58/1 mutated). This mattered
+  because the doc's own accounting says fence-only leaves 11 of the 12 security-review records
+  and bail 4 zeroes them only through the coincidence that all 12 name `clyde`.
+- **MW4**: step 1 loaded three tools while steps 2 and 3 call five. A deferred tool outside the
+  select list cannot be called until a second ToolSearch runs, which is the round trip the skill
+  exists to avoid. Fixed in `SKILL.md` step 1 and in the doc's Phase 1 bullet, which is where the
+  three-tool list originated.
+- **MW5**: the program baton still rowed F1 as `in review`. Now `building`; it becomes `done`
+  when the push lands, which is gated on Scott's approval.
+
+Deferred, with the reasoning recorded rather than dropped: D1 (`rules/recall.md` earns its 747
+bytes, and its recall-quality effect is unmeasured, which is a limit on the evidence and not
+grounds to reopen a decision settled in round 2), D2 (the 95 MB snapshot is on tmpfs and
+`freeze.py` has no cutoff flag, so after a reboot AC2's left side has no reproducer; adding the
+flag is a new feature and the AC preamble already declares the count snapshot-era), and D3 (one
+`isMeta` harness prompt fires live, which the doc already anticipates via the decline branch).

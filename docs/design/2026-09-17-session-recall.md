@@ -224,7 +224,7 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 #### Phase 1: the `session-recall` skill
 **Model:** sonnet
 - `HOME/.claude/skills/session-recall/SKILL.md`, mirroring `vault-recall/SKILL.md` structure exactly: frontmatter `name` + `description` (description carries the whole trigger surface with quoted phrases and the "even if he doesn't mention clyde" closer), H1, one-paragraph why, `## Steps` as numbered imperatives, `## Rules` as bullets.
-- Steps open with ToolSearch (`select:mcp__clyde__sessions_search,mcp__clyde__session_read,mcp__clyde__session_grep`), then the tools with named params, then the documented fallback.
+- Steps open with ToolSearch over **all five retrieval tools** (`select:mcp__clyde__sessions_search,mcp__clyde__sessions_ls,mcp__clyde__session_open,mcp__clyde__session_grep,mcp__clyde__session_read`), then the tools with named params, then the documented fallback. The mode-2 audit caught this bullet naming only three while the steps it specifies call `session_open` and `sessions_ls`: a deferred tool that is not in the select list cannot be called until a second ToolSearch runs, which is the round trip the skill exists to avoid.
 - `## Rules` copies `vault-recall:22-26`'s shape: context-loading step not a deliverable, keep the summary short; zero results is a fine answer, say so in one line; do not pad.
 - **Success criteria:** `SKILL.md` names at least the five retrieval tools and their required parameters; every parameter name it does name appears in clyde's MCP schema; the skill resolves under `Skill(session-recall)`. The floor is required here for the same reason AC3 carries it: the conformance half alone passes for a stub naming nothing.
 

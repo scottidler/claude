@@ -9,7 +9,7 @@ Scott's Claude Code sessions are catalogued by clyde (title, tags, summary, repo
 
 ## Steps
 
-1. Load clyde tools if not present: ToolSearch `select:mcp__clyde__sessions_search,mcp__clyde__session_read,mcp__clyde__session_grep`.
+1. Load clyde tools if not present: ToolSearch `select:mcp__clyde__sessions_search,mcp__clyde__sessions_ls,mcp__clyde__session_open,mcp__clyde__session_grep,mcp__clyde__session_read`. All five, because steps 2 and 3 call `session_open` and `sessions_ls`: loading only three forces a second ToolSearch, which is the round trip this skill exists to avoid.
 
 2. If the user named a session id (a UUID, or a unique prefix of one), skip straight to `session_open` with `id` to resolve it (resume command, staged path, or unavailable), then `session_read` with `id` (optional `offset`, `limit`) to page the transcript, or `session_grep` with `id` and `query` (optional `context_lines`, `limit`) to jump straight to the relevant part.
 
