@@ -72,3 +72,47 @@ Append-only. Design doc: `docs/design/2026-09-17-session-recall.md`.
   begin `Another Claude session sent a message:`. The doc's 2,351 corpus records stand, and
   the live-payload form of that prefix is unmeasured. Phase 2's replay reads the corpus, so
   this does not block it; it does mean bail 2 is the one bail with no live-payload confirmation.
+
+## Phase 1: the `session-recall` skill
+
+### Design decisions
+- **`HOME/.claude/skills/session-recall/SKILL.md`, structure copied line-for-line from
+  `vault-recall/SKILL.md`**: frontmatter `name` + `description`, H1, one-paragraph why,
+  `## Steps` as numbered imperatives, `## Rules` as bullets. No new section shape invented.
+- **The five required tools (`sessions_search`, `sessions_ls`, `session_open`, `session_grep`,
+  `session_read`) and their required params were cross-checked against clyde source**, not
+  taken from the design doc's table on faith: `tatari-tv/clyde/sessions/src/mcp/tools.rs`
+  (`SessionsSearchRequest`, `SessionsLsRequest`, `SessionRef`, `SessionGrepRequest`,
+  `SessionReadRequest`) and the dispatch match arms + tool-name literals in
+  `tatari-tv/clyde/sessions/src/mcp.rs:68-89`. Every tool name, required field, and optional
+  field in the doc's table matches the source exactly; no disagreement to resolve.
+- **`session_efficiency` is omitted from Steps** per the doc's floor ("at least the five
+  retrieval tools... `session_efficiency` is not required"). It is not mentioned anywhere in
+  the skill, matching the doc's framing that it is a behavior-signal tool, not a retrieval one.
+- **The CLI fallback step names only the three tools that have one** (`clyde session search`,
+  `clyde session ls`, `clyde session resume`), confirmed live via `clyde session --help` and
+  `clyde efficiency --help` on PATH. `session_grep` and `session_read` have no CLI equivalent
+  per the doc's table (blank CLI column); the skill states that explicitly rather than
+  silently omitting a fallback for them.
+- **No new symlink or `manifest -l` needed.** `HOME/.claude/skills` is linked wholesale:
+  `~/.claude/skills -> .../HOME/.claude/skills` (a single directory symlink, confirmed with
+  `readlink ~/.claude/skills`), unlike `~/.claude/hooks`, which is 36 per-file symlinks (Phase
+  2's problem, not this one). The new `session-recall/` directory appeared live at
+  `~/.claude/skills/session-recall/SKILL.md` on write, no extra step run.
+
+### Deviations
+- None. The skill matches the doc's Phase 1 bullet and the six-tool table verbatim; the
+  schema cross-check against clyde source agreed with the doc's table in every field.
+
+### Tradeoffs
+- **Trigger phrases in the description are copied from the doc's enumerated phrase-arm list**
+  (`the session where`, `that doc/design/spec we wrote/made/did`, `previous/last/prior session`)
+  rather than paraphrased, so the skill's own trigger surface stays traceable to the same
+  enumeration Phase 2's hook will implement, even though Phase 0 found both arms survive and
+  nothing here depends on that verdict.
+- **Rules section keeps the naming-trap list as prose bullets, not a table**, matching
+  `vault-recall`'s bullet-only `## Rules` shape rather than importing the doc's markdown table.
+  The table's content survives; the format follows the sibling skill, not the doc.
+
+### Open questions
+None.
