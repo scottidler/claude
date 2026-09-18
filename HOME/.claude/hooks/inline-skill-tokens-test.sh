@@ -222,7 +222,13 @@ fi
 # ---- registration (acceptance criterion 6, repo-tree half) ------------------
 # bin/hooks-resolve already fails CI on a dead hook path; this asserts the
 # event and the file, which is what "registered" means for THIS hook.
-cmd=$(jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' "$SETTINGS")
+# The equality form of this assertion broke when session-recall-guard.sh
+# registered on the same event (2026-09-18, chunk F1 phase 2): UserPromptSubmit
+# now carries two commands. The claim is that THIS hook is registered, not that
+# it is the only one, so the assertion counts its own path.
+cmd=$(jq -r '[.hooks.UserPromptSubmit[]?.hooks[]?.command]
+             | map(select(. == "~/.claude/hooks/inline-skill-tokens.py"))
+             | if length == 1 then "~/.claude/hooks/inline-skill-tokens.py" else "nothing" end' "$SETTINGS")
 if [ "$cmd" = "~/.claude/hooks/inline-skill-tokens.py" ]; then
   ok "settings.json: registered under UserPromptSubmit"
 else

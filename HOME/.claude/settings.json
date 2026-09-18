@@ -1022,6 +1022,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/inline-skill-tokens.py"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-recall-guard.sh"
           }
         ]
       }

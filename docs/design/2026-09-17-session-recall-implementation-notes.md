@@ -116,3 +116,101 @@ Append-only. Design doc: `docs/design/2026-09-17-session-recall.md`.
 
 ### Open questions
 None.
+
+## Phase 2: `session-recall-guard.sh` and its matrix
+
+### Design decisions
+- **`HOME/.claude/hooks/session-recall-guard.sh` is bash**, per round 3's ruling, and its
+  five bails run as pure-bash `case` patterns with no subprocess. `jq` reads the payload and
+  `grep -P` runs only after every bail has passed, so the longest prompts in the corpus (pasted
+  diffs, which carry a fence) cost one `jq` and nothing else.
+- **The id arm is the doc's regex character-for-character**, lookarounds included, and it is
+  case-SENSITIVE: the class is literally `[0-9a-f]`, so a `-i` would widen it. Measured on the
+  frozen snapshot, folding the id arm's case changes nothing (48 fires either way), so the
+  verbatim form costs no recall.
+- **The emitted text is built in one place per file.** The hook's `emit()` holds it; the test's
+  `want_context()` holds an independent copy and asserts full-string equality on every fire, so
+  a drift between the two is a test failure rather than a silent paraphrase. Mutation-checked:
+  changing "quoted verbatim from it" to "quoted from it" in the hook fails 15 cases.
+- **`--self-test` resolves through `readlink -f "$0"`**, so it finds the matrix next to the
+  REPO file rather than next to `~/.claude/hooks/`'s symlink. It works before the test file is
+  linked and after.
+- **Failing open is deliberate and fixtured 11 ways** (empty stdin, non-JSON, bare `[]`,
+  `null`, `42`, `"x"`, no `prompt` key, `prompt` as number/null/object/empty). The failure mode
+  of a raising `UserPromptSubmit` hook is a prompt that will not submit, and this hook only
+  ever adds context.
+- **The matrix bites, proven by mutation rather than asserted.** Naive UUID regex (lookarounds
+  dropped): 14 failures. Fence bail dropped: 1 failure, class 6. Emitted text paraphrased: 15
+  failures.
+- **Both symlinks were created with the command sandbox OFF**, after `manifest -l ... | bash`
+  failed in-sandbox with `ln: Read-only file system`. `~/.claude/hooks` is in the sandbox's
+  deny list, which is the same obstacle the 2026-09-15 intent-guards notes recorded. The
+  invocation was scoped to the two files, never an unscoped manifest run.
+- **`HOME/.claude/settings.json` was edited with the Edit tool**, not `sed`/`jq -i`: Bash
+  writes to that path are denied from a session whose config this repo is.
+- **The corpus replay invokes the real hook once per record**, 18,093 times over a frozen
+  snapshot, rather than reimplementing the predicate in the measurement. Reproducer committed
+  at `docs/design/2026-09-17-session-recall-phase2/{freeze.py,replay.py,tally.py}`; the fire
+  list is `fires.tsv` in the same directory, which is acceptance criterion 2's fixed left side.
+- **The extraction definition was reverse-engineered from the doc's own bucket counts** and it
+  matches: restricted to records older than round 3's fold commit, this snapshot reports
+  isMeta 2,052 and security-review 1,862, both exactly the doc's figures, with the other three
+  buckets inside 5 records.
+
+### Deviations
+- **48 non-meta human fires, not 46**, over a snapshot frozen at 2026-09-18 06:44 local
+  (18,093 records). Non-human fires are 0, as specified, across all 6,843 non-human records.
+  Both extra fires are accounted for and neither is a predicate change:
+  - `00938fec-3b63-42df-bbc1-3d603e13da61.jsonl:543` is a NEW record, typed at 06:25 local on
+    2026-09-18, after round 3's extraction (its fold commit is 00:52 local). Id arm.
+  - `59d90b84-06ce-4305-8069-e6b65a30f7fa.jsonl:94` fires only because **the phrase arm folds
+    case**: the record reads "A COPY AND PASTE FROM THE PREVIOUS SESSION", shouted. Restricting
+    the snapshot to pre-round-3 records AND folding the phrase arm case-sensitively reproduces
+    46 / 0 exactly.
+- **The phrase arm ships case-insensitive, and the DOC WAS AMENDED to say so.** It enumerated
+  the phrase list in lower case and never stated the folding; Phase 0's committed
+  `spike-hook.sh` uses `grep -oiP`, so the case-insensitive form is the only one the injection
+  probe ever tested, while round 3's count of 46 implies a case-sensitive arm the doc never
+  specified. This is the same defect the doc caught on the id arm (its prose form scores 50
+  rather than 46), left unfixed on the phrase arm. Two amendments, both ordered by the
+  orchestrator after this phase reported the delta rather than tuning to the number:
+  - **`The predicate`** now states the folding per arm: id arm case-sensitive (the class is
+    literally `[0-9a-f]`, folding widens it), phrase arm case-insensitive (prose fragments),
+    with Phase 0's `grep -oiP` cited as the probed form.
+  - **AC2** now names `2026-09-17-session-recall-phase2/fires.tsv` as the fixed left side and
+    pins **48 / 0** on this phase's snapshot (sha256 `8cdb7907...`), naming both divergences
+    inline (`00938fec-...:543` post-extraction, `59d90b84-...:94` case folding), plus the
+    6,820 to 6,843 growth in the non-human total and the cutoff reconciliation. The
+    set-equality relation is unchanged.
+  - No other count in the doc moved: bail 4's 29, the 12/11 security split and the byte
+    figures are untouched.
+- **`HOME/.claude/hooks/inline-skill-tokens-test.sh:225` was rewritten**, because registering a
+  second `UserPromptSubmit` command broke it: it asserted `.hooks.UserPromptSubmit[]?.hooks[]?
+  .command` EQUALS its own path, which pinned single-registration. It now asserts its own path
+  appears exactly once. Sibling hook, shipped test, and the only file outside this phase's set
+  that was touched.
+- **The frozen snapshot itself is not committed**: 95 MB. Its sha256 and record count are in
+  `fires.tsv`'s header instead, and the two scripts regenerate it.
+
+### Tradeoffs
+- **The fixture carries ids, arms, timestamps and the quoted trigger, not the prompts.** The
+  prompts are Scott's raw typed text (one of the 48 is abusive), and the quoted trigger is the
+  only fragment the hook itself ever emits. Set equality needs the ids, not the bodies.
+- **Bail 4 folds case** (`Clyde`, `CLYDE` bail), which is what Phase 0's spike measured, over a
+  literal `clyde` match. The cost is that `clydeish` bails too; the alternative is missing a
+  capitalised sentence-initial mention, which is the more common shape.
+- **The matrix is 58 assertions rather than the criterion's 10**, adding the lookaround set one
+  character at a time, each arm's case behaviour, bail 5's remaining openers and the malformed
+  payloads. The ten classes are labelled `class N` so the criterion stays greppable inside the
+  larger file.
+- **`tally.py` is a third committed script** where the criterion needed only a fixture. Without
+  it the fixture's rows have no committed generator, and a left side nobody can regenerate is
+  the same vacuity round 3 spent a round removing.
+
+### Open questions
+None. The phrase arm's case folding was the one open fork and it is closed: case-insensitive,
+decided on three grounds, all independent of what this phase happened to build. AC2's preamble
+pre-authorises a snapshot-era count ("a live count is not reproducible"); the unstated folding
+is a doc defect of the same class the doc already fixed once on the id arm; and a phrase arm
+that misses a sentence-initial `Previous session` misses the most common written form of its
+own trigger, while the case-sensitive form is an arm Phase 0 never probed.

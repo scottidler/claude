@@ -1,0 +1,97 @@
+# Phase 2 fire-list fixture for session-recall-guard.sh.
+#
+# The FIXED LEFT SIDE of acceptance criterion 2. The relation is SET EQUALITY,
+# not coverage: coverage passes for a regex that selects zero records, and it
+# also passes for `predicate OR prompt == "hello"` at 56 fires.
+#
+# Every row is a non-meta HUMAN record on which the shipped hook fires:
+#   <session>.jsonl:<line>   <arm>   <timestamp>   <trigger quoted verbatim>
+# The prompts themselves are NOT reproduced here. They are Scott's raw typed
+# text; the quoted trigger is the only fragment the hook itself emits.
+#
+# SNAPSHOT (frozen, because the corpus grows during a run and a live re-walk is
+# not reproducible):
+#   taken          2026-09-18 06:44 local, on desk.lan
+#   source         ~/.claude/projects/**/*.jsonl
+#   extraction     type == "user", isSidechain false, content is a string or a
+#                  block list with no tool_result (text blocks joined; an
+#                  image+text paste keeps its text)
+#   records        18,093
+#   sha256         8cdb7907cce747a554d0ca44ba2f51925d4d22ad20d14770b9b7d4222aef687e
+#   buckets        human 11,250 (2,061 isMeta), tagged 2,613,
+#                  `Another Claude session sent a message:` 2,360,
+#                  `Review this change for security` 1,870, `Caveat:` 0
+#   reproducer     freeze.py then replay.py, both in this directory. replay.py
+#                  invokes the real hook once per record: there is no second
+#                  copy of the predicate in the measurement.
+#
+# RESULT: 48 non-meta human fires, 0 across all 6,843 non-human records.
+#
+# The doc's figure is 46, measured in panel round 3 on an 18,048-record
+# extraction. Both extra fires are accounted for, and neither is a predicate
+# change. Restricting this snapshot to records older than round 3's fold commit
+# (2026-09-18 00:52:01 -0700) and folding the phrase arm case-sensitively
+# reproduces 46 / 0 exactly, and the same restriction reproduces the doc's
+# denominators (isMeta 2,052 and security-review 1,862 to the record).
+#
+#   00938fec-...:543   NEW RECORD. Written 06:25 local on 2026-09-18, after
+#                      round 3's extraction. Id arm.
+#   59d90b84-...:94    CASE. Reads "A COPY AND PASTE FROM THE PREVIOUS SESSION",
+#                      shouted, so it matches only because the phrase arm folds
+#                      case. The doc enumerates the phrase list in lower case
+#                      and never states the folding; Phase 0's committed
+#                      spike-hook.sh uses `grep -oiP`, and round 3's count
+#                      implies case-sensitive. That is the same defect the doc
+#                      caught on the id arm (prose form scores 50, not 46),
+#                      unfixed on the phrase arm. Settled case-insensitive: the
+#                      doc's `The predicate` now states the folding per arm and
+#                      AC2 pins 48 / 0 on this snapshot with both divergences
+#                      named inline.
+00938fec-3b63-42df-bbc1-3d603e13da61.jsonl:543	id	2026-09-18T13:25:52.718Z	f16687e6-cbf4-4282-b5aa-9f3543220dc3
+067afb22-f642-4b71-bea9-aab5f6f85caf.jsonl:7	id	2026-06-12T14:20:34.390Z	e8881722-ffbd-43a5-ada5-b99dcc80d069
+0aa5240e-339a-40ae-8617-6c0be2296eec.jsonl:4	id	2026-06-28T18:51:28.735Z	9a30918f-24ba-4128-b0a8-2d5b869d9f6b
+1155bc72-45b4-45f4-9be6-e4d04c29d6cc.jsonl:4	id	2026-07-25T06:54:09.472Z	4330e3fa-67ef-4a03-83e4-4ae8ce331f65
+1e96e45b-dcfb-44e5-abce-791583660b24.jsonl:67	phrase	2026-08-12T21:06:50.283Z	last session
+2af023b0-e6ef-4212-93b8-c508939ae069.jsonl:9	id	2026-09-03T05:43:29.625Z	7ca1cf38-6082-4608-b12a-1217d1671255
+2b163b4e-62ec-4cf6-81b7-0d5b02a2bdd8.jsonl:1184	id	2026-07-04T14:28:19.959Z	9ce1088d-5482-489e-93e2-7055041c3545
+2b163b4e-62ec-4cf6-81b7-0d5b02a2bdd8.jsonl:588	id	2026-07-04T07:15:24.566Z	9ce1088d-5482-489e-93e2-7055041c3545
+38a690c7-8214-4d6b-a6b1-4fe399c62582.jsonl:1091	id	2026-07-11T06:12:38.316Z	45fddb9a-b28d-4c6a-a952-1db6822d2a0e
+440d5d0e-6f57-4acc-bbe1-9f8242ee670f.jsonl:290	id	2026-09-01T04:31:08.598Z	5d762c47-e96e-4fb5-9280-794645857734
+440d5d0e-6f57-4acc-bbe1-9f8242ee670f.jsonl:5	id	2026-09-01T00:05:45.946Z	a20ef02b-00f3-4070-82cd-a1a98e7378f8
+45fddb9a-b28d-4c6a-a952-1db6822d2a0e.jsonl:4	id	2026-07-10T22:27:57.822Z	b7545d7f-eb43-4a93-9d02-e3c65ee0bfe6
+48081800-ae48-485d-81f9-bf2976ee480b.jsonl:4	id	2026-07-15T21:17:04.093Z	dad176a5-cf44-49af-804c-ff8ec95e859c
+4b7eddc0-2440-4def-ae32-d7221a7776d8.jsonl:397	phrase	2026-06-23T08:05:06.249Z	previous session
+5209cdf1-1cdb-47e1-9f03-0248f9e15e32.jsonl:350	id	2026-07-03T23:01:20.291Z	62f3a9db-e588-43dc-822f-9cdf7b6ce457
+575137cd-ec01-46fc-8c13-d811dfcd7dea.jsonl:5	phrase	2026-07-07T17:01:42.089Z	previous session
+59d90b84-06ce-4305-8069-e6b65a30f7fa.jsonl:94	phrase	2026-06-19T23:18:08.825Z	PREVIOUS SESSION
+5d134ea4-1116-4ad4-b841-36354bb80013.jsonl:4	id	2026-07-11T14:05:36.450Z	32c2cb1a-40e1-4d17-b0dd-c5358f57893f
+5fcd69b7-c9e7-4d49-b3b6-ea94b436fd1d.jsonl:4	id	2026-06-27T16:29:37.237Z	017a0c79-919a-4e45-a0dd-58d4a5e96e97
+60d76aac-47f6-49d1-9bb6-3a5f33ec06e7.jsonl:4	id	2026-08-12T07:49:01.719Z	049bec5f-8ccc-4fac-9b49-618576dadb61
+6b7381fd-5496-4dc2-ad03-efb6137cb58c.jsonl:4	id	2026-07-03T23:53:25.641Z	20407753-d8f1-4501-9dbf-278041276600
+7e0ece3b-71b7-4eef-ba8e-9bad4b44358f.jsonl:5	phrase	2026-09-17T22:32:10.945Z	previous session
+81b82dc4-8aaa-4e03-b329-1290272c77cc.jsonl:1031	id	2026-08-30T18:14:25.356Z	46c35298-da6e-4867-868c-41635385e1d8
+82e8ab26-2ca4-4ba7-9587-5dcb6d6c2b30.jsonl:68	id	2026-07-28T18:02:46.564Z	c8af90bc-a831-4a47-8868-f14b55d0f8c8
+83d04880-6c48-4d08-9766-ecb088f7da34.jsonl:150	id	2026-08-11T05:10:51.911Z	71390a78-b72b-4204-b61d-7222a96dee65
+863f5829-c7ab-471e-990d-3dfc8ce2cc5c.jsonl:5	phrase	2026-09-14T00:22:23.521Z	previous session
+88188935-f19a-47da-9905-818e4c26b698.jsonl:538	id	2026-07-01T14:14:14.738Z	b38a35f8-0877-460f-a587-7a5474953076
+922e1025-e34b-4900-9d90-74a9f1f42ef9.jsonl:509	id	2026-06-29T16:14:34.519Z	13781a0c-7efe-460a-bf6c-700b7c0a9d61
+a878945e-ad8c-41b5-b5fc-c4342c7d8fc4.jsonl:5	phrase	2026-07-15T06:45:23.975Z	previous conversation
+a954f3b7-a215-437a-a5d9-20630c3d2052.jsonl:82	phrase	2026-09-05T16:12:35.668Z	previous session
+aec881e6-068f-4e4d-a8b6-94f756b9b429.jsonl:4	id	2026-08-16T15:55:06.815Z	0b754ad7-af6d-4b04-9c30-377e332640e0
+b00e52eb-3bfb-4199-a539-355191b50489.jsonl:5	phrase	2026-07-03T23:39:07.106Z	previous conversation
+b457bc82-96e3-4a04-a2f5-85b688b505f1.jsonl:368	id	2026-07-04T20:36:34.761Z	26f19098-d0a4-4cbf-81c4-058a81b2fa98
+b6a5cccc-2f8e-43e1-9df9-45bc0999a69d.jsonl:4	id	2026-07-08T07:12:25.019Z	83d8a34c-b93e-441f-ad92-53ef39672984
+b77ad520-4c88-4bec-9cc7-d99a2cfd8bee.jsonl:186	id	2026-07-07T21:11:44.172Z	44b6d551-853a-4508-b7c1-98e7af3406e8
+bbc7256d-d02a-4a46-993f-44b1c012b98f.jsonl:1005	id	2026-06-21T20:20:00.093Z	bbc7256d-d02a-4a46-993f-44b1c012b98f
+c098fcc8-1b0b-401d-9738-88982d01b50e.jsonl:4	id	2026-07-13T13:43:14.445Z	6c11d8e2-80be-4d12-bd7b-8c0c908862e0
+c1706d93-953b-42e3-b2ca-c06abfcb97f9.jsonl:4	id	2026-06-28T21:01:42.247Z	9a2dda4e-1d01-41ad-b17a-765eefc25e80
+cadc4ecf-1bf3-45d6-b304-c200f677c9d0.jsonl:5	id	2026-08-20T17:04:37.946Z	5fe1e87a-75c7-4c55-9712-bd93660b268b
+d65f2ff2-7bcd-4067-b7fa-ffa646336872.jsonl:4	id	2026-08-18T18:05:39.231Z	ce1b545b-1937-4d4e-9bdc-5076d5e8e519
+dbb24a78-50aa-4636-b768-543e67e6eb1a.jsonl:1483	id	2026-09-18T04:34:54.350Z	5a863f0e-d2e6-4d3e-88bd-f92aba7ec01c
+dbda303f-84a1-4b28-a18e-674990f96f3d.jsonl:1143	id	2026-09-10T00:36:34.303Z	112ecc8e-3952-4679-a31b-7f3a5c40fdd2
+df067820-5edd-4109-8373-b7f12fdfbc41.jsonl:4	id	2026-06-29T19:34:11.887Z	3bc0a20d-d6dc-48a1-a9d1-bb06805491e4
+df4aeffc-a5f5-4e99-86ac-697605d8b2e1.jsonl:5	id	2026-09-06T15:53:04.123Z	cc824be4-79fe-4d5b-8836-c4f608d99dba
+e2ca5bb5-21a8-4e47-8262-64b8a4d77620.jsonl:5	id	2026-09-01T11:33:53.884Z	440d5d0e-6f57-4acc-bbe1-9f8242ee670f
+f6c444be-fa78-475e-83e0-6e9c16e65478.jsonl:4	id	2026-07-03T19:43:57.020Z	fd0cdaad-f3ce-4c94-8518-30829d507512
+fc1f624e-fee3-4691-ad36-b276a563086e.jsonl:4	id	2026-08-12T18:54:14.152Z	8d24d454-9ad9-4956-89f3-60115b88a936
+ff4412bd-e2c6-4eb6-98e0-eb36211e9adf.jsonl:5	id	2026-09-10T23:21:28.617Z	30c50877-54eb-4f29-a05a-681528bd8f4a

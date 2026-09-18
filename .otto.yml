@@ -100,6 +100,9 @@ tasks:
         docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/variant-b.sh
         docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/variant-c.sh
         manifest.yml
+        HOME/.claude/hooks/session-recall-guard.sh
+        HOME/.claude/hooks/session-recall-guard-test.sh
+        docs/design/2026-09-17-session-recall.md
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
