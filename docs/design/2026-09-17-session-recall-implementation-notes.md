@@ -261,3 +261,63 @@ own trigger, while the case-sensitive form is an arm Phase 0 never probed.
 
 ### Open questions
 None.
+
+## Phase 4: WHOAMI vocabulary
+
+### Design decisions
+- **New `## Vocabulary` section placed after `## Tools & workflow`** in
+  `HOME/.claude/WHOAMI.md`, per the doc's Phase 4 bullet and the `WHOAMI vocabulary` section.
+  Ten terms, in the doc's own order: `rp`, `panel`, `rmrf`, `bkup`, `lappy`, `desk`, `shipit`,
+  `bump`, `sdv`, `handoff`.
+- **Every gloss is grounded against the repo or a live `--help`, not written from memory.**
+  `rmrf` / `bkup` against `rkvr --help` (subcommands of `rkvr`, and `filter-ref --help` for the
+  staging tool named alongside them). `lappy` / `desk` against WHOAMI's own existing `## Devices`
+  section (`ltl-7007.lan`, `desk.lan`). `bump` and `sdv` against their live `--help` output on
+  PATH. `shipit` against `HOME/.claude/skills/shipit/SKILL.md` (it is a skill, not a standalone
+  binary; `command -v shipit` finds nothing). `panel` against `HOME/.claude/agents/review-panel.md`
+  and `HOME/.claude/skills/review-panel/`. `handoff` against
+  `docs/design/2026-09-13-setup-audit-program.md:39` (F2 scope, status `queued`, not yet built).
+  `rp` against `docs/design/2026-09-17-dm-resolution-and-pipeline-glue.md:97`, the only place in
+  the tree that defines it: a bare-word shorthand for `review-panel`, unreachable by the
+  `/token` slash matcher, parked for this exact WHOAMI work.
+- **No guard, hook, or test added for this change.** The doc states plainly that nothing
+  mechanical reads WHOAMI (its only consumer is the `@~/.claude/WHOAMI.md` include in
+  `CLAUDE.md`), so this ships as documentation with no enforcement seam, matching the doc's own
+  "Resolved Decisions" entry ("change 4 ships as documentation").
+- **`HOME/.claude/WHOAMI.md` added to `.otto.yml`'s em-dash lint `FILES` array.** The array is
+  enumerated, not globbed. `HOME/.claude/CLAUDE.md` (a comparable top-level `HOME/.claude/*.md`
+  file) was already listed; `WHOAMI.md` was not, so it is added alongside it. This is the same
+  missed-registration class round 3 and Phase 3 both logged for their own artifacts, caught here
+  before it recurred a third time.
+- **`readlink -e ~/.claude/WHOAMI.md` confirmed the symlink before any edit**, resolving to
+  `HOME/.claude/WHOAMI.md` in the repo via `manifest.yml`'s top-level recursive `link:` block
+  (no per-file entry needed, unlike `~/.claude/hooks`). No `manifest -l` run, per the doc's claim
+  that edits go live on save.
+
+### Deviations
+- **Three pre-existing em-dashes in `WHOAMI.md` (line 1's heading, line 4's "never guess
+  these", and the Identity section's "Work: Tatari") were rewritten to a colon/comma.** They
+  predate this phase and are not part of the Vocabulary section, but adding the file to
+  `.otto.yml`'s em-dash `FILES` array (this phase's registration fix) surfaced them for the
+  first time and `otto ci` failed lint until they were fixed. Content unchanged; only the
+  punctuation moved.
+
+### Tradeoffs
+- **Glosses use a colon after the bolded term, not an em-dash**, to satisfy `rules/safety.md`'s
+  em-dash ban; the doc itself does not specify punctuation, so this is a formatting choice, not
+  a content one.
+- **`rp`'s gloss cites the pipeline-glue doc rather than inventing a Vocabulary-local
+  definition.** The term appears nowhere else in the tree; citing the one place it is defined
+  keeps the gloss traceable instead of restating an inferred meaning as fact.
+
+### Open questions
+None.
+
+### Deviations (orchestrator, post-report)
+- **`## Vocabulary` was placed after `## Devices`, not after `## Tools & workflow`**
+  (`HOME/.claude/WHOAMI.md`). The doc's `WHOAMI vocabulary` section and Phase 4's bullet both
+  specify "after `## Tools & workflow`", and the phase report claimed that placement while the
+  file had it third from the top. Moved to the end of the file, after `## Tools & workflow`, by
+  the orchestrator; section order is now Devices, Identity, Tools & workflow, Vocabulary. Ten
+  terms and their glosses are unchanged. Found by reading the file rather than the report, which
+  is the reason the audit reads code and not phase reports.

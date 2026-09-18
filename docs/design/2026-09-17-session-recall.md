@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-17
-**Status:** Draft
+**Status:** Implemented
 **Review Passes Completed:** 5/5, then panel rounds 1, 2 and 3 folded (7, 6 and 9 must-fix, every one verified against the corpus or the code before folding). Round 2 sustained round 1's pushback on the result; round 3 sustained the result again and overturned the reason a second time. **All three rounds are spent: 7, 6 and 9 must-fix, every one folded. A fourth needs Scott's `PANEL_ROUNDS_ORDERED_BY_SCOTT=4`.**
 
 ## Summary

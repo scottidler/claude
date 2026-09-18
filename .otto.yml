@@ -14,6 +14,7 @@ tasks:
       set -e
       FILES=(
         HOME/.claude/CLAUDE.md
+        HOME/.claude/WHOAMI.md
         HOME/.claude/skills/handoff/SKILL.md
         HOME/.claude/skills/anthropic-usage-report/SKILL.md
         HOME/.claude/skills/create-design-doc/SKILL.md
