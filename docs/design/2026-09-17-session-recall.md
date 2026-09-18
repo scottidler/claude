@@ -3,13 +3,13 @@
 **Author:** Scott Idler
 **Date:** 2026-09-17
 **Status:** Draft
-**Review Passes Completed:** 5/5
+**Review Passes Completed:** 5/5, then panel round 1 folded (7 must-fix, 1 pushback recorded)
 
 ## Summary
 
 Chunk F1 of the setup-audit program, audit item 9. 73 sessions open by asking Claude to go find a previous session, and nothing in the setup encodes that. This builds the retrieval path (a `session-recall` skill over clyde's MCP surface), a narrow `UserPromptSubmit` hook that points at it when the prompt names a session, an always-on `rules/recall.md`, and a vocabulary section in WHOAMI.
 
-The audit's prescribed hook trigger is not built. Measured, it fires on 38.2% of typed prompts. The trigger here fires on 0.41%: 56 of 13,567 typed prompts, zero of 1,861 security-review harness prompts.
+The audit's prescribed hook trigger is not built. Measured, it fires on 38.2% of typed prompts. The trigger here fires on 0.42%: 47 of 11,225 human prompts, and zero across all 6,820 non-human records.
 
 ## Problem Statement
 
@@ -56,7 +56,7 @@ Four artifacts, in dependency order:
 
 ```
 UserPromptSubmit
-  -> session-recall-guard.sh          trigger (d), 0.41% of prompts
+  -> session-recall-guard.sh          5 bails, 2 triggers, 0.42% of prompts
      -> additionalContext             quotes the trigger verbatim, two branches
         -> Skill(session-recall)      the skill owns ToolSearch and the clyde call
 rules/recall.md (always-on)           covers the prompts the hook's predicate misses
@@ -65,52 +65,65 @@ WHOAMI vocabulary                     glossary, no enforcement seam
 
 ### The trigger, measured
 
-Denominator: **13,565 typed user prompts** in `~/.claude/projects`. Harness-tagged `<...>`, `Caveat:`, and the 1,861 security-review harness messages are all excluded and counted separately, because the hook's false-fire rate on them is the thing that decides the predicate.
+**Denominator: 11,225 human prompts.** Four non-human buckets are counted separately, because their false-fire rate is what decides the predicate:
 
-| predicate | typed | rate | harness false fires |
-|---|---|---|---|
-| the audit's trigger, URL or path | 5,874 | 38.2% | not measured, dominated |
-| (c) path or URL with no action verb, REJECTED | 820 | 5.32% | not measured |
-| (d-loose) any non-path UUID, or recall phrasing incl. "yesterday" | 157 | 1.16% | **102** |
-| (d-tight) unquoted UUID, or recall phrasing minus "yesterday" | 111 | 0.82% | 12 |
-| **(d) shipped: (d-tight) AND prompt is not code-ish** | **93** | **0.69%** | **0** |
-
-**(d-loose) is what the research brief recommended, and it is wrong.** Two corrections, both measured:
-
-- Its 1.76% was computed over a 15,413 denominator that silently included the 1,861 security-review harness messages. Separated, the typed rate is 1.16% and the harness class contributes **102 false fires**.
-- 87 of those 102 are a UUID inside a pasted diff, e.g. `const SID_SHARED: &str = "9d4c1f28-7a3b-4a9c-93b1-6e2a90d1f042"`. The remaining 14 are the word "yesterday" inside diff text. Neither is a recall ask, and neither is peculiar to harness prompts: the same class appears in typed prompts that paste code.
-
-So the shipped predicate is three conjoined tests:
-
-1. **UUID is unquoted and not path-adjacent.** Not preceded or followed by `/`, `"` or `'`. This is what separates a session id from a string literal and from `image-cache/<uuid>/1.png`.
-2. **Recall phrasing excludes "yesterday".** It names no target, so it is the least resolvable arm and the most code-contaminated. Dropped on both counts.
-3. **The prompt is not code-ish.** Bails on a fenced block, more than three diff-marker lines, or the literals `const ` / `&str`. That is the whole test, stated exactly so the implementation has no latitude. It is a positive test on prompt shape, not a negative verb list, which is what separates it from rejected predicate (c).
-4. **The prompt does not already name clyde.** 34 of the 93 say `clyde` outright. On those the hook is redundant: the model has already been handed the tool. Bailing is free recall loss and a real bloat saving.
-5. **The prompt does not open agent-shaped.** Bails on a leading `You are `, `Summarize this Claude Code`, `Review this change for security`, `Analyze the following`. 5 more fires, all of them the marquee provenance-summarizer carrying a session id.
-
-Bails 4 and 5 came out of pass 4 and they matter more than their size: **bail 5 is a second harness class the security-review filter never saw.** The payload has no provenance field, so opener-matching is the only lever, and this is the honest limit of it. Any harness prompt with a novel opener will fire, and the decline branch is what catches it.
-
-Final: **56 fires, 0.41% of 13,567 typed prompts.**
-
-| stage | fires | note |
+| bucket | records | fires, pre-fix |
 |---|---|---|
-| (d-tight), non-code-ish | 93 | 0.69% |
-| minus already-names-clyde | -34 | redundant, model already has the tool |
-| minus agent-shaped opener | -5 | provenance-summarizer class (2 overlap) |
-| **shipped** | **56** | **0.41%** |
+| **human** | **11,225** | **47** |
+| `<...>`-tagged (task notifications, agent messages) | 2,607 | 21 |
+| `Another Claude session sent a message:` wrapper | 2,351 | 9 |
+| `Review this change for security` harness | 1,862 | 0 |
+| `Caveat:` | 0 | 0 |
 
-Test 3 is a heuristic and the doc says so. Its warrant is 0 false fires across 1,861 security-review messages, and it is pinned by fixtures rather than trusted.
+**Round 1 caught this doc making the research brief's error mirrored, and the correction is folded here.** The brief absorbed the harness class *into* its denominator, inflating the rate and hiding false fires inside it. This doc excised two classes *from* the denominator without adding a bail for them, which made their false fires invisible instead. Both are the same mistake about what a denominator is for.
 
-### The two arms are not equivalent, and Phase 0 decides arm (b)
+- The earlier 13,567 figure was **17% inflated**: 2,351 of those records are agent deliveries that begin with the literal `Another Claude session sent a message:` and then continue into a tag. A `startswith("<")` test misses every one, because the harness prepends that sentence before the tag.
+- `<...>`-tagged prompts demonstrably reach `UserPromptSubmit`: the live hook's own log at `~/.cache/claude/inline-skill-tokens.log` carries `<task-notification>` and agent-message entries.
+- The earlier "0 false fires" was true only of the security-review bucket. Measured across all non-human buckets it was **30**.
 
-The shipped 56 splits: **the id arm** 41 alone, **the phrase arm** 12 alone, 3 prompts carrying both. The id arm is 79% of the value.
+### The predicate
+
+Five bails, then two triggers. Bails run first and short-circuit.
+
+**Bails:**
+
+1. Prompt begins with `<`.
+2. Prompt begins with `Another Claude session sent a message:`.
+3. Prompt contains a fenced code block (` ``` `).
+4. Prompt names `clyde`. 34 fires where the model already has the tool, so the injection is redundant.
+5. Prompt opens agent-shaped: `You are `, `Summarize this Claude Code`, `Review this change for security`, `Analyze the following`.
+
+**Triggers, either one:**
+
+- **Id arm:** a UUID not adjacent to `/`, `"` or `'`. The adjacency test is what separates a session id from a string literal (`const SID_SHARED: &str = "9d4c1f28-..."`) and from `image-cache/<uuid>/1.png`. A naive match scores 849; this scores 154.
+- **Phrase arm**, enumerated in full because Phase 0 exists to decide it and an unenumerated list is unreproducible:
+  - `previous|last|prior|earlier` followed by `session|conversation|chat`
+  - `the session where`
+  - `that doc|design|spec we wrote|made|did`
+  - **"yesterday" is NOT in the list.** 14 of its fires are diff text and it names no target.
+
+**Result: 47 fires on 11,225 human prompts (0.42%), and 0 across all 6,820 non-human records.**
+
+### Why bails 1 and 2 replace the opener list as the sound answer
+
+Bails 1 and 2 are prefix tests on how the harness delivers a record, not guesses about what a machine prompt looks like. They take all 30 false fires to 0 and leave human fires at 47, unchanged. Bail 5's four-prefix list cannot be complete and is kept only as a backstop for a machine prompt that arrives without a wrapper.
+
+### Pushback recorded: the code-ish bail is one clause, not four
+
+Round 1's architect seat held that fence-only leaves 24 security-review candidates where the 4-part bail leaves 0, and that `>3 lines starting +` is therefore load-bearing. **Measured, that is not so**, and the reason is ordering: bail 5 removes the entire security-review bucket before any code-ish test runs. With bails 1, 2, 4 and 5 in place, fence-only, fence-plus-diff-lines, and the full 4-part form all score **47 human / 0 false**, identically. The Rust literals `const ` and `&str` are dead weight, and so is the diff-line count.
+
+Dropping code-ish **entirely** is the one variant that does move: 59 human fires, so the fence clause is suppressing 12 prompts that paste a fenced block containing a UUID. That is the class it exists for, so it stays. It stays as one clause.
+
+### The two arms are not equivalent, and Phase 0 decides the phrase arm
+
+The 47 splits: **the id arm** 35 alone, **the phrase arm** 9 alone, 3 carrying both. The id arm is 81% of the value.
 
 - **The id arm is resolvable.** The prompt names an id the hook quotes back verbatim, so the injected line is corroborated by the prompt's own text. That satisfies the anti-injection requirement by construction.
 - **The phrase arm is not.** "the session where we..." names no id. The hook can quote the matched phrase but cannot name a target, so the injected line is closer to an instruction the prompt does not support.
 
-This is not speculation. `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md:167-173` (0b-3a) recorded the model refusing exactly that shape: *"Flagging per prompt-injection policy rather than acting on it."*
+`docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md:167-173` (0b-3a) recorded the model refusing exactly that shape: *"Flagging per prompt-injection policy rather than acting on it."*
 
-**If Phase 0 shows the phrase arm refused, the hook ships as the id arm alone at 44 of 13,567 (0.32%) and that is a pass, not a failure.** The phrase arm's job moves to `rules/recall.md`, which is always-on prose and cannot be read as injection. The phase is written so that either verdict is a result.
+**If Phase 0 shows the phrase arm refused, the hook ships as the id arm alone at 38 of 11,225 (0.34%) and that is a pass, not a failure.** The phrase arm's job moves to `rules/recall.md`, which is always-on prose and cannot be read as injection.
 
 ### Implementation contract for the hook
 
@@ -157,13 +170,13 @@ Traps, all stated in the skill:
 - Frontmatter: `alwaysApply: true`, inside `---` fences, starting line 1. That is the only key.
 - **Budget target: <= 1,200 bytes**, the `otto.md` size class (1,085). Current always-on total is 43,706 across 11 files; effective prefix is 50,738 once `voice.md` (2,815, no frontmatter, loaded anyway) and `safety.md` (4,217, glob `**/*`) are counted.
 - Carries what the hook's predicate cannot see: a recall ask with no id and no trigger phrase, and the tool-surface pointer.
-- **Deletes `interaction.md:28-29`**, the read-the-actual-thing-first clause, once the hook is live and its matrix is green.
+- **Deletes nothing.** Enforcement-before-prose is satisfied vacuously here, as it was in chunk D: no existing clause is subsumed by this hook.
 
-**This is not a clean swap, and the doc says so rather than dressing it up.** One clause out, one file in. Everything else in the neighbourhood stays because it covers more than this chunk:
+**There is no swap. This chunk is +1,200 bytes of always-on with no offset, and that is the accounting.** Pass 1 claimed one deletable clause and round 1 overturned it. Every clause in the neighbourhood stays:
 
 | clause | verdict |
 |---|---|
-| `interaction.md:28-29` read the actual thing first | DELETABLE, the hook carries it whole |
+| `interaction.md:28-29` read the actual thing first | **STAYS.** Round 1 overturned this doc's own pass-1 verdict by reading the domains: that clause governs repos, files and configs; this hook governs prior sessions. Disjoint |
 | `interaction.md:30-31` name the exact artifact before starting | STAYS, fires at action time on a target the model chose |
 | `interaction.md:32` list candidates and ask which | STAYS, disambiguation, orthogonal |
 | `taste.md:142-144` no guesses, search/read/run first | STAYS, covers questions with no named target |
@@ -183,9 +196,10 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 **Model:** opus
 - **Mechanism, because this needs stating:** pasting the candidate text into a prompt does NOT test this. `additionalContext` arrives as harness-supplied context, not as user text, and 0b-3a's refusal was of the hook path specifically. So Phase 0 registers a throwaway hook in a scratch project's `settings.local.json`, emitting the candidate string. No production file is written and nothing lands in `HOME/.claude/`.
 - Id arm: a prompt carrying a session id. Phrase arm: a prompt carrying only "the session where we...".
+- **The spike's text names the clyde tools directly, NOT `Skill(session-recall)`.** Phase 0 runs before Phase 1 creates that skill, so a criterion phrased as "produces a `Skill(session-recall)` invocation" is satisfied by an unresolvable attempt at a skill that does not exist. Round 1 caught that. The signal Phase 0 is actually reading is refusal versus no-refusal.
 - Record both responses verbatim in `docs/design/2026-09-17-session-recall-phase0/evidence.md`.
 - Also re-measure the seven payload keys at the running harness version, since the design leans on their absence and the last measurement was 2.1.274.
-- **Success criteria:** the id arm produces a `Skill(session-recall)` invocation or a clyde call rather than a refusal; the phrase arm's verdict is recorded either way, and a refusal narrows the shipped trigger to the id arm without failing the phase; the payload key list is recorded and still carries no provenance field.
+- **Success criteria:** the id arm draws **no prompt-injection refusal** (an attempted retrieval counts, a refusal does not); the phrase arm's verdict is recorded either way, and a refusal narrows the shipped trigger to the id arm without failing the phase; the payload key list is recorded and still carries no provenance field.
 
 #### Phase 1: the `session-recall` skill
 **Model:** sonnet
@@ -196,11 +210,12 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 
 #### Phase 2: `session-recall-guard.sh` and its matrix
 **Model:** opus
-- The hook: five conjoined tests as specified, narrowed further by Phase 0's verdict on the phrase arm, emitting via `additionalContext` and naming `Skill(session-recall)` rather than raw clyde tools.
+- The hook: five bails then two triggers as specified, narrowed further by Phase 0's verdict on the phrase arm, emitting via `additionalContext` and naming `Skill(session-recall)` rather than raw clyde tools.
 - UUID predicate excludes `/`-adjacent matches, which is what separates 154 from 849.
-- `session-recall-guard-test.sh` with all eight fixture classes from the acceptance criteria, each asserting fire or bail plus the exact emitted string on a fire.
-- Registered in `settings.json` and verified by `hooks-preflight.sh` **in this phase**, per chunk B's lesson.
-- **Success criteria:** corpus replay over the frozen snapshot fires 56 times and zero times on the 1,861 security-review harness messages; `otto ci` exits 0.
+- `session-recall-guard-test.sh` with all ten fixture classes from the acceptance criteria, each asserting fire or bail plus the exact emitted string on a fire.
+- **`manifest -l HOME/.claude/hooks/session-recall-guard.sh` runs in THIS phase.** `~/.claude/hooks` is 36 per-file symlinks, so a new hook file has none and does not go live on commit. Pass 1 put the link step only in Phase 3 for the rule and missed that the hook needs its own; round 1 caught it, and it is chunk B's four-failed-guards lesson exactly.
+- Registered in `settings.json` in this phase, after the symlink exists.
+- **Success criteria:** corpus replay over the frozen snapshot fires 47 times on human records and zero on all 6,820 non-human records; `otto ci` exits 0.
 
 #### Phase 3: `rules/recall.md`, and the one deletion
 **Model:** sonnet
@@ -218,19 +233,27 @@ Order is enforcement before prose: nothing is deleted from a rule until the thin
 
 Counts below are pinned to a **frozen corpus snapshot** taken in Phase 2, not to a live re-walk. The corpus grew by 5 prompts during this doc's own drafting, so a live count is not reproducible and an exact-count criterion against it would be the measured-before-the-change defect.
 
-- [ ] `session-recall-guard.sh --self-test` exits 0, and its matrix carries at least one fixture per class: id paste (fires), phrase-only (fires), quoted UUID in a diff (bails), `image-cache/` UUID (bails), "yesterday" in diff text (bails), security-review harness prompt (bails), prompt naming clyde (bails), `You are ...` provenance-summarizer carrying an id (bails).
+- [ ] `session-recall-guard.sh --self-test` exits 0, and its matrix carries at least one fixture per class: id paste (fires), phrase-only (fires), quoted UUID in a diff (bails), `image-cache/` UUID (bails), "yesterday" in diff text (bails), fenced block carrying an id (bails), prompt naming clyde (bails), `You are ...` provenance-summarizer (bails), **leading `<` tag (bails)**, **`Another Claude session sent a message:` wrapper (bails)**.
   **Observed on main:** `HOME/.claude/hooks/session-recall-guard.sh`: "No such file or directory (os error 2)". Cannot pass before Phase 2.
-- [ ] Replayed over the frozen snapshot, the hook fires on the id and phrase classes and **exactly zero** times on the 1,861 security-review harness messages. (Zero is the guarded value; the loose predicate scores 102 there, so this criterion bites.)
-  **Observed on main:** no hook exists, so the fire count is 0 everywhere and the harness half is vacuously satisfied. The id/phrase half **fails** on main and only becomes meaningful after Phase 2. The predicate itself was measured today at 56 typed fires and 0 harness fires; the loose form scores 102 harness fires, which is what makes the zero non-trivial.
+- [ ] Replayed over the frozen snapshot, the hook fires **exactly zero** times across all 6,820 non-human records (`<...>`-tagged, `Another Claude session` wrapper, security-review, `Caveat:`). Zero is the guarded value: before bails 1 and 2 the predicate scored 30 there, so this bites.
+  **Observed on main:** no hook exists, so every count is 0 and this is vacuously true. It only becomes meaningful after Phase 2. The predicate itself measures 47 human fires and 0 non-human fires; without bails 1 and 2 it is 47 and 30.
 - [ ] Every parameter name appearing in `session-recall/SKILL.md` is present in clyde's live MCP schema, checked name by name, and the skill resolves under `Skill(session-recall)`.
   **Observed on main:** `HOME/.claude/skills/session-recall/SKILL.md`: "No such file or directory (os error 2)". Cannot pass before Phase 1.
 - [ ] `rules/recall.md` is `<= 1,200` bytes, resolves through `/home/saidler/repos/.claude/rules/recall.md` as a symlink into the repo, and `rg -c 'read the actual thing first' HOME/repos/.claude/rules/interaction.md` returns no match.
   **Observed on main:** `/home/saidler/repos/.claude/rules/recall.md`: "No such file or directory (os error 2)". `rg -c 'read the actual thing first' HOME/repos/.claude/rules/interaction.md` returns **1** (one matching line), which is the pre-state this criterion inverts. Cannot pass before Phase 3.
-- [ ] `hooks-preflight.sh` exits 0 with the new hook registered, and `otto ci` exits 0.
-  **Observed on main:** `hooks-preflight.sh` exits **0** and `otto ci` exits **0** today, both without the new hook. The criterion's force is the phrase "with the new hook registered", which only Phase 2 can satisfy.
+- [ ] `readlink -e ~/.claude/hooks/session-recall-guard.sh` resolves into the repo, and `hooks-preflight.sh` emits **no** `additionalContext` (its stdout is empty). `otto ci` exits 0.
+  **Why not "preflight exits 0":** it exits 0 unconditionally (`hooks-preflight.sh`, final line), emitting its warning through `additionalContext` instead. A criterion on its exit code passes with a completely undeployed hook. Round 1 caught this, and the same defect sits in chunk D's shipped criterion 4.
+  **Observed on main:** `readlink -e ~/.claude/hooks/session-recall-guard.sh` resolves nothing (no such file). `hooks-preflight.sh` exits 0 and emits no `additionalContext` today, which is exactly why the exit code is worthless as a signal. `otto ci` exits **0**.
 
 ## Resolved Decisions
 
+- **2026-09-17 (panel round 1): the denominator was wrong and 30 false fires were hidden by it.** 13,567 -> 11,225 human prompts; 2,351 agent deliveries begin `Another Claude session sent a message:` and slip a `startswith("<")` test. Bails 1 and 2 added; false fires 30 -> 0, human fires unchanged at 47.
+- **2026-09-17 (panel round 1): `interaction.md:28-29` is NOT deletable**, reversing this doc's own pass-1 verdict. Its domain is repos/files/configs, the hook's is prior sessions. This chunk is +1,200 bytes with no offset and says so.
+- **2026-09-17 (panel round 1): the hook needs its own `manifest -l`, in Phase 2.** `~/.claude/hooks` is 36 per-file symlinks. Pass 1 linked only the rule.
+- **2026-09-17 (panel round 1): "hooks-preflight exits 0" is not a criterion.** It exits 0 unconditionally and warns through `additionalContext`. Replaced with a `readlink -e` plus empty-stdout assertion. The same defect is live in chunk D's shipped criterion 4 and is handed to whichever chunk owns it.
+- **2026-09-17 (panel round 1): Phase 0 names the clyde tools, not the skill.** It runs before Phase 1 creates the skill, so a skill-invocation criterion passes on an unresolvable attempt. The signal is refusal versus no-refusal.
+- **2026-09-17 (panel round 1): the phrase list is enumerated in the doc.** It was unreproducible, which mattered because it is the arm Phase 0 decides.
+- **2026-09-17, pushback sustained on measurement: the code-ish bail is one clause.** The architect seat held that fence-only leaves 24 security-review candidates. Measured with bails 1, 2, 4 and 5 in place, fence-only and the full 4-part form both score 47 human / 0 false, because bail 5 removes that bucket first. Dropping code-ish entirely does move the number (59 human), so the fence clause stays and the Rust literals and diff-line count go.
 - **2026-09-17: the audit's hook trigger is not built.** 38.2% of typed prompts. Recorded as Alternative 1.
 - **2026-09-17: predicate (c) is dropped**, not deferred. 5.32% for no gain, and its negative lexical test is a shape already rejected once.
 - **2026-09-17: a refusal of arm (b) in Phase 0 shrinks the trigger rather than failing the chunk.**
