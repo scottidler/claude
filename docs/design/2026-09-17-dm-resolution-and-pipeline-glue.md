@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-17
-**Status:** Implemented. Phases 0 through 3 and 5 through 11 shipped; **Phase 4 is `dropped (measured)`**, which is the third outcome Phase 3's decision rule specified in advance: its two candidate rules scored TARGET 14 and 25 against a bar of 8. D2 landed in `tatari-tv/slack-cli` as `1adbfdd`, tagged `v0.14.0` and installed; `dms` is live at 232 edges. Open and named rather than closed: Phase 7's criterion 1 needs an interactive prompt, Phase 10's three and Phase 11's two criteria need a live run, and 0b-4/0b-5 are not measurable by the nested-`claude -p` method.
+**Status:** Implemented. Phases 0 through 3 and 5 through 11 shipped; **Phase 4 is `dropped (measured)`**, which is the third outcome Phase 3's decision rule specified in advance: its two candidate rules scored TARGET 12 and 20 against a bar of 6. D2 landed in `tatari-tv/slack-cli` as `1adbfdd`, tagged `v0.14.0` and installed; `dms` is live at 232 edges. Open and named rather than closed: Phase 7's criterion 1 needs an interactive prompt, Phase 10's three and Phase 11's two criteria need a live run, and 0b-4/0b-5 are not measurable by the nested-`claude -p` method.
 **Review Passes Completed:** 5/5, then panel rounds 1, 2 and 3 as design reviews. **The round cap is spent.** Round 1: 7 must-fix. Round 2: 6 must-fix, and it found three of round 1's folds had not fixed their finding. Round 3: 4 must-fix, all foldable without a fourth round, and it confirmed four of round 2's six folds by execution. Every finding from all three rounds is folded, and each was re-measured here before folding. Round 3 ran with ONE seat: the staff-engineer seat timed out on both attempts and produced no review.
 
 ## Summary
@@ -315,15 +315,18 @@ Twelve phases. Phase 0 is four independent zero-code spikes (0a, 0b, 0c, 0d) and
 
 #### Measured 2026-09-17: neither variant clears, and nothing ships in Phase 4
 
-Run on `desk.lan` with `slack v0.14.0` installed and `slack cache refresh` done, so `~/.cache/slack/ids.json` carried `dms` at 232 edges for the first time. Corpus: `phase0/replay/rows-0a.json`, 241 posts, md5 `4c70205d279a87ad19c8f73159bf5e07`, replayed through `phase0/replay/slackrecall.py --from-rows`. Variant A is a byte copy of `slack-post-guard.sh` (`md5 576fad060ac0197ae788217068f9a5d4`, identical on both sides), so the baseline arm is the shipped rule and not the harvested `variantA.sh`. Scripts, raw counts and the full deny lists: `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/`.
+Run on `desk.lan` with `slack v0.14.0` installed and `slack cache refresh` done, so `~/.cache/slack/ids.json` carried `dms` at 232 edges for the first time. Corpus: `phase0/replay/rows-0a.json`, 241 posts, md5 `4c70205d279a87ad19c8f73159bf5e07`, replayed through `phase0/replay/slackrecall.py --from-rows`. Variant A is a byte copy of `slack-post-guard.sh` (`md5 b2f7be3899efacb44d2a00d3da575879`, identical on both sides), so the baseline arm is the shipped rule and not the harvested `variantA.sh`. Scripts, raw counts and the full deny lists: `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/`.
 
 | variant | rule | posts | allow | deny | TARGET | artifact | multi-statement | clears TARGET <= 8 |
 |---|---|---|---|---|---|---|---|---|
-| A | the shipped rule, re-derived from the guard on disk | 241 | 207 | 34 | **8** | 17 | 9 | baseline |
-| B | name mandatory for non-exempt DMs, `posting_intent` still covers channels | 241 | 201 | 40 | **14** | 17 | 9 | **no** |
-| C | name mandatory for every non-exempt recipient | 241 | 190 | 51 | **25** | 17 | 9 | **no** |
+| A | the shipped rule, re-derived from the guard on disk | 241 | 208 | 33 | **6** | 17 | 10 | baseline |
+| B | name mandatory for non-exempt DMs, `posting_intent` still covers channels | 241 | 202 | 39 | **12** | 17 | 10 | **no** |
+| C | name mandatory for every non-exempt recipient | 241 | 194 | 47 | **20** | 17 | 10 | **no** |
 
 Variant A reproduces Phase 0a exactly, down to byte-identical scored rows (`f23c42e6230549396f4c62495d52f0b1`). Every replay ran twice and was byte-identical to itself. The live send ledger was never opened: zero entries written during six full replays.
+
+
+**Re-measured 2026-09-17 after the guard changed under it.** The first run scored A=8, B=14, C=25 against the guard as it stood at `b245a61`. Two later commits edited `slack-post-guard.sh`: `9131321` (the `WRITE_VALUE_FLAGS` bypass) and the round 4 fix for a global option before the subcommand. Both make the guard catch statements it previously dropped, which is why the multi-statement class went 9 to 10 and every TARGET count fell. The round 4 audit caught that the recorded numbers no longer reproduced against the tree they ship with, which is the defect: **the table above is the re-run against the final guard, and the variant scripts were regenerated from it.** The DECISION is unchanged either way, because 12 and 20 exceed 6 exactly as 14 and 25 exceeded 8.
 
 **Neither variant clears the bar, so nothing ships in Phase 4. The shipped TARGET rule stands and Phase 4 closes as `dropped (measured)`.** That is the third outcome this phase specified in advance, and it is recorded with its counts rather than worked around.
 
@@ -364,7 +367,7 @@ Items 4, 5 and 6 are one instruction fanned out to three recipients, and it is t
 **Model:** opus
 **Repo:** `scottidler/claude`
 
-**This phase does not ship. Phase 3 measured its two candidate rules at TARGET 14 and 25 against a bar of 8, and the decision rule this doc set in advance closes it as `dropped (measured)`.** The bullets below are kept as the record of what was designed and what it would have cost, not as work to do. Phases 1 and 2 stand on their own: the cache answers a question it could not answer before, and the `dms` map is live at 232 edges.
+**This phase does not ship. Phase 3 measured its two candidate rules at TARGET 12 and 20 against a bar of 6, and the decision rule this doc set in advance closes it as `dropped (measured)`.** The bullets below are kept as the record of what was designed and what it would have cost, not as work to do. Phases 1 and 2 stand on their own: the cache answers a question it could not answer before, and the `dms` map is live at 232 edges.
 
 - `resolve_names` gains its `dms` clause in BOTH jq programs; the `.users` DM branch is removed. `U…` resolution is unaffected: it runs through `$uits` over `.handles` at `:294`, a separate branch.
 - The recipient loop stops being wrapped in `if ! posting_intent` (`:705`). Phase 3's result decides whether the weak condition remains as a per-recipient fallback for channels or disappears.
@@ -509,16 +512,30 @@ Items 4, 5 and 6 are one instruction fanned out to three recipients, and it is t
 
 ## Acceptance Criteria
 
+**All eight verified 2026-09-17 against the landed implementation, and every box below is ticked on that run, not on intent.** Each was recorded pre-implementation with an `Observed on main:` line showing it correctly failing; those lines are kept as the before-state rather than overwritten. The round 4 audit caught that the section still read as pre-implementation while `Status` said Implemented, which is the defect this block closes.
+
+| # | verified today | how |
+|---|---|---|
+| 1 | `true`, 232 edges | `jq 'has("dms")'` and `.dms\|length` on the live cache, after `slack v0.14.0` was installed |
+| 2 | green | `otto ci` exit 0 in `tatari-tv/slack-cli`, `bloat` included |
+| 3 | met, no selection | neither variant cleared the bar, so no variant was selected and none can deny more than the shipped rule |
+| 4 | zero lines | `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` |
+| 5 | both halves | `rg -n 'gh pr create --fill' HOME/.claude/bin/release` zero lines, AND both guards return `{}` on the allow case with Gate D denying the no-delta case |
+| 6 | registered | `jq` names `~/.claude/hooks/inline-skill-tokens.py`, which exists and is executable |
+| 7 | 564/571, 0 FP | matcher plus Phase 6's deny list over the pinned fixtures, asserted in CI by `AcceptanceCriterionSevenTest` |
+| 8 | `pass=141 fail=0` | the guard's own matrix |
+
+
 Every criterion names a literal command. Per the ready-to-build gate, each was run against current `main` on 2026-09-17 and its output recorded beneath it, EXCEPT where the criterion's subject does not exist yet: those say so, name the phase, and record what was run in its place.
 
 - **Executed as written, full criterion:** 1, 4, 8.
 - **Executed in part** (the half that exists today): 2 (the `bloat` stanza standalone, not full `otto ci`), 5 (the string check, not the allow/deny pair), 6 (the `jq` probe).
 - **Substitute recorded, criterion not runnable yet:** 3 (baseline pinned, and round 2 showed the pin is stale against today's guard), 7 (fixtures built and all three matcher variants measured).
 
-- [ ] **1. The cache answers the DM question.** `jq -r 'has("dms")' ~/.cache/slack/ids.json` returns `true` and `jq -r '.dms|length'` returns a count greater than zero.
+- [x] **1. The cache answers the DM question.** `jq -r 'has("dms")' ~/.cache/slack/ids.json` returns `true` and `jq -r '.dms|length'` returns a count greater than zero.
   - `Observed on main: false`. Correctly failing: `dms` does not exist yet. Ships in Phase 2, and the count requires the INSTALLED binary, not a merged PR.
 
-- [ ] **2. `slack-cli` stays under the bloat gate.** `otto ci` exits 0 in `tatari-tv/slack-cli`, including the `bloat` task.
+- [x] **2. `slack-cli` stays under the bloat gate.** `otto ci` exits 0 in `tatari-tv/slack-cli`, including the `bloat` task.
   - `Observed on main:` the `bloat` stanza run standalone returns `All files within 1500 line limit`; the top four by size are `write/tests.rs` 1494, `write.rs` 1484, `mcp/tests.rs` 1400, `scheduled.rs` 1382. **Full `otto ci` was NOT run** (it compiles and tests the crate); the bloat half was run as the part this doc puts at risk. **Passes today, and that is the point: the margin is the risk**, headroom 6 and 16. This criterion bites only after Phase 2 adds code, which is why `resolve_dm_user` goes in a new file.
 
 - [x] **3. The selected TARGET variant does not deny more than the shipped rule.** Replaying Phase 0a's committed rows file, the selected variant's **TARGET** deny count is no greater than the shipped guard's TARGET count on that same file, with all three variants' counts in this doc and the baseline arm re-derived from the guard on disk.
@@ -526,25 +543,25 @@ Every criterion names a literal command. Per the ready-to-build gate, each was r
   - `Observed on main:` the shipped guard scores `posts=236 allow=202 deny=34` (TARGET 8). `rowsFinal.json`'s `216/26/9/0` is chunk D's record, not a target. The denominator moves until Phase 0a commits one, which is why 0a's deliverable is the file.
   - **Measured in Phase 3 on 2026-09-17: A=8 (baseline), B=14, C=25 on `rows-0a.json`.** The criterion is met as a measurement and no variant is selected: neither clears the bar, so nothing ships in Phase 4. All three counts, the baseline re-derivation and the named deny lists are in the Phase 3 section above.
 
-- [ ] **4. The plan executor stops instructing a denied command.** `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` returns zero lines.
+- [x] **4. The plan executor stops instructing a denied command.** `rg -n 'push --tags' HOME/.claude/skills/how-to-execute-a-plan/SKILL.md` returns zero lines.
   - `Observed on main:` two lines, `496:git push && git push --tags` and `533:│  5. git push && git push --tags     [if approved]│`. Correctly failing. Ships in Phase 10.
 
-- [ ] **5. The release driver stops evading the PR gates.** `rg -n 'gh pr create --fill' HOME/.claude/bin/release` returns zero lines, AND a `pr-open`-built command run against the live `git-release-guard.sh` and `branch-pr-title-guard.sh` is ALLOWED on a branch with a version delta and DENIED without one.
+- [x] **5. The release driver stops evading the PR gates.** `rg -n 'gh pr create --fill' HOME/.claude/bin/release` returns zero lines, AND a `pr-open`-built command run against the live `git-release-guard.sh` and `branch-pr-title-guard.sh` is ALLOWED on a branch with a version delta and DENIED without one.
   - The string check alone measures a deletion, not the behavior; round 1 flagged that. The allow/deny pair is what bites.
   - `Observed on main:` the string check returns two lines, `:334` (the live call) and `:342` (the dry-run echo). Correctly failing. Ships in Phase 9.
 
-- [ ] **6. The new hook is registered and resolves.** `jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' HOME/.claude/settings.json` lists the hook's executable path, AND that path exists and is executable.
+- [x] **6. The new hook is registered and resolves.** `jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' HOME/.claude/settings.json` lists the hook's executable path, AND that path exists and is executable.
   - **Rewritten twice.** Round 1 killed "`hooks-preflight.sh` exits 0": every path in that script exits 0, including the unresolved-hooks branch at `:40-48`. Round 2 killed the replacement too: `rg -c 'UserPromptSubmit'` returns 1 against `{"hooks":{"UserPromptSubmit":[]}}`, so it passed with zero hooks installed, and "preflight emits no warning naming it" is vacuously true when the hook does not exist. The criterion now asserts the executable, not the event-name string.
   - `Observed on main:` the `jq` returns empty; no `UserPromptSubmit` key exists. Correctly failing. Ships in Phase 7.
 
-- [ ] **7. The matcher separates the classes.** Against `phase0/inline-token/fixtures.json`, with Phase 6's deny list applied: at least 554 of the 571 remaining survivors match, and the ONLY false positives are the two enumerated clipped-window records below.
+- [x] **7. The matcher separates the classes.** Against `phase0/inline-token/fixtures.json`, with Phase 6's deny list applied: at least 554 of the 571 remaining survivors match, and the ONLY false positives are the two enumerated clipped-window records below.
   - **The 0-false-positive form was unachievable and is restated rather than moved.** `fixtures.json` stores a 100-char window by design, so a delimiter that opened outside the window is clipped away and the span logic is asked to close something it cannot see. 375 of the 832 `code-span` records have odd backtick parity in their window.
   - The two permitted residuals, both `/handoff`, both with an unbalanced delimiter in-window: `'he \`last-prompt\` record carries the human-readable form (\`\\"/handoff to the next agent...'` and `'-args>\`; the \`last-prompt\` record carries the human form (\`"/handoff to the next agent...'`. Any third false positive fails the criterion.
   - The denominator does not move: same pinned file, same 2,004 records.
   - Substitute run, since no matcher exists: the fixtures were materialized and verified at `total 2004 survivors 583 false-positives 1421`, class split `code-span 832, path-glued 544, url 36, path-continues 8, filename-ext 1`. The criterion itself ships in Phase 5.
   - **Round 1 added the case that matters:** a faithful `dSt` port scores 0 of 583, because `dSt` excludes a match preceded by `/`. The criterion is unchanged; the trap is now named in Phase 5.
 
-- [ ] **8. The guard's own suite does not regress.** `bash HOME/.claude/hooks/slack-post-guard-test.sh` reports zero failures and no fewer than 129 passes.
+- [x] **8. The guard's own suite does not regress.** `bash HOME/.claude/hooks/slack-post-guard-test.sh` reports zero failures and no fewer than **141** passes. The floor rose from 129 with the fixtures the round 4 fixes added: five for the `WRITE_VALUE_FLAGS` value-consuming rule, two positive controls, four for a global option before the subcommand, and one more positive control.
   - `Observed on main: pass=129 fail=0`. This is the baseline Phase 4 must not break, and the count floor rises with the fixtures Phase 4 adds.
 
 ## Resolved Decisions

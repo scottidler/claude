@@ -114,6 +114,14 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# NOT ${NO_INSTALL:+...}: NO_INSTALL is 0 or 1, and "0" is NON-EMPTY, so `:+`
+# always expanded and both handoff lines printed `--no-install --install "..."`
+# together (round 4 audit, S2). An `if`, not `[ ] && VAR=`: this script runs
+# under `set -euo pipefail`, where a bare `test && assign` whose test fails is
+# a non-zero statement that exits the script.
+NO_INSTALL_FLAG=""
+if [ "$NO_INSTALL" = 1 ]; then NO_INSTALL_FLAG=" --no-install"; fi
+
 # ---- helpers ------------------------------------------------------------------
 die()  { echo "release: $*" >&2; exit 1; }
 say()  { printf '\033[1;36m▶ %s\033[0m\n' "$*"; }
@@ -368,7 +376,12 @@ say "GATED release: bump rides the feature PR '$BRANCH' (no tag until it merges)
 
 # Idempotency: if this branch already carries the version bump (re-run after a
 # failed push / PR revision), don't double-bump.
-if git diff "origin/$DEFAULT...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null | grep -Eq '^\+version'; then
+# `^\+version` matches Cargo.toml and pyproject.toml (`version = "0.1.0"`) but NOT
+# package.json, whose line is `+  "version": "0.2.0",`: indented, quoted, colon.
+# A miss here double-bumps a JS repo on any re-run, and Phase 9 made the
+# `release --pr <url>` resume mandatory, which routes the normal sequence through
+# this branch (round 4 audit, S1).
+if git diff "origin/$DEFAULT...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null | grep -Eq '^\+[[:space:]]*"?version"?[[:space:]]*[:=]'; then
   say "version already bumped on this branch, skipping 'bump --no-tag'"
 else
   run "bump --no-tag $LEVEL"               # version commit joins the PR; NO tag exists
@@ -428,7 +441,7 @@ else
     echo "    1.  $PROPEN"
     echo "    2.  the 'gh pr create ...' line that prints (run it verbatim, never"
     echo "        piped into a shell, never inside \$( ))"
-    echo "    3.  release --pr <url it returns>${NO_INSTALL:+ --no-install}${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
+    echo "    3.  release --pr <url it returns>$NO_INSTALL_FLAG${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
     echo
     echo "  Agent: steps 1 and 2 are your own Bash tool calls. If step 2 is DENIED"
     echo "  by a hook, report the denial text and record that NO PR exists: do not"
@@ -443,5 +456,5 @@ fi
 
 echo
 echo "  This is a GATED repo: the tag cannot exist until the PR merges."
-echo "  After it merges (CI + review), run:   release --finish${NO_INSTALL:+ --no-install}${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
+echo "  After it merges (CI + review), run:   release --finish$NO_INSTALL_FLAG${INSTALL_CMD:+ --install \"$INSTALL_CMD\"}"
 say "paused, waiting on PR merge"

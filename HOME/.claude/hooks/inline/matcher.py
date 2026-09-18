@@ -45,7 +45,16 @@ _BOUNDARY_CHARS = set("([{<\"'")
 # alphanumeric (a filename extension, not an instruction).
 _TRAILING_DISQUALIFIERS = ("/", "\\", "-", "?")
 
-_CANDIDATE = re.compile(r"/([A-Za-z0-9][A-Za-z0-9_-]*)")
+# `:` is IN the token body, because a plugin skill's name is `plugin:skill` and
+# `inline/resolve.py` resolves only that namespaced form (a bare alias never
+# resolves, which is Phase 6's rule 3). Without it the scan split the name and
+# both directions were wrong, measured through the live hook 2026-09-17 (round 4
+# audit, M1): `/slack:read` emitted NOTHING though it resolves, and
+# `/babysit:bogus` emitted `/babysit` while claiming the tokens were "quoted
+# verbatim from it", which was false and named a real skill the user never typed.
+# That false claim is the specific thing 0b-3a says gets an injected instruction
+# treated as hostile, and rightly.
+_CANDIDATE = re.compile(r"/([A-Za-z0-9][A-Za-z0-9_:-]*)")
 
 
 _FENCE_MARKER = re.compile(r"```")

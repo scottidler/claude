@@ -548,7 +548,14 @@ else
         continue
       fi
       case "$tok" in
-        -*) continue ;;
+        # A GLOBAL option before the subcommand takes its VALUE with it. Skipping
+        # the flag but not its value made the value the subcommand, which then
+        # failed the write|repost test below and dropped the whole statement, so
+        # the guard allowed. Measured 2026-09-17 (round 4 audit, M2):
+        # `slack --output json write bruce hi` ALLOWED on a prompt asking for no
+        # post, where `slack write bruce hi` correctly denied. Same for
+        # `-l debug`, `--config <path>` and the `repost` spelling.
+        -*) is_write_value_flag "$tok" && i=$((i + 1)); continue ;;
         *) subcmd="$tok"; break ;;
       esac
     done
@@ -565,7 +572,10 @@ else
       ops=()
       while [ "$i" -lt "$n" ]; do
         tok="${toks[$i]}"; i=$((i + 1))
-        case "$tok" in -*) continue ;; *) ops+=("$tok") ;; esac
+        # Same value-consuming rule as the subcommand loop: a flag's value is not
+        # an operand, and `repost`'s destination is the SECOND operand, so one
+        # unconsumed value shifts it.
+        case "$tok" in -*) is_write_value_flag "$tok" && i=$((i + 1)); continue ;; *) ops+=("$tok") ;; esac
       done
       [ "${#ops[@]}" -ge 2 ] || deny "slack-post-guard: \`slack repost\` was parsed with fewer than two operands, so its destination cannot be established. Fail-closed."
       target="${ops[1]}"

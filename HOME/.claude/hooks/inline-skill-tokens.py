@@ -149,6 +149,15 @@ def main() -> None:
         log("BAIL", f"unreadable-payload:{type(exc).__name__}", "")
         return
 
+    if not isinstance(payload, dict):
+        # The OUTER payload, not just its `prompt`. The first cut of this guard
+        # covered `{"prompt": 42}` and the notes claimed "the class is covered",
+        # which overstated it: a bare `[]`, `null`, `42` or `"x"` on stdin still
+        # exited 1 on `.get`, because the matrix only ever fixtured `{"prompt": X}`
+        # (2026-09-17 round 4 audit, C1).
+        log("BAIL", f"payload-not-an-object:{type(payload).__name__}", "")
+        return
+
     prompt = payload.get("prompt")
     if not isinstance(prompt, str):
         # Same fail-open reasoning as the parse above, and the same reason it is

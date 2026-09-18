@@ -514,6 +514,22 @@ runb allow 'slack write --output json engineering v9' "$TX_ENG"
 reset_ledger
 runb allow 'slack write -l debug engineering v10' "$TX_ENG"
 
+# A GLOBAL option BEFORE the subcommand. The loop skipped the flag but not its
+# value, so the value became the subcommand, failed write|repost, and the whole
+# statement was dropped: stmt_found=0 allows. Found by the round 4 audit (M2)
+# AFTER the value-flag list was fixed, so the 136-pass suite could not see it.
+TX_WX=$(transcript vfwx 'what is the weather today')
+reset_ledger
+runb deny 'slack --output json write bruce v11' "$TX_WX"
+reset_ledger
+runb deny 'slack -l debug write bruce v12' "$TX_WX"
+reset_ledger
+runb deny 'slack --config /tmp/c.yml write bruce v13' "$TX_WX"
+reset_ledger
+runb deny 'slack --output json repost bruce v14' "$TX_WX"
+reset_ledger
+runb allow 'slack --output json write clipboard v15' "$TX_ENG"
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

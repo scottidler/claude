@@ -186,9 +186,22 @@ LIB_OK=1
 
 # ---------------------------------------------------------------- parsing ---
 
-# Every value-taking flag `slack write` has. A token matching one of these
-# consumes the NEXT token, so that operand is never mistaken for the target.
-WRITE_VALUE_FLAGS=" --thread --broadcast --at --follow-up --edit --file --markdown-to-mrkdwn --blocks-file "
+# Every value-taking flag `slack write` has, transcribed from `slack write --help`
+# rather than hand-listed. A token matching one of these consumes the NEXT token,
+# so that operand is never mistaken for the target.
+#
+# Scar tissue: this list was hand-written and omitted SIX of them (`--output`,
+# `--log-level`/`-l`, `--valet-url`, `--timeout-secs`, `--max-message-chars`,
+# `--config`/`-c`). Each omission is a deny-to-allow bypass whenever the flag's
+# VALUE happens to appear in the prompt, because the guard then authorizes against
+# that value instead of the real target. Measured 2026-09-17 against the shipped
+# guard: `slack write --at 7d --output json '#engineering' hi` ALLOWED on a prompt
+# reading "can you give me the json output of that report", where the same command
+# without the flag correctly denied. Same for `--log-level debug` with "turn on
+# debug", and `--timeout-secs 5` with "the timeout was 5 seconds". This is the
+# omitted-skip-list pattern chunk D's round 6 fixed on `gh api`, and the answer is
+# the same: replace the hand-list with the complete `--help` specification.
+WRITE_VALUE_FLAGS=" --thread --broadcast --at --follow-up --edit --file --markdown-to-mrkdwn --blocks-file --output --log-level -l --valet-url --timeout-secs --max-message-chars --config -c "
 
 is_write_value_flag() { case "$WRITE_VALUE_FLAGS" in *" $1 "*) return 0;; esac; return 1; }
 
@@ -560,7 +573,14 @@ else
         continue
       fi
       case "$tok" in
-        -*) continue ;;
+        # A GLOBAL option before the subcommand takes its VALUE with it. Skipping
+        # the flag but not its value made the value the subcommand, which then
+        # failed the write|repost test below and dropped the whole statement, so
+        # the guard allowed. Measured 2026-09-17 (round 4 audit, M2):
+        # `slack --output json write bruce hi` ALLOWED on a prompt asking for no
+        # post, where `slack write bruce hi` correctly denied. Same for
+        # `-l debug`, `--config <path>` and the `repost` spelling.
+        -*) is_write_value_flag "$tok" && i=$((i + 1)); continue ;;
         *) subcmd="$tok"; break ;;
       esac
     done
@@ -577,7 +597,10 @@ else
       ops=()
       while [ "$i" -lt "$n" ]; do
         tok="${toks[$i]}"; i=$((i + 1))
-        case "$tok" in -*) continue ;; *) ops+=("$tok") ;; esac
+        # Same value-consuming rule as the subcommand loop: a flag's value is not
+        # an operand, and `repost`'s destination is the SECOND operand, so one
+        # unconsumed value shifts it.
+        case "$tok" in -*) is_write_value_flag "$tok" && i=$((i + 1)); continue ;; *) ops+=("$tok") ;; esac
       done
       [ "${#ops[@]}" -ge 2 ] || deny "slack-post-guard: \`slack repost\` was parsed with fewer than two operands, so its destination cannot be established. Fail-closed."
       target="${ops[1]}"

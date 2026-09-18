@@ -157,6 +157,38 @@ fi
 # `{"prompt":42}` exited 1 before its guard landed, while every other malformed
 # shape exited 0. A non-zero exit from a UserPromptSubmit hook is a prompt that
 # will not submit, and this hook runs on every prompt of every session.
+# The OUTER payload too, not just its `prompt`. The first cut covered only
+# `{"prompt": X}` and the notes claimed "the class is covered", which overstated
+# it: a bare `[]`, `null`, `42` or `"x"` still exited 1 on `.get` (round 4 audit, C1).
+for payload in '[]' 'null' '42' 'true' '"x"'; do
+  out=$(printf '%s' "$payload" | "$HOOK" 2>/dev/null)
+  rc=$?
+  if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+    ok "fail open: bare $payload payload exits 0 and emits nothing"
+  else
+    bad "fail open: bare $payload payload rc=$rc out=${out:-empty}"
+  fi
+done
+
+# Namespaced plugin-skill tokens. The candidate regex had no `:` while resolve.py
+# resolves ONLY the `plugin:skill` form, so both directions were wrong (round 4
+# audit, M1): a resolvable `/slack:read` emitted nothing, and `/babysit:bogus`
+# emitted `/babysit` while claiming the tokens were "quoted verbatim from it".
+# That false claim is what 0b-3a says gets an injected instruction treated as
+# hostile, so the quote must always be a substring of the prompt.
+out=$(run 'run /slack:read on that thread')
+if printf '%s' "$out" | jq -er '.hookSpecificOutput.additionalContext | contains("`/slack:read`")' >/dev/null 2>&1; then
+  ok "namespaced: /slack:read is named whole"
+else
+  bad "namespaced: /slack:read not named: ${out:-empty}"
+fi
+out=$(run 'run /babysit:bogus on it')
+if [ -z "$out" ]; then
+  ok "namespaced: /babysit:bogus emits nothing, never a truncated /babysit"
+else
+  bad "namespaced: /babysit:bogus emitted something: $out"
+fi
+
 for payload in '{"prompt":42}' '{"prompt":[]}' '{"prompt":{"a":1}}' '{"prompt":true}' '{"prompt":null}'; do
   out=$(printf '%s' "$payload" | "$HOOK" 2>/dev/null)
   rc=$?

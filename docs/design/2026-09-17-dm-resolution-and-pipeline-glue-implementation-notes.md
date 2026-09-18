@@ -1102,3 +1102,52 @@ its own chunk. Not a phase of this doc; recorded here because this is where it w
 - The matrix carries a flaky latency gate: "5001913 byte transcript, non-Slack call took N ms
   (want < 50)" failed once at high load and passed at 32 ms twice after. `rules/taste.md` says
   flaky tests get hardened rather than retried. Pre-existing.
+
+## Round 4 implementation audit: all 8 findings folded
+
+Ordered by Scott (`PANEL_ROUNDS_ORDERED_BY_SCOTT=4`). Both seats ran; the architect seat
+executed nothing and its "no undisclosed deviations" was a reasoned absolute with no command
+behind it, which its own reviewer flagged and which the staff seat's execution contradicted.
+
+### Design decisions
+- **M1, namespaced tokens.** `matcher.py`'s candidate regex had no `:` while `resolve.py`
+  resolves only the `plugin:skill` form. Both directions were wrong: `/slack:read` emitted
+  nothing though it resolves, and `/babysit:bogus` emitted `` `/babysit` `` while claiming the
+  tokens were "quoted verbatim from it". **That claim was false and named a real skill the user
+  never typed**, which is precisely what 0b-3a measured gets an injected instruction treated as
+  hostile. `:` is now in the token body; both cases behave and no fixture number moved.
+- **M2, a global option before the subcommand.** The loop skipped `-*` but not its value, so
+  the value became the subcommand, failed `write|repost`, and the statement was dropped
+  entirely: `slack --output json write bruce hi` ALLOWED where `slack write bruce hi` denied.
+  Four spellings. Pre-existing, but `9131321`'s message implied that class was closed and it was
+  not. Both loops now consume the value.
+- **M3, the evidence no longer reproduced.** `9131321` edited the guard after Phase 3 measured,
+  so the recorded 8/14/25 was stale against the tree it ships with. Re-derived the variants from
+  the current guard and re-ran: **A=6, B=12, C=20**. The decision is unchanged, because 12 and 20
+  exceed 6 exactly as 14 and 25 exceeded 8. Doc, table, Status line and variant md5 all re-recorded.
+- **M4, the criteria section.** Seven of eight were still `- [ ]` with "Correctly failing" while
+  `Status` said Implemented. All eight verified and ticked, with a table of how each was checked.
+  The pre-implementation `Observed on main:` lines are kept as the before-state.
+- **C1** extended the fail-open guard to the OUTER payload, **C2** tightened criterion 7's false
+  positives from `<= 2` to `0`, **S1** widened the version-delta grep to match package.json's
+  `+  "version": ...`, **S2** replaced `${NO_INSTALL:+...}` (which always expanded, since `0` is
+  non-empty) with a computed flag.
+
+### Deviations
+- **I introduced a script-killing bug while fixing S2 and caught it before committing.** The
+  first cut was `[ "$NO_INSTALL" = 1 ] && NO_INSTALL_FLAG=" --no-install"` as a bare statement.
+  `release` runs under `set -euo pipefail`, where a bare `test && assign` whose test fails is a
+  non-zero statement that exits the script. Rewritten as an `if` and hoisted out of the `else`
+  block it had landed in; both values proven not to exit.
+
+### Tradeoffs
+- Re-measured Phase 3 rather than annotating the old numbers as historical. The doc asserts the
+  variant is a byte copy of the guard in the present tense, so the only honest options were
+  re-run or weaken the claim, and re-running cost three replays.
+
+### Open questions
+- Three of the audit's findings were **my own overclaims**, and that is the pattern worth naming:
+  `9131321`'s commit message implied a class was closed when one spelling remained (M2), the
+  notes said "the class is covered" for a guard that covered one shape (C1), and my fix landing
+  after Phase 3 invalidated its recorded evidence without my noticing (M3). Each was caught by a
+  reviewer, not by me.

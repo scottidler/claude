@@ -235,9 +235,16 @@ class AcceptanceCriterionSevenTest(unittest.TestCase):
         self.assertEqual(kept, 571, "the deny list must leave the doc's 571 survivors")
         self.assertGreaterEqual(hit, 554, f"criterion 7 floor is 554, got {hit}/{kept}")
 
-    def test_at_most_the_two_permitted_false_positives(self) -> None:
+    def test_no_false_positives(self) -> None:
+        """Tightened to 0 from the doc's `<= 2` (round 4 audit, C2).
+
+        The doc permits exactly two enumerated clipped-window `/handoff` records,
+        but `<= 2` asserts a count and not their identity, so any other pair would
+        satisfy it. Measured 0 today, so the carve-out is retired rather than
+        left as headroom nothing needs.
+        """
         _, _, false_positives = self._score()
-        self.assertLessEqual(false_positives, 2, "criterion 7 permits only the two clipped-window records")
+        self.assertEqual(false_positives, 0, "the two permitted residuals no longer match; keep it at zero")
 
 
 if __name__ == "__main__":
