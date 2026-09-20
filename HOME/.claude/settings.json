@@ -608,7 +608,7 @@
       "Bash(gx --help 2>&1)",
       "Bash(gx create:*)",
       "Bash(gx status:*)",
-      "Bash(gx --cwd ~/repos/scottidler status 2>&1 | grep -v '\ud83d\udfe2' | head -40)",
+      "Bash(gx --cwd ~/repos/scottidler status 2>&1 | grep -v '🟢' | head -40)",
       "Bash(for f:*)",
       "Bash(for id:*)",
       "mcp__multi-account-github__get_repo",
@@ -737,7 +737,7 @@
       "/tmp/review-panel"
     ]
   },
-  "model": "opus[1m]",
+  "model": "fable",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
@@ -1052,7 +1052,9 @@
     "typescript-lsp@claude-plugins-official": false,
     "understand-anything@understand-anything": true,
     "slack@tatari-skills": true,
-    "spec@tatari-skills": true
+    "spec@tatari-skills": true,
+    "conductor@conductor": true,
+    "ttv@tatari-skills": true
   },
   "extraKnownMarketplaces": {
     "tatari-skills": {
@@ -1066,6 +1068,12 @@
         "source": "github",
         "repo": "Lum1104/Understand-Anything"
       }
+    },
+    "conductor": {
+      "source": {
+        "source": "github",
+        "repo": "tatari-tv/conductor"
+      }
     }
   },
   "outputStyle": "Edges",
@@ -1074,7 +1082,8 @@
     "network": {
       "allowedDomains": [
         "tatari-tv.github.io"
-      ]
+      ],
+      "allowAllUnixSockets": true
     },
     "filesystem": {
       "allowWrite": [
