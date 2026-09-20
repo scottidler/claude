@@ -1102,7 +1102,8 @@
         "/home/saidler/.codex",
         "/home/saidler/.gemini",
         "/var/tmp/rmrf",
-        "/var/tmp/bkup"
+        "/var/tmp/bkup",
+        "/home/saidler/.cargo/bin"
       ],
       "allowRead": [
         "/tmp/review-panel",
