@@ -226,3 +226,51 @@ New `## ToolSearch` section in `HOME/repos/.claude/rules/general.md`, between `#
   as-is, or the ToolSearch citation should be cut to close the gap (at the cost of
   re-verifiability), is Scott's call. Recorded in the design doc under AC5 and the Phase 6
   Result line, not resolved here.
+
+## Phase 7: waiting discipline in `release-driver.md`
+
+Replaced the two vague-pacing bullets in `HOME/.claude/agents/release-driver.md` (originally
+`:167`, the CI-poll pacing note in step 4, and `:186`, the `sdv probe` pacing note in step 6)
+with an explicit mechanism, and touched nothing else. `release-driver.md:4` is
+`tools: Bash, Read, Grep, Glob`; both new bullets name only `run_in_background` (a Bash tool
+parameter) and shell constructs (`until`, `sleep`) the agent already shells out to via Bash.
+
+### Design decisions
+
+- **`run_in_background` plus a terminating `until` loop, in one Bash call.** Since
+  `release-driver` has no `Monitor` tool (`tools:` line confirmed before writing either bullet),
+  the mechanism is: run the whole poll loop (`until <condition>; do sleep 30; done`) as a
+  single `run_in_background: true` Bash call, so the harness notifies the agent when the loop
+  exits instead of the agent re-invoking Bash every few seconds. Both bullets state this the
+  same way (step 4's `gh pr checks` poll, step 6's `sdv probe` poll), with step 6 referring back
+  to step 4 rather than repeating the full explanation.
+- **The `review-panel.md` carve-out is cited by name and span, `review-panel.md:146-151`**, at
+  the first (step 4) bullet: its dual-seat launch deliberately stays foreground with `wait`,
+  never `run_in_background`, because a detached child is reaped by the sandbox's PID namespace.
+  That carve-out is for two seats sharing one call, not for a solo polling wait, so the new
+  release-driver text names it as a boundary, not a contradiction.
+- **`babysit/SKILL.md:80-91`'s `/loop` timer is cross-referenced, not duplicated.** Babysit
+  already solves the analogous "don't hand-poll the user's patience" problem for the main
+  session, which has a `Skill` tool release-driver lacks. The new text names that file and line
+  range and states the `run_in_background` + `until` loop above is the equivalent mechanism for
+  an agent that cannot invoke `/loop`, rather than adding a second waiting mechanism to
+  `babysit/SKILL.md` itself (that file was read, not edited).
+
+### Deviations
+
+- None. The doc's Phase 7 step asked for `run_in_background` plus a terminating `until` loop,
+  named explicitly, not `Monitor`; the `review-panel.md` carve-out added by name; and a
+  cross-reference (not a second mechanism) to babysit's `/loop`. All three landed as specified.
+
+### Tradeoffs
+
+- **Repeating the mechanism at both bullets vs. cross-referencing step 4 from step 6.** Chose to
+  restate the `run_in_background` + `until` pattern briefly at step 6 (with its own `sdv probe`
+  example) rather than only pointing back to step 4, since a reader mid-way through step 6 for a
+  `cli`/`service` release may not have step 4 fresh; the `review-panel.md` and `babysit`
+  cross-references are stated once, at step 4, rather than duplicated at step 6, to keep the doc
+  from repeating the same citation twice.
+
+### Open questions
+
+- None.

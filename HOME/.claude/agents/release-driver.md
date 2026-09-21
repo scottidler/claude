@@ -164,7 +164,17 @@ command into a shell, no `$( )` around them. Each runs on its own.
      HALL-OF-SHAME §VIII).
    - Once merged: run `release --finish [--install …]`. It checks out the default
      branch, pulls, tags the merged tip, and pushes the tag by name.
-   - Pace your polling so you're not spinning every few seconds; CI takes minutes.
+   - **Wait mechanically, not by spinning.** Run the poll as a single `run_in_background`
+     Bash call wrapping a terminating `until` loop, e.g.
+     `until gh pr checks <branch> ...; do sleep 30; done`, so the harness notifies you
+     when it exits instead of you re-invoking the tool every few seconds. CI takes
+     minutes. (`review-panel.md:146-151`'s dual-seat launch is the deliberate
+     exception: it stays foreground with `wait`, never `run_in_background`, because a
+     detached child is reaped by the sandbox's PID namespace. That carve-out covers
+     parallel seats sharing one call, not a solo polling wait like this one. Babysit's
+     `/loop` timer at `babysit/SKILL.md:80-91` solves the same class of wait for the
+     main session, which has a `Skill` tool this agent lacks; `run_in_background` plus
+     the `until` loop above is the equivalent here.)
 
 5. **Verify: do not claim success you didn't check.** Confirm, with commands
    (substitute the actual vX.Y.Z in the greps below):
@@ -183,8 +193,12 @@ command into a shell, no `$( )` around them. Each runs on its own.
    ```bash
    sdv probe <DEPLOY-URL>            # /status, /deployed, /version
    ```
-   - Poll on a sane pace (roughly every 30s), not a spin. A deploy lands minutes
-     after the tag, so expect several probes.
+   - **Wait mechanically, not by spinning.** Run this probe loop the same way as
+     step 4's poll: a single `run_in_background` Bash call wrapping a terminating
+     `until` loop, e.g. `until sdv probe <DEPLOY-URL> | grep -q <EXPECTED-VERSION>; do
+     sleep 30; done`, so the harness notifies you when it exits rather than you
+     re-invoking `sdv probe` every few seconds. A deploy lands minutes after the tag,
+     so expect several iterations.
    - **Paste the probe output into your report**, at least the final one, plus the
      first if the version changed between them. "It's live" with no output is the
      exact unverified claim this step exists to kill.
