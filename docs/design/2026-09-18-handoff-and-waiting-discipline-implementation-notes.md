@@ -296,3 +296,69 @@ parameter) and shell constructs (`until`, `sleep`) the agent already shells out 
 - AC4 PASS: `git -C ~/repos/mattpocock/skills status --porcelain` and `git -C ~/repos/Q00/ouroboros status --porcelain` both empty.
 - AC5 PASS against the amended 502-byte ceiling, FAIL against the original 400. See the deviation above.
 - AC6 PASS both directions.
+
+## Mode 2 implementation audit, round 1: what it found and how it was folded
+
+Panel run 2026-09-20, both seats rc=0. Synthesis `/tmp/review-panel/f2handoff-m2/synthesis.md`, probes `/tmp/review-panel/f2handoff-m2/probes.md`. Verdict: 5 must-fix, 4 cheap wins, 3 defer. Every must-fix and every cheap win is folded below. The panel rejected one architect finding as falsified by execution, and rejected any reading of AC5's amendment as an implementer papering over a failure.
+
+### M1 and M2: the SLEEP rule shipped four false-positive denies (commit `a2a72af`)
+
+#### Design decisions
+- The quote discipline is a PREPROCESSING pass, not a change to `loop_spans` (`intent-guard.sh:sleep_prep`): the span scan needs raw text to read keywords out of `eval "<loop>"`, so which quoted text counts as code must be decided before it, not inside it.
+- "Code" is defined by where the shell runs it, not by the quote character (`sleep_prep/dostmt`): a `-c` payload, an `eval` argument, nothing else. `bash -n` is a parse with no execution, so its payload is masked.
+- A quoted word with no whitespace stays exposed (`sleep_prep/maskspans`): it cannot spell `do ... done`, and masking it would erase `"for"` (the shape `wrap_shapes` builds) and `sleep "24"` (the chaining bypass the rule exists to price).
+- The `-c` payload is re-scanned one level down (`sleep_prep/expose`, depth capped at 4), which is what keeps `bash -c "echo '<loop>'"` a printed string.
+- A redirection is recognised only where the shell reads one (`sleep_prep/striprd`): not before `(`, not glued to a word character, which leaves `for ((i=0; i<30; i++))` parseable instead of eating its test.
+- `until` got its own branch (`loop_spans/setbound`): `until` inverts the test, so the never-terminating constant inverts with it. `until false` is UNBOUND; `until true` runs zero iterations and terminates.
+- A deny's SENTENCE is asserted, not just its decision (`intent-guard-test.sh:runsays`). The model reads the sentence, and the audit found one overclaiming.
+
+#### Deviations
+- The audit named `sleep_ms` (`:435`) as the site of the redirection defect. Fixed one seam earlier, in the text both `loop_spans` and `sleep_ms` read, because `args` has already discarded the redirection operator by the time `sleep_ms` sees tokens and the operand is indistinguishable from a duration there. Same effect, correct seam.
+- `until false` was added as the UNBOUND case. The audit only asked that `until true` stop denying; leaving `until` with no unbounded case would have opened the mirror hole, so the inversion was completed and pinned with a fixture.
+- Supersedes the Phase 4 note at `:138`, which is the audit's M4: it claimed `bash -c "echo '<loop>'"` denies as the price of the gate widening. It did not deny then and does not deny now. The claim was wrong when written; the behaviour is correct.
+
+#### Tradeoffs
+- Preprocessing pass vs. teaching `loop_spans` to carry masked and raw text in parallel: `loop_spans` re-tokenizes with `gsub(/;/, " ; ")` and a quoted `;` is a `;` in one text and a mask byte in the other, so the two streams do not align.
+- Statement splitting in `sleep_prep` is a local simplified walk rather than `stmts`, because `stmts` masks command substitutions and would turn the dominant measured bound form (`$(seq 1 30)`, 483 of 800) from an arithmetic MULT into an opaque OPEN. Denies either way, but the total would degrade from 1800s to "not computable".
+- A mis-split in that walk leans toward masking, which leans toward allow. The exposure paths (`eval`, `-c`) are the ones that must not be missed, so wrappers are stepped over the way `lib.sh` steps over them.
+
+#### Open questions
+- `sleep_prep`'s quote scanner, tokenizer and command-word walk are a second implementation of what `lib.sh` already does. `lib.sh` exposes no position-bearing API (`args` unquotes, `stmts` masks substitutions), so either `lib.sh` grows a masked-spans mode and `sleep_prep` shrinks to a caller, or the duplication is accepted as SLEEP-local. Unresolved, handed on.
+- `2>/dev/null sleep 30` still allows: the shared `sleep_seen` gate reads `2` as the command word, so the rule never runs. Pre-existing, unchanged by this fold, not a regression. Fixing it means moving the gate onto the stripped text, and that gate is read by every other rule in the file.
+
+### M3: AC2's evidence asserted nothing (commit `6ef5f24`)
+
+#### Design decisions
+- Folded `controls-check.sh`'s 20-control silence assertions into `handoff-guard-test.sh` rather than renaming the standalone script: the test file already matches `.otto.yml`'s `HOME/.claude/hooks/*-test.sh` glob, so no `.otto.yml` change was needed and there is one canonical regression file for the hook.
+- Corpus integrity: `fires_sha256` is recomputed from `fires.tsv` each run and compared against `counts.json`, with a row-count assert (85), so a hand-edited corpus fails CI instead of drifting silently.
+- Set equality is 85 independent assertions, one per frozen row, not one aggregate count. A predicate selecting zero rows now fails loudly: verified at 92 of 145 failures against a broken fire-1 regex.
+
+#### Deviations
+- "Run the predicate over the committed ids" is impossible as literally specified. `fires.tsv`'s ids are `transcript-file:lineno` references into `~/.claude/projects`, which `extract.py` deliberately never committed (3.9 GB, not reproducible). The replay input is the one committed, deterministic field per row, the extracted `trigger` substring. AC2's wording in the design doc was corrected to say so rather than leaving the criterion claiming more than the test asserts.
+
+#### Tradeoffs
+- Considered re-scanning live `~/.claude/projects` at test time for a true replay of original prompts; rejected because that directory is mutable and growing (this session's own transcript adds `handoff` mentions), so the assert would be non-deterministic and break CI reproducibility.
+- Known limit, recorded rather than papered over: replaying `trigger` alone can never hit the hook's bail patterns (leading `<`, code fence, agent-opener prefix), so the assert catches extraction and matching regressions, not bail-logic ones.
+
+#### Open questions
+- None outstanding. The worker asked whether to delete the now-redundant `docs/design/2026-09-18-handoff-and-waiting-discipline-phase3/controls-check.sh`; decision: KEEP it, unmodified, as inert Phase 3 evidence. It is committed provenance for the frozen corpus, not live code, and `rules/safety.md` does not reward deleting evidence to tidy a directory.
+
+### M5, W1, W2, W3, W4 (commit `d8f6d4b`)
+
+#### Design decisions
+- M5: replaced the prescribed `until gh pr checks ...; do sleep 30; done` with `gh pr checks --watch --fail-fast` (both flags verified present in gh 2.46.0), plus a general rule that an `until` condition must be true for EVERY terminal state, not for success alone. The panel's premise that `gh pr checks` exits non-zero on failure is undocumented in 2.46.0's help, so the fix does not depend on an exit code: `--fail-fast` is documented as exiting on the first check failure.
+
+#### Deviations
+- None. W1, W2, W3 and W4 are corrections to text this session wrote, not departures from the spec.
+
+#### Tradeoffs
+- The superseded AC2 and AC3 evidence lines were left in the doc, marked WRONG and superseded, rather than deleted. A criterion marked passing on evidence that asserted nothing is the defect the gate exists to catch, and deleting the trail hides that it happened.
+
+#### Open questions
+- None.
+
+### Deferred by the panel, not folded
+
+- **F1, the baton is uncorrected.** `docs/design/2026-09-13-setup-audit-program.md:60` is byte-identical to base and still wrong, and there is no F2 log entry; the table still reads `queued`. Chunk-close work, outside this doc.
+- **F2, `handoff-guard.sh` grounds on a path, not a resume request.** It fires on `review docs/handoff/topic.md`, and with two paths the first wins. Openly delegated: the injected text says "Decide from the prompt's own wording", and `:112` calls it a grounding hook, not a trigger.
+- **F3,** `sdv probe | grep -q` (`release-driver.md:198`) discards the version evidence step 5 wants. The agent can re-run the probe. Nit.
