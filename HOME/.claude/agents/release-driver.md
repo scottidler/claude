@@ -201,9 +201,12 @@ command into a shell, no `$( )` around them. Each runs on its own.
    ```
    - **Wait mechanically, not by spinning.** Run this probe loop the same way as
      step 4's poll: a single `run_in_background` Bash call wrapping a terminating
-     `until` loop, e.g. `until sdv probe <DEPLOY-URL> | grep -q <EXPECTED-VERSION>; do
-     sleep 30; done`, so the harness notifies you when it exits rather than you
-     re-invoking `sdv probe` every few seconds. A deploy lands minutes after the tag,
+     `until` loop that KEEPS each probe's output, e.g.
+     `until sdv probe <DEPLOY-URL> | tee -a $TMPDIR/probe.log | grep -q <EXPECTED-VERSION>; do sleep 30; done`,
+     so the harness notifies you when it exits rather than you re-invoking `sdv
+     probe` every few seconds. The `tee` is not decoration: a bare `| grep -q`
+     discards every probe, and the bullet below requires you to paste the output.
+     Read the log back when the loop exits. A deploy lands minutes after the tag,
      so expect several iterations.
    - **Paste the probe output into your report**, at least the final one, plus the
      first if the version changed between them. "It's live" with no output is the
