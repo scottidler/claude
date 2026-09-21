@@ -165,10 +165,16 @@ command into a shell, no `$( )` around them. Each runs on its own.
    - Once merged: run `release --finish [--install …]`. It checks out the default
      branch, pulls, tags the merged tip, and pushes the tag by name.
    - **Wait mechanically, not by spinning.** Run the poll as a single `run_in_background`
-     Bash call wrapping a terminating `until` loop, e.g.
-     `until gh pr checks <branch> ...; do sleep 30; done`, so the harness notifies you
-     when it exits instead of you re-invoking the tool every few seconds. CI takes
-     minutes. (`review-panel.md:146-151`'s dual-seat launch is the deliberate
+     Bash call that blocks until the checks reach a terminal state, so the harness
+     notifies you when it exits instead of you re-invoking the tool every few seconds.
+     CI takes minutes. Use `gh`'s own blocking mode, `gh pr checks <branch> --watch
+     --fail-fast` (both flags verified present in gh 2.46.0), because it exits on the
+     FIRST check failure as well as on success. A bare `until gh pr checks ...; do
+     sleep 30; done` cannot do that: a hard CI failure is not a loop-exit condition,
+     so the wait would spin past the very failure the bullet four lines above tells
+     you to STOP and report. Where a blocking mode does not exist, the shape is a
+     `run_in_background` call wrapping a terminating `until` loop whose condition is
+     true for EVERY terminal state, success and failure both, never success alone. (`review-panel.md:146-151`'s dual-seat launch is the deliberate
      exception: it stays foreground with `wait`, never `run_in_background`, because a
      detached child is reaped by the sandbox's PID namespace. That carve-out covers
      parallel seats sharing one call, not a solo polling wait like this one. Babysit's
