@@ -2,7 +2,6 @@
 name: handoff
 description: Resume from a handoff, or write one for the next session. Resume is the default whenever a handoff for this work already exists.
 argument-hint: "What the next session should focus on"
-disable-model-invocation: true
 ---
 
 # handoff
@@ -41,9 +40,14 @@ You are the receiver. Your job is to **do the work**, not to describe its state.
 
 ## Write mode
 
-Write a handoff so a fresh agent can continue. Save it to the session scratchpad or the OS temp directory, not the workspace, unless the user says otherwise.
+Write a handoff so a fresh agent can continue. Save it to **`docs/handoff/<branch>.md`** in the repo being worked, where `<branch>` is `git rev-parse --abbrev-ref HEAD`. One file per branch, committed with the work.
+
+The path is fixed and keyed on the branch because that is what the resume side can compute without being told: `handoff-guard.sh` stats exactly that path and points the next session at it. A per-session temporary location cannot be found by anything and dies with the session that wrote it. If HEAD is detached or the work is not in a repo, ask the user where it goes rather than inventing a throwaway location.
 
 - Do not duplicate what other artifacts already hold (design docs, plans, ADRs, issues, commits, diffs). Reference them by path or URL.
+- **Name the commits.** The branch, its HEAD sha, and what landed in each commit that matters. A receiver who cannot tell which commits are yours re-derives the diff.
+- **Name the PR URL** if one is open, with its CI and review state at the time of writing.
+- **List the read-first paths**, in order, as the first thing the receiver should open. The handoff is an index; this is its table of contents.
 - **Every blocker gets the command that proves it**, so the receiver can re-run it in one step instead of taking it on faith. A blocker with no probe is a rumor.
 - Mark anything time-sensitive or session-scoped as such: plugin and hook load state, cached credentials, background jobs, anything that a restart changes.
 - Include a "suggested skills" section naming the skills the next agent should invoke.

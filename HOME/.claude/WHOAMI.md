@@ -39,4 +39,4 @@ Scott's own shorthand, so an agent stops guessing what these mean.
 - **shipit**: the `/shipit` skill, commit, bump the version, push, and install in one go, handed to the `release-driver` agent.
 - **bump**: the `bump` CLI, bumps semantic versions, commits, and tags a git repo; `bump --gates` reports branch-protection status; `bump --no-tag` / `bump --tag-only` split the bump for gated repos.
 - **sdv**: the `sdv` CLI, reports a Tatari-hosted site's standard endpoints (`/status`, `/deployed`, `/version`) via `sdv probe`.
-- **handoff**: the `handoff` skill (`HOME/.claude/skills/handoff/SKILL.md`), which writes a session handoff and resumes from one. It is built and live; F2 still owes the resume *trigger* (`docs/design/2026-09-13-setup-audit-program.md:39`), not the skill.
+- **handoff**: the `handoff` skill (`HOME/.claude/skills/handoff/SKILL.md`), which writes a session handoff and resumes from one. Handoffs live at `docs/handoff/<branch>.md` in the repo being worked, one per branch, committed with the work. `handoff-guard.sh` stats that path and points a new session at it; there is no trigger that can fire a skill, so the hook grounds and the model invokes.
