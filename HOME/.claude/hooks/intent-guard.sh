@@ -414,9 +414,16 @@ SLEEP_ADVICE='To wait for a condition, use Monitor with an until-loop (e.g. `unt
 # when the operand is not a literal (`sleep "$T"`). A non-literal contributes
 # nothing: bounding it is the variable-verb limit chunk B handed on, and the
 # phase's domain is the three measured bypass classes, not that one.
+#
+# All three spellings coreutils accepts, because `strtod` does: `0.5`, `.5` and
+# `15.`. The first build spelled the fraction one way, `^[0-9]+([.][0-9]+)?`,
+# and the fixtures spelled it the same way, so `for i in $(seq 1 60); do sleep
+# .5; done` -- 30 seconds of wall clock -- contributed ZERO and allowed
+# (audit M2, 2026-09-20). A duration parser that rejects a duration the shell
+# accepts is a bypass, not a limit.
 dur_ms() {
   LC_ALL=C awk -v v="$1" 'BEGIN {
-    if (v !~ /^[0-9]+([.][0-9]+)?[smhd]?$/) exit 1
+    if (v !~ /^([0-9]+([.][0-9]*)?|[.][0-9]+)[smhd]?$/) exit 1
     c = substr(v, length(v), 1)
     u = 1
     if (c == "s") u = 1
@@ -445,6 +452,201 @@ sleep_ms() {
   printf '%s' "$total"
 }
 
+# sleep_prep <redir|data> -- stdin: command text, stdout: the same text prepared
+# for the span scan below. Two passes over one quote scanner, both SLEEP-local:
+# no other rule here needs either, and both would be wrong for rules that price
+# a verb rather than a duration.
+#
+#   redir  drops redirection operators and their operands. `sleep_ms` sums
+#          every token after the `sleep` command word, and `args` hands back a
+#          redirection's operand as a bare token, so `echo A; sleep 0.1 2>30`
+#          was priced at 0.1 + 2 + 30 = 32.1s and denied a command that waits a
+#          tenth of a second (audit M1, 2026-09-20). A `<` or `>` counts as a
+#          redirection only where the shell reads one: not before `(`, which is
+#          process substitution, and not glued to a word character, which is
+#          what leaves `for ((i=0; i<30; i++))` intact.
+#
+#   data   masks the content of quoted words the shell will NOT run, and leaves
+#          the ones it will. Exposed: a `bash`/`sh`/`zsh` `-c` payload, every
+#          `eval` argument, and any quoted word with no whitespace in it, which
+#          cannot carry loop structure and is how `"for" i in 1 2 3` and
+#          `sleep "24"` keep working. Masked: everything else, so a loop that is
+#          an argument to `echo`, or a positional argument sitting past the `-c`
+#          payload, is text and not code. `bash -n` is a parse with no
+#          execution, so its payload is masked too.
+#
+# The payload is re-scanned one level down, which is what makes
+# `bash -c "echo '<loop>'"` a printed string rather than a loop: the outer
+# payload is code, the string inside it is not.
+sleep_prep() {
+  LC_ALL=C awk -v mode="$1" '
+  function scanq(b, e,   i, c, st) {
+    st = ""
+    i = b
+    while (i <= e) {
+      c = substr(s, i, 1)
+      if (st == "") {
+        if (c == "\\") { cl[i] = "e"; i += 2; if (i - 1 <= e) cl[i - 1] = "e"; continue }
+        if (c == "\047") { cl[i] = "q"; st = "S"; i++; continue }
+        if (c == "\"") { cl[i] = "q"; st = "D"; i++; continue }
+        cl[i] = "."; i++; continue
+      }
+      if (st == "S") {
+        if (c == "\047") { cl[i] = "q"; st = ""; i++; continue }
+        cl[i] = "S"; i++; continue
+      }
+      if (c == "\\") { cl[i] = "D"; i += 2; if (i - 1 <= e) cl[i - 1] = "D"; continue }
+      if (c == "\"") { cl[i] = "q"; st = ""; i++; continue }
+      cl[i] = "D"; i++
+    }
+  }
+  function bare(i) { return (cl[i] == ".") }
+  function ws(c) { return (c == " " || c == "\t" || c == "\n") }
+  function isbnd(i,   c, p, x) {
+    if (!bare(i)) return 0
+    c = substr(s, i, 1)
+    if (c == ";" || c == "\n" || c == "&" || c == "|") return 1
+    if (c == "(") { p = (i > 1) ? substr(s, i - 1, 1) : " "; return (p == "$" || p == "<" || p == ">") ? 0 : 1 }
+    if (c == ")") return 1
+    if (c != "{" && c != "}") return 0
+    p = (i > 1) ? substr(s, i - 1, 1) : " "
+    x = (i < length(s)) ? substr(s, i + 1, 1) : " "
+    return (ws(p) || index(";|&", p) > 0) && (ws(x) || index(";|&", x) > 0)
+  }
+  function tokword(b, e,   i, out) {
+    out = ""
+    for (i = b; i <= e; i++) if (cl[i] != "q") out = out substr(s, i, 1)
+    return out
+  }
+  function verbword(w) { sub(/^\\/, "", w); sub(/^.*\//, "", w); return w }
+  # The same walk lib.sh runs, over the token map this pass builds: env
+  # assignments, reserved words and wrappers are stepped over, because
+  # `timeout 5 bash -c <loop>` is a shell invocation and a prefix regex
+  # says it is a `timeout`.
+  function cmdword_index(tb, te, nt,   k, w, o) {
+    k = 1
+    while (k <= nt) {
+      w = verbword(tokword(tb[k], te[k]))
+      if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { k++; continue }
+      if (w == "for" || w == "select") {
+        k++
+        if (k <= nt) k++
+        if (k <= nt && tokword(tb[k], te[k]) == "in") k++
+        continue
+      }
+      if (index(RESERVED, " " w " ") > 0) { k++; continue }
+      if (index(WRAPPERS, " " w " ") > 0) {
+        k++
+        while (k <= nt) { o = tokword(tb[k], te[k]); if (substr(o, 1, 1) != "-" || o == "-") break; k++ }
+        if (w == "timeout" && k <= nt && tokword(tb[k], te[k]) ~ /^[0-9]+([.][0-9]+)?[smhd]?$/) k++
+        continue
+      }
+      return k
+    }
+    return 0
+  }
+  # Whitespace is the test, and it is the whole test: a quoted word with none
+  # cannot spell `do ... done`, and masking it would erase `"for"`, the shape
+  # wrap_shapes builds by quoting the verb, and `sleep "24"`, the chaining
+  # bypass this rule exists to price.
+  function maskspans(b, e,   i, j, body) {
+    i = b
+    while (i <= e) {
+      if (cl[i] != "S" && cl[i] != "D") { i++; continue }
+      j = i
+      body = ""
+      while (j <= e && (cl[j] == "S" || cl[j] == "D")) { body = body substr(s, j, 1); j++ }
+      if (body ~ /[ \t\n]/) for (; i < j; i++) mk[i] = 1
+      i = j
+    }
+  }
+  function expose(b, e, depth,   fc, lc) {
+    if (depth >= 4) return
+    if (e <= b + 1 || cl[b] != "q" || cl[e] != "q") return
+    fc = substr(s, b, 1); lc = substr(s, e, 1)
+    if (fc != lc) return
+    scanq(b + 1, e - 1)
+    process(b + 1, e - 1, depth + 1)
+  }
+  function dostmt(b, e, depth,   i, c, nt, tb, te, k, w, ci, verb, syn, pidx) {
+    nt = 0
+    i = b
+    while (i <= e) {
+      c = substr(s, i, 1)
+      if (bare(i) && ws(c)) { i++; continue }
+      nt++
+      tb[nt] = i
+      while (i <= e) { c = substr(s, i, 1); if (bare(i) && ws(c)) break; i++ }
+      te[nt] = i - 1
+    }
+    if (nt == 0) return
+    ci = cmdword_index(tb, te, nt)
+    if (ci == 0) ci = 1
+    verb = verbword(tokword(tb[ci], te[ci]))
+    syn = 0; pidx = 0
+    if (verb == "eval") {
+      for (k = ci + 1; k <= nt; k++) expose(tb[k], te[k], depth)
+      return
+    }
+    if (verb == "bash" || verb == "sh" || verb == "zsh") {
+      for (k = ci + 1; k <= nt; k++) {
+        w = tokword(tb[k], te[k])
+        if (w !~ /^-/ || w == "--" || w == "-") break
+        if (w !~ /^--/) {
+          if (w ~ /n/) syn = 1
+          if (w ~ /c$/) { pidx = k + 1; break }
+        }
+      }
+    }
+    for (k = 1; k <= nt; k++) {
+      if (k == pidx && !syn) { expose(tb[k], te[k], depth); continue }
+      maskspans(tb[k], te[k])
+    }
+  }
+  function process(b, e, depth,   i, sb) {
+    sb = b
+    for (i = b; i <= e; i++) if (isbnd(i)) { dostmt(sb, i - 1, depth); sb = i + 1 }
+    dostmt(sb, e, depth)
+  }
+  function striprd(b, e,   i, j, k, m, c, p) {
+    i = b
+    while (i <= e) {
+      c = substr(s, i, 1)
+      if (!bare(i) || (c != "<" && c != ">")) { i++; continue }
+      if (substr(s, i + 1, 1) == "(") { i++; continue }
+      j = i
+      while (j > b && bare(j - 1) && substr(s, j - 1, 1) ~ /^[0-9]$/) j--
+      if (c == ">" && j > b && bare(j - 1) && substr(s, j - 1, 1) == "&") j--
+      p = (j > b) ? substr(s, j - 1, 1) : " "
+      if (!(j == b || (bare(j - 1) && (ws(p) || index(";|&(){}", p) > 0)))) { i++; continue }
+      k = i
+      while (k <= e && bare(k) && index("<>&|", substr(s, k, 1)) > 0) k++
+      while (k <= e && bare(k) && (substr(s, k, 1) == " " || substr(s, k, 1) == "\t")) k++
+      while (k <= e && !(bare(k) && (ws(substr(s, k, 1)) || index(";|&()", substr(s, k, 1)) > 0))) k++
+      for (m = j; m < k; m++) dl[m] = 1
+      i = k
+    }
+  }
+  BEGIN {
+    MK = sprintf("%c", 1)
+    RESERVED = " if then else elif fi while until do done case esac in function time ! [[ ]] { } "
+    WRAPPERS = " timeout nohup command env stdbuf nice ionice sudo xargs "
+  }
+  { buf = buf $0 "\n" }
+  END {
+    s = buf
+    n = length(s)
+    scanq(1, n)
+    if (mode == "data") process(1, n, 0); else striprd(1, n)
+    out = ""
+    for (i = 1; i <= n; i++) {
+      if (mode == "data") out = out ((i in mk) ? MK : substr(s, i, 1))
+      else if (!(i in dl)) out = out substr(s, i, 1)
+    }
+    printf "%s", out
+  }'
+}
+
 # loop_spans -- stdin: the command, heredoc- and comment-masked. stdout: one
 # TAB-separated record per region, `kind<TAB>multiplier<TAB>shape<TAB>text`:
 #
@@ -460,13 +662,16 @@ sleep_ms() {
 # both. The span keeps them together; `stmts` and `cmdword_is` then run inside
 # the span text, which is where the quote and heredoc discipline comes back.
 #
-# QUOTES ARE NOT MASKED here, unlike every other rule in this file, because the
-# wrapper sweep requires `eval "for i in 1 2 3; do sleep 30; done"` and its
-# `bash -c` twin to deny and quote-masking erases exactly those bodies. What
-# stops a quoted loop that is DATA from denying is the `sleep_seen` gate at the
-# call site: `echo "for i in 1 2 3; do sleep 30; done"` is one statement whose
-# command word is `echo`, so no sleep is ever in executable position and the
-# rule does not run at all.
+# QUOTES ARE ALREADY DECIDED before this function runs: `sleep_prep data` has
+# masked every quoted word that is DATA and left every quoted word that is CODE
+# exposed, so the keyword scan below can read the raw text. The first build
+# skipped that step and scanned quotes wholesale, which is what the wrapper
+# sweep needs for `eval "for i in 1 2 3; do sleep 30; done"` and what made
+# `sleep 1; echo 'for i in 1 2 3; do sleep 30; done'` deny at 91s for a
+# one-second wait (audit M1, 2026-09-20). The `sleep_seen` gate at the call
+# site is still the outer bound -- `echo "..."` alone never opens it -- but a
+# gate that opens on any `sleep` or any shell verb is not by itself a quote
+# discipline.
 #
 # Reachability is not computable from here and is not attempted: `while true; do
 # true && break; sleep 1; done` and the `|| break` form that never terminates
@@ -545,6 +750,16 @@ loop_spans() {
     gsub(/ ; /, " ", h)
     sub(/^[ \t]+/, "", h); sub(/[ \t;]+$/, "", h)
     if (lk[d] != "for") {
+      # `until` is `while` with the test INVERTED, so the unbounded constant is
+      # inverted too: `while true` never terminates, `until true` runs zero
+      # iterations. Reading both off one `true` denied `until true; do sleep
+      # 30; done` as a loop that never terminates, when it is the one shape in
+      # the class that never even enters the body (audit M1, 2026-09-20).
+      if (lk[d] == "until") {
+        if (h == "false") { fk[d] = "U"; shp[d] = "until false"; return }
+        fk[d] = "T"
+        return
+      }
       if (h == "true" || h == ":") { fk[d] = "U"; shp[d] = lk[d] " " h; return }
       fk[d] = "T"
       return
@@ -1143,14 +1358,17 @@ if [ "$sleep_seen" -eq 1 ] && [ "$run_bg" -eq 0 ]; then
       OPEN)
         # Named, not totalled. The guard cannot compute this bound, and saying
         # which shape stopped it is the difference between a rule a reader can
-        # work with and one that claims a number it does not have.
-        [ "$(sleep_ms "$text")" -gt 0 ] && deny "this loop sleeps and its iteration count is not computable from its bound ($shape), so the foreground wait cannot be bounded. $SLEEP_ADVICE"
+        # work with and one that claims a number it does not have. The sentence
+        # says THIS GUARD cannot bound it, not that it cannot be bounded: the
+        # count in `for ((i=0; i<3; i++))` is plainly computable and this rule
+        # simply does not compute it (audit Q2, 2026-09-20).
+        [ "$(sleep_ms "$text")" -gt 0 ] && deny "this loop sleeps and its iteration count is not computable from its bound ($shape), so this guard cannot bound the foreground wait. $SLEEP_ADVICE"
         ;;
       MULT|FLAT)
         sleep_total_ms=$((sleep_total_ms + $(sleep_ms "$text") * mult))
         ;;
     esac
-  done < <(printf '%s' "$command" | mask_heredoc | mask_comment | loop_spans)
+  done < <(printf '%s' "$command" | mask_heredoc | mask_comment | sleep_prep redir | sleep_prep data | loop_spans)
   if [ "$sleep_total_ms" -ge "$SLEEP_T1_MS" ]; then
     secs=$(LC_ALL=C awk -v m="$sleep_total_ms" 'BEGIN { s = m / 1000; if (s == int(s)) printf "%d", s; else printf "%g", s }')
     deny "this command waits ${secs}s in the foreground, summed across its statements and multiplied by each loop's iteration count. The block fires at 25s, which is where the harness's own check fires. $SLEEP_ADVICE"

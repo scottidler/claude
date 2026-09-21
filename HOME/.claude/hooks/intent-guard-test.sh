@@ -36,6 +36,20 @@ run() { # run <expect deny|allow> <command> [run_in_background true|false]
   fi
 }
 
+# A deny whose NUMBER is right and whose SENTENCE is wrong is still a defect:
+# the model reads the sentence. Asserted on the one deny text the audit found
+# overclaiming, so a reword that loses the distinction fails here.
+runsays() { # runsays <command> <substring the deny reason must contain>
+  local cmd="$1" want="$2" out reason
+  out=$(jq -n --arg c "$cmd" --arg d "$PWD" \
+    '{tool_name:"Bash",tool_input:{command:$c,run_in_background:false},cwd:$d}' | bash "$HOOK")
+  reason=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+  case "$reason" in
+    *"$want"*) pass=$((pass + 1)); printf 'PASS  [says] %s\n' "$cmd" ;;
+    *) fail=$((fail + 1)); printf 'FAIL  [want reason to contain: %s] %s\n' "$want" "$cmd" ;;
+  esac
+}
+
 runwrapped() { # runwrapped <command>
   local w
   while IFS= read -r w; do run deny "$w"; done < <(wrap_shapes "$1")
@@ -478,6 +492,71 @@ run deny  'echo for; sleep 30'
 # contributes nothing rather than denying. Same class as the variable-verb limit
 # chunk B handed on, and it is a fixture so the hole is visible, not folklore.
 run allow 'for i in 1 2 3; do sleep "$INTERVAL"; done'
+
+# The five below are the Mode 2 implementation audit's must-fix set, 2026-09-20.
+# Every one of them ALLOWED at base, DENIED against the first build of this
+# rule, and the wait each one actually performs is in the comment. They are
+# pinned here because a guard that denies a tenth of a second is worse than no
+# guard: the model learns to route around it.
+
+echo "=== SLEEP: a redirection is not a sleep operand (audit M1) ==="
+# `args` hands back a redirection's operand as a bare token, so summing every
+# token after the command word priced `sleep 0.1 2>30` at 0.1 + 2 + 30 = 32.1s
+# and denied a wait of one tenth of a second. The denies are the control: the
+# strip removes the redirection, not the wait behind it.
+run allow 'echo A; sleep 0.1 2>30'
+run allow 'echo A; sleep 24 >out.log 2>&1'
+run deny  'echo A; sleep 30 2>/dev/null'
+run deny  'echo A; sleep 26 >>log'
+
+echo "=== SLEEP: a quoted list item is ONE iteration (audit M1) ==="
+# Bash splits the `in` list on the whitespace BETWEEN words, never on the
+# whitespace inside one, so this loop runs once for 10s and was priced at 30.
+run allow 'for i in "one two three"; do sleep 10; done'
+run deny  'for i in one two three; do sleep 10; done'
+run deny  'for i in "one two three"; do sleep 30; done'
+
+echo "=== SLEEP: until true terminates, until false does not (audit M1) ==="
+# `until` is `while` with the test inverted, so the constant that never
+# terminates is inverted too. Reading both off one `true` denied the one shape
+# in the class that never enters its body at all.
+run allow 'until true; do sleep 30; done'
+run allow 'until :; do sleep 30; done'
+run deny  'until false; do sleep 30; done'
+run deny  'while true; do sleep 30; done'
+
+echo "=== SLEEP: a quoted loop is code only where the shell runs it (audit M1) ==="
+# The span scan reads keywords out of raw text, which is what the wrapper sweep
+# needs. Scanning EVERY quoted string that way denied a one-second wait at 91s,
+# and denied `bash -n -c`, which parses and executes nothing. The denies hold
+# the other half: a `-c` payload and an `eval` argument are still code.
+run allow "sleep 1; echo 'for i in 1 2 3; do sleep 30; done'"
+run allow "echo 'while true; do sleep 60; done'; sleep 1"
+run allow "bash -n -c 'for i in 1 2 3; do sleep 30; done'"
+run allow "bash -c 'echo \"\$1\"' _ 'for i in 1 2 3; do sleep 30; done'"
+run allow "bash -c \"echo 'for i in 1 2 3; do sleep 30; done'\""
+run deny  "eval 'for i in 1 2 3; do sleep 30; done'"
+run deny  "sh -c 'for i in 1 2 3; do sleep 30; done'"
+run deny  "bash -c 'for i in 1 2 3; do sleep 30; done'"
+# The chaining bypass survives the quote discipline: a quoted word with no
+# whitespace in it cannot spell loop structure, so it stays exposed.
+run deny  'sleep "24"; sleep "24"'
+
+echo "=== SLEEP: every fractional spelling coreutils accepts (audit M2) ==="
+# `sleep` parses its operand with strtod, so `.5` and `15.` are durations. The
+# first parser took only `0.5`, and a rejected operand contributed ZERO rather
+# than failing closed, so both pairs below waited 30s and allowed. Each pair
+# straddles the 25s threshold, so a build that reads the spelling but drops the
+# arithmetic fails one half.
+run allow 'for i in $(seq 1 30); do sleep .5; done'
+run deny  'for i in $(seq 1 60); do sleep .5; done'
+run allow 'for i in 1; do sleep 15.; done'
+run deny  'for i in 1 2; do sleep 15.; done'
+run allow 'echo A; sleep .4m'
+run deny  'echo A; sleep .5m'
+
+echo "=== SLEEP: the opaque-bound deny names what it could not compute (audit Q2) ==="
+runsays 'for ((i=0; i<30; i++)); do sleep 1; done' 'this guard cannot bound the foreground wait'
 
 echo
 echo "pass=$pass fail=$fail"
