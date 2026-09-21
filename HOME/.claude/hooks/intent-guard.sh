@@ -1300,9 +1300,25 @@ $pargs" in
       fi
       remote_sha=$(git -C "$gr" ls-remote "$remote" "$dst" 2>/dev/null | awk 'NR==1{print $1}')
       if [ -z "$remote_sha" ]; then
-        range="$src"
+        # A FRESH BRANCH has no destination ref, so there is no remote side to
+        # diff against, and `range="$src"` walked the whole history from the
+        # ROOT. Every first push of every new branch was then measured against
+        # bytes the repo published months ago: scottidler/second-brain denied
+        # a two-file branch over `borg/clients/extension/icons/icon-128.png`
+        # (5.5 MB, committed 2026-03-20, already on origin/main). A guard that
+        # trips on what is already in the codebase is a broken guard.
+        #
+        # What this push ADDS is `$src` minus everything the remote already
+        # has, which `--not --remotes=<remote>` states exactly and OFFLINE.
+        # An `ls-remote` base was the first attempt and was wrong twice over:
+        # it needs the network (the sandbox denies ~/.ssh, so it returns empty
+        # and silently falls back to the full walk), and it sees only the
+        # default branch. With no remote-tracking refs at all the exclusion is
+        # empty and the walk is the full history - stricter, never looser, per
+        # the fail-closed rule.
+        range_args=("$src" --not "--remotes=$remote")
       elif git -C "$gr" cat-file -e "$remote_sha" 2>/dev/null; then
-        range="$remote_sha..$src"
+        range_args=("$remote_sha..$src")
       else
         # Resolves on the remote, object absent locally, so rev-list cannot run.
         # Round 2's text fell straight through this row.
@@ -1313,11 +1329,11 @@ $pargs" in
       # invisible to a plain walk. Measured on a synthetic repo whose merge
       # resolution alone added .env.
       candidate="$candidate
-$(git -C "$gr" log --format= --name-only --diff-merges=first-parent "$range" 2>/dev/null)"
+$(git -C "$gr" log --format= --name-only --diff-merges=first-parent "${range_args[@]}" 2>/dev/null)"
       # A filename cannot tell a currently-small file from a 4 MB blob earlier
       # in the pushed history, so size is measured over the RANGE.
       if [ "$vis" = "public" ]; then
-        big=$(git -C "$gr" rev-list --objects "$range" 2>/dev/null \
+        big=$(git -C "$gr" rev-list --objects "${range_args[@]}" 2>/dev/null \
           | git -C "$gr" cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' 2>/dev/null \
           | awk -v m="$BLOB_MAX" '$1=="blob" && $2+0 > m+0 {print $3; exit}')
         [ -n "$big" ] && deny "$PUBLIC_DENY (a blob over 1 MB: $big)"
