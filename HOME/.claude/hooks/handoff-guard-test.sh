@@ -17,6 +17,15 @@ export LC_ALL=C
 
 HOOKS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 HOOK="$HOOKS/handoff-guard.sh"
+# AC2's frozen corpus (docs/design/2026-09-18-handoff-and-waiting-discipline-
+# phase3/): 20 committed non-handoff controls, plus the extraction of 85 human
+# handoff-opener fires that Phase 3 froze. Folded here because nothing ran
+# them: .otto.yml's test: task globs HOME/.claude/hooks/*-test.sh, and neither
+# file lived under that glob.
+PHASE3="$HOOKS/../../../docs/design/2026-09-18-handoff-and-waiting-discipline-phase3"
+CONTROLS_TSV="$PHASE3/controls.tsv"
+FIRES_TSV="$PHASE3/fires.tsv"
+COUNTS_JSON="$PHASE3/counts.json"
 pass=0
 fail=0
 
@@ -184,6 +193,64 @@ if bash "$HOOK" --help | head -1 | grep -q 'handoff-guard.sh: UserPromptSubmit h
 else
   bad '--help does not print the documentation block'
 fi
+
+echo "=== AC2 right half: the 20 committed non-handoff controls stay silent ==="
+controls_n=0
+while IFS= read -r prompt; do
+  [ -n "$prompt" ] || continue
+  controls_n=$((controls_n + 1))
+  silent "control $controls_n" "$prompt"
+done < "$CONTROLS_TSV"
+if [ "$controls_n" -eq 20 ]; then
+  ok
+else
+  bad "controls: expected 20 committed controls, found $controls_n"
+fi
+
+echo "=== AC2 left half: the frozen fires corpus artifact is intact ==="
+# fires_sha256 is written by extract.py; recompute it (sha256 of the id column
+# joined by \n, no trailing newline, matching hashlib.sha256("\n".join(ids)))
+# and compare, so a hand-edited fires.tsv fails CI instead of drifting silently.
+want_sha=$(jq -r '.fires_sha256' "$COUNTS_JSON")
+want_n=$(jq -r '.human_fires' "$COUNTS_JSON")
+got_sha=$(awk -F'\t' '{printf "%s%s", (NR>1?"\n":""), $1}' "$FIRES_TSV" | sha256sum | awk '{print $1}')
+got_n=$(wc -l < "$FIRES_TSV")
+if [ "$got_sha" = "$want_sha" ]; then
+  ok
+else
+  bad "fires corpus: sha256 mismatch, fires.tsv edited without refreezing counts.json (got $got_sha want $want_sha)"
+fi
+if [ "$got_n" -eq "$want_n" ]; then
+  ok
+else
+  bad "fires corpus: counts.json says $want_n human fires, fires.tsv has $got_n rows"
+fi
+
+echo "=== AC2 left half: every frozen fire reproduces via the shipped predicate, set equality ==="
+# Each row is its own assertion: a predicate that starts selecting zero of them
+# fails 85 individual times, not one aggregate count that could pass at zero
+# (F1's AC2 lesson, design doc :274). The raw corpus prompts are not committed
+# (extract.py never wrote them, only id + extracted trigger), so this replays
+# the one piece of each frozen record that IS committed and reproducible: the
+# trigger substring itself, fed back through the hook as its own prompt.
+while IFS=$'\t' read -r id arm trigger; do
+  [ -n "$id" ] || continue
+  out=$(feed "$trigger")
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    bad "fires corpus $id: exit $rc, wanted 0"
+    continue
+  fi
+  if [ -z "$out" ]; then
+    bad "fires corpus $id: predicate selected zero records for a frozen fire ($trigger)"
+    continue
+  fi
+  if ctx_of "$out" | grep -qF "quoted verbatim from it: $trigger."; then
+    ok
+  else
+    bad "fires corpus $id: extracted trigger differs from the frozen record (want $trigger)"
+  fi
+done < "$FIRES_TSV"
 
 echo
 echo "pass=$pass fail=$fail"
