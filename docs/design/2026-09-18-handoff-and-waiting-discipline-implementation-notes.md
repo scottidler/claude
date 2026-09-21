@@ -172,3 +172,57 @@ One new rule, SLEEP, in `HOME/.claude/hooks/intent-guard.sh`, plus its fixtures 
 - **The main checkout's uncommitted `intent-guard.sh` PUBLIC-REPO range fix (branch
   `session-recall`, chunk D territory) touches this same file** and will conflict. Named in the
   handoff already; recorded here because Phase 4 is the phase that makes it a merge problem.
+
+## Phase 6: ToolSearch section in `general.md`
+
+New `## ToolSearch` section in `HOME/repos/.claude/rules/general.md`, between `## CI` and
+`## Version Control`. `wc -c`: **5,285 -> 5,649, +364 bytes.**
+
+### Design decisions
+
+- **All three facts from the doc's `:205-220`, not the prefix alone**, per the audit correction
+  (re-measured: prefix-dropping is 6 of 19 ToolSearch zero-match failures, not 12 of 18):
+  `select:` needs exact, comma-separated names; an MCP tool's exact name is `mcp__server__tool`;
+  names come from the session's own deferred-tool list, never memory.
+  `HOME/repos/.claude/rules/general.md:84-88`.
+- **The citation names three concrete sites** (memory tools, the artifact tool,
+  `EndConversation`), each of which uses the harness's own `select:<name>` form per the doc's
+  `:215`, so a future reader can grep the running harness's own prompts rather than trust the
+  rule's say-so.
+- **`general.md`, not a new `rules/tools.md`**, per the doc's `:217`: `~/.claude/tools.md` is
+  already Scott's custom-CLI inventory, and a name collision on two unrelated things is the
+  cognitive dissonance `general.md` itself forbids.
+- **The `SendMessage` line is explicitly labelled "Guidance"**, not phrased as a rule, because
+  the doc's Resolved Decisions section (`:375`) already closed the "build a template that loads
+  SendMessage" idea as dropped, not deferred: there is nothing to enforce, only a habit to name.
+
+### Deviations
+
+- None. The section states the three facts the doc specifies, cites the three usage sites the
+  doc names, and carries the `SendMessage` line as guidance, matching the phase's success
+  criteria at `:305-308` verbatim.
+
+### Tradeoffs
+
+- **Citation completeness vs. AC5's byte ceiling, and citation won.** Five compression passes
+  were run against `wc -c` before landing on 364 bytes: 649 -> 490 -> 402 -> 379 -> 364. Below
+  364, the remaining cuts started dropping the concrete site names (memory tools / artifact
+  tool / `EndConversation`) that make the citation re-verifiable rather than a bare assertion,
+  which is what the phase spec asked for over a shorter but unverifiable sentence. The doc's own
+  projection was ~250 bytes for this phase; the actual is 364, +114 against that projection.
+- **One `## ToolSearch` section vs. folding the guidance line into an existing section.** A
+  fourth bullet under `## CI` would have saved the `## ToolSearch\n\n` heading overhead (~16
+  bytes), but CI and tool discovery are unrelated concerns, and `general.md`'s own existing
+  sections are each single-topic; a stray bullet under the wrong heading is exactly the
+  cognitive-dissonance failure mode `general.md` itself calls out elsewhere in the file.
+
+### Open questions
+
+- **AC5's 400-byte ceiling does not hold.** Phase 2's `WHOAMI.md` measured +138
+  (`24a9403`: 2,887 -> 3,025). Phase 6's `general.md` measured +364 (5,285 -> 5,649). Combined:
+  **+502, 102 bytes over the 400-byte ceiling** (64,166 + 502 = 64,668 against a 64,566 cap).
+  Phases 1, 3, 4 and 5 add zero to this basis (Phase 4 touches only `intent-guard.sh`, which is
+  a hook, not a rule or memory file); Phase 7 is not yet run. Whether the overage is acceptable
+  as-is, or the ToolSearch citation should be cut to close the gap (at the cost of
+  re-verifiability), is Scott's call. Recorded in the design doc under AC5 and the Phase 6
+  Result line, not resolved here.

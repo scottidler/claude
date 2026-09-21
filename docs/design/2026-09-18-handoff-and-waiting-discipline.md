@@ -306,6 +306,7 @@ So the fix ships because a dangling pointer is wrong, not because it costs anyth
   - The section states all three facts (exact names, `mcp__server__tool` form, names come from the session's deferred list), not the prefix alone.
   - The `SendMessage` line is present and is marked as guidance, not enforcement.
   - Byte delta recorded in this doc against the measured prefix.
+- **Result, 2026-09-20:** `HOME/repos/.claude/rules/general.md` new `## ToolSearch` section states all three facts and closes with a `SendMessage` line explicitly labelled "Guidance", not enforcement. `wc -c`: 5,285 -> 5,649, **+364 bytes**. Combined with Phase 2's +138, the chunk is **+502 against the 400-byte ceiling, 102 bytes over**; see AC5 below for the full accounting and the tradeoff between the citation's re-verifiability and the byte budget.
 
 #### Phase 7: waiting discipline in `release-driver.md`
 **Model:** sonnet
@@ -331,6 +332,7 @@ Every criterion's literal command was run against current `main` before this doc
   - *Observed on main (2026-09-18):* both empty. This is a hold-the-line criterion, so it must still be empty after Phase 1 and Phase 7.
 - [ ] **AC5.** The always-on prefix grows by no more than 400 bytes over its pre-F2 value, on the rules-plus-memory-files basis stated below.
   - *Observed on main (2026-09-18):* 64,166 bytes (51,485 in 14 rules + 12,681 in four memory files). Ceiling for this chunk: 64,566.
+  - *Observed after Phase 2 + Phase 6 (2026-09-20):* Phase 2's `WHOAMI.md` +138 (2,887 -> 3,025, per the Phase 2 commit `24a9403`). Phase 6's `general.md` +364 (5,285 -> 5,649, `wc -c` before/after the ToolSearch section edit). Combined **+502**, which is **over the 400 ceiling by 102 bytes** (64,668 against the 64,566 cap). Recorded here rather than papered over: fitting the three required ToolSearch facts plus a re-verifiable citation to the harness's own `select:` usage (memory tools, artifact tool, `EndConversation`) into fewer bytes was tried through several compressions (649 -> 490 -> 402 -> 379 -> 364); 364 is what a future reader can still verify against. Phases 1, 3, 4, 5 and 7 are asserted to add zero (Phase 4's confirmed above at AC3; Phase 4 touches no always-on file). Whether the 102-byte overage is acceptable, or the ToolSearch section should drop its citation to close the gap, is Scott's call, not the phase implementer's.
 - [ ] **AC6, both directions.** `rg -i 'scratchpad|OS temp|not the workspace' HOME/.claude/skills/handoff/` returns nothing, over the whole skill directory rather than the one line Phase 2 edits, AND `rg -F 'docs/handoff/' HOME/.claude/skills/handoff/` returns at least one hit. The negative alone is satisfied by deleting the save instruction entirely. Baseline re-run this round: the negative currently hits `SKILL.md:44`, so it starts red and can go green only by a rewrite.
   - *Observed on main (2026-09-18):* returns `SKILL.md:44`. This is the criterion the Risks table's mitigation column points at, so it is numbered here rather than living only inside a phase.
 

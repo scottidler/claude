@@ -81,6 +81,11 @@ alwaysApply: true
 - Use `otto ci` for full CI pipeline
 - `whitespace -r` in every lint task across all project types
 
+## ToolSearch
+
+- `select:` takes **exact**, comma-separated names (`mcp__server__tool` for MCP), from the session's own deferred-tool list, never memory - not a fuzzy bare query. Harness prompts use this form: memory tools, artifact tool, `EndConversation`.
+- Guidance: fold a known-needed tool like `SendMessage` into an existing `select:` call, not standalone.
+
 ## Version Control
 
 - Commit messages: concise, focused on the "why"
