@@ -16,23 +16,54 @@ HOOK="$HOOKS/intent-guard.sh"
 pass=0
 fail=0
 
-run() { # run <expect deny|allow> <command>
-  local expect="$1" cmd="$2" out decision
-  out=$(jq -n --arg c "$cmd" --arg d "$PWD" \
-    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' | bash "$HOOK")
+# The payload carries run_in_background on every fixture, because it is a field
+# of the real one and SLEEP's unconditional allow reads it. It had zero hits in
+# this file, in intent-guard.sh and in lib.sh before this phase, so the wiring
+# is asserted here rather than assumed.
+run() { # run <expect deny|allow> <command> [run_in_background true|false]
+  local expect="$1" cmd="$2" bg="${3:-false}" out decision label
+  out=$(jq -n --arg c "$cmd" --arg d "$PWD" --argjson b "$bg" \
+    '{tool_name:"Bash",tool_input:{command:$c,run_in_background:$b},cwd:$d}' | bash "$HOOK")
   decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"')
+  label="$cmd"
+  [ "$bg" = "true" ] && label="(run_in_background) $cmd"
   if [ "$decision" = "$expect" ]; then
     pass=$((pass + 1))
-    printf 'PASS  [%s] %s\n' "$expect" "$cmd"
+    printf 'PASS  [%s] %s\n' "$expect" "$label"
   else
     fail=$((fail + 1))
-    printf 'FAIL  [want %s got %s] %s\n' "$expect" "$decision" "$cmd"
+    printf 'FAIL  [want %s got %s] %s\n' "$expect" "$decision" "$label"
   fi
 }
 
 runwrapped() { # runwrapped <command>
   local w
   while IFS= read -r w; do run deny "$w"; done < <(wrap_shapes "$1")
+}
+
+# A COMPOUND command cannot ride all 18 spellings: `for`, `while` and `until`
+# are reserved words, so `timeout 5 %s`, `nohup %s`, `\%s` and `"%s"` produce
+# strings bash cannot parse, and asserting a deny on an unparseable string tests
+# nothing. The four are skipped rather than passed vacuously, and the COUNT is
+# itself asserted, so a shape that becomes parseable later fails here instead of
+# silently dropping out of the sweep.
+runwrappedloop() { # runwrappedloop <compound command>
+  local w total=0 invalid=0
+  while IFS= read -r w; do
+    total=$((total + 1))
+    if bash -n <<<"$w" 2>/dev/null; then
+      run deny "$w"
+    else
+      invalid=$((invalid + 1))
+    fi
+  done < <(wrap_shapes "$1")
+  if [ "$total" -eq 18 ] && [ "$invalid" -eq 4 ]; then
+    pass=$((pass + 1))
+    printf 'PASS  [shapes total=%s invalid=%s] %s\n' "$total" "$invalid" "$1"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  [shapes want total=18 invalid=4, got total=%s invalid=%s] %s\n' "$total" "$invalid" "$1"
+  fi
 }
 
 echo "=== the two founding incidents deny, in every shape bash offers ==="
@@ -344,6 +375,109 @@ run allow 'git push origin main 2>&1'
 run allow 'git push origin main 2>&1 | tail -5'
 run allow 'git push origin HEAD:main > /dev/null 2>&1'
 run allow 'git push origin main >/dev/null'
+
+echo "=== SLEEP: the three bypass classes the native statement-0 check misses ==="
+# `validateInput` runs BEFORE the PreToolUse chain (probed 2026-09-20 on
+# 2.1.278), so a bare `sleep 26` is refused by the harness and never reaches
+# this hook. Everything asserted here is a shape the native check lets through.
+runwrapped     'echo A; sleep 26'
+runwrapped     'sleep 24; sleep 24'
+runwrappedloop 'for i in 1 2 3; do sleep 30; done'
+runwrappedloop 'for i in {1..30}; do sleep 60; done'
+runwrappedloop 'for i in $(seq 1 30); do sleep 60; done'
+runwrappedloop 'while true; do sleep 30; done'
+
+echo "=== SLEEP: cardinality, where the multiplication alone decides ==="
+# Every fixture above carries a per-iteration sleep already over 25, so all of
+# them pass against an implementation that computes no bound at all. These do
+# not: 30 x 0.5 is 15s and must allow, 60 x 0.5 is 30s and must deny, in each of
+# the three computable bound forms. A build that skips the bound fails one half.
+LIST30=$(seq 1 30 | tr '\n' ' ')
+LIST60=$(seq 1 60 | tr '\n' ' ')
+run allow "for i in $LIST30; do sleep 0.5; done"
+run deny  "for i in $LIST60; do sleep 0.5; done"
+run allow 'for i in {1..30}; do sleep 0.5; done'
+run deny  'for i in {1..60}; do sleep 0.5; done'
+run allow 'for i in $(seq 1 30); do sleep 0.5; done'
+run deny  'for i in $(seq 1 60); do sleep 0.5; done'
+# seq's other literal forms are arithmetic too, not opaque bounds.
+run deny  'for i in $(seq 60); do sleep 0.5; done'
+run deny  'for i in $(seq 1 2 120); do sleep 0.5; done'
+run allow 'for i in $(seq 1 2 59); do sleep 0.5; done'
+
+echo "=== SLEEP: sleeps sum inside one iteration too, so B2 cannot be rebuilt there ==="
+run deny  'for i in 1 2 3; do sleep 4; sleep 5; done'
+run allow 'for i in 1 2 3; do sleep 4; sleep 4; done'
+
+echo "=== SLEEP: an uncomputable bound fails closed and the deny names the shape ==="
+run deny  'for f in *.txt; do sleep 30; done'
+run deny  'for f in $(cat list); do sleep 30; done'
+run deny  'for ((i=0; i<30; i++)); do sleep 1; done'
+run deny  'for f in $FILES; do sleep 30; done'
+run deny  'for f; do sleep 30; done'
+# No sleep, no business of this rule: the bound being opaque is not the offence.
+run allow 'for f in *.txt; do echo "$f"; done'
+run allow 'for f in $(cat list); do wc -l "$f"; done'
+
+echo "=== SLEEP: the break carve-out, asserted in both directions ==="
+# Syntactic presence, not reachability. `while true; do true && break; sleep 1;
+# done` and the `|| break` form that never terminates flatten to the identical
+# token stream, so the operators that decide reachability are gone before the
+# guard sees the command. This is the one place the rule fails OPEN, taken
+# because denying the class would deny Monitor's own `gh pr checks` example.
+run deny  'while true; do sleep 30; done'
+run allow 'while true; do check && break; sleep 30; done'
+run deny  'while :; do sleep 30; done'
+run allow 'while :; do check || break; sleep 30; done'
+
+echo "=== SLEEP: a terminating while/until allows at ANY interval (T2 is withdrawn) ==="
+# Monitor's own description mandates "30s+ for remote APIs (rate limits)", so a
+# per-iteration cap at 25 would deny the pacing the harness prescribes.
+run allow 'until [ -f /tmp/ready ]; do sleep 60; done'
+run allow 'while read -r line; do sleep 30; done < input'
+# A BOUNDED loop nested inside a terminating one still has a computable total.
+run deny  'until [ -f /tmp/ready ]; do for i in {1..100}; do sleep 30; done; done'
+
+echo "=== SLEEP: the boundary is >=, matching the native Dpn = 25 ==="
+run allow 'echo A; sleep 24'
+run deny  'echo A; sleep 25'
+run deny  'echo A; sleep 25s'
+run allow 'echo A; sleep 0.4m'
+run deny  'echo A; sleep 0.5m'
+
+echo "=== SLEEP: run_in_background allows unconditionally, matching the native predicate ==="
+run deny  'for i in 1 2 3; do sleep 30; done'
+run allow 'for i in 1 2 3; do sleep 30; done' true
+run deny  'sleep 24; sleep 24'
+run allow 'sleep 24; sleep 24' true
+run allow 'while true; do sleep 30; done' true
+
+echo "=== SLEEP: the allow-controls, drawn from the harness's own recommended patterns ==="
+# Verbatim from Monitor's description and from the native deny's own example, so
+# the guard can never contradict the deny it complements.
+run allow 'until grep -q "Ready in" dev.log; do sleep 0.5; done'
+run allow 'while true; do gh pr checks 4821 | grep -q pending || break; sleep 30; done'
+run allow 'until gh pr checks 4821 --json state -q ".[].state" | grep -qv PENDING; do sleep 30; done'
+run allow 'sleep 24'
+run allow 'sleep 900' true
+
+echo "=== SLEEP: the false-positive classes lib.sh and the cmdword gate exist to kill ==="
+# A heredoc BODY carrying the word sleep is chunk D's class: the body is never a
+# statement, so no sleep is ever in executable position.
+run allow "$(printf "cat > wait.sh <<'EOF'\nsleep 900\nfor i in 1 2 3; do sleep 30; done\nEOF")"
+run allow '# for i in 1 2 3; do sleep 30; done'
+run allow 'echo "for i in 1 2 3; do sleep 30; done"'
+run allow 'echo "sleep 900"'
+run allow 'bash -c "grep sleep /etc/crontab"'
+run allow 'rg -n "sleep 30" HOME/.claude/hooks'
+# `for` as data opens no loop: a header that never reaches its `done` is not a
+# loop at all, so the frame dissolves and this is priced as the 10s it is.
+run allow 'echo for; sleep 10'
+run deny  'echo for; sleep 30'
+# The named residual hole: a non-literal duration cannot be computed, so it
+# contributes nothing rather than denying. Same class as the variable-verb limit
+# chunk B handed on, and it is a fixture so the hole is visible, not folklore.
+run allow 'for i in 1 2 3; do sleep "$INTERVAL"; done'
 
 echo
 echo "pass=$pass fail=$fail"

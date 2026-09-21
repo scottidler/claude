@@ -21,9 +21,16 @@
 #
 # RULES
 #
-#   GH-WRITE   `gh api` writing repo/org settings, and `gh repo edit`.
-#   DELETE-OUT `acli` delete subcommands, which destroy Jira and Confluence
-#              content no local archive can recover.
+#   GH-WRITE    `gh api` writing repo/org settings, and `gh repo edit`.
+#   DELETE-OUT  `acli` delete subcommands, which destroy Jira and Confluence
+#               content no local archive can recover.
+#   LN          `ln -s` shapes that make the target an ancestor of its own link
+#               (the 2026-07-03 workstation freeze), and any link into ~/Claude.
+#   INGEST      bulk `sb borg ingest`, command scope, with a counted door.
+#   PUBLIC-REPO `git commit` / `git push` publishing a sensitive path or a blob
+#               over 1 MB to a public remote.
+#   SLEEP       foreground waiting past 25s, which is the harness's own
+#               threshold, in the three shapes its statement-0 check misses.
 #
 # GH-WRITE PARSES THE METHOD ITSELF and does not use `flag_value`. Two reasons,
 # both measured, both in the design doc: `flag_value` cannot see the attached
@@ -85,6 +92,13 @@ LIB_OK=1
 input=$(cat)
 command=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null)
 [ -z "$command" ] && { echo '{}'; exit 0; }
+# SLEEP's unconditional allow, matching the native predicate exactly
+# (`&& !n.run_in_background`), so the guard never contradicts the harness. Read
+# here rather than in the rule because the payload is only parsed once.
+run_bg=0
+case "$(printf '%s' "$input" | jq -r '.tool_input.run_in_background // false' 2>/dev/null)" in
+  true|1) run_bg=1 ;;
+esac
 [ "$LIB_OK" -eq 0 ] && deny "intent-guard: lib.sh is unreadable, so the command cannot be parsed and PUBLIC-REPO cannot be evaluated. Fix $(dirname "$0")/lib.sh."
 
 # Every value-taking flag `gh api` has, short and long. A token matching one of
@@ -303,6 +317,13 @@ ingest_ops=0
 # command's verdict is any-deny-wins over the statements that remain in scope."
 ingest_scope=""
 git_add_args=""
+# SLEEP's gate. The span scan below reads a copy whose quotes are NOT masked, so
+# it alone would fire on a quoted loop that is data. `stmts` + `cmdword_is` is
+# the discrimination: a sleep has to be in EXECUTABLE position somewhere in the
+# command before any span arithmetic runs. It is accumulated in the walk that is
+# already happening rather than in a second one, and behind a substring test, so
+# a Bash call with no `sleep` in it pays nothing.
+sleep_seen=0
 
 SENSITIVE_RE='(^|/)(personal|excluded|voice|secret|secrets)/|\.env$|\.age$'
 BLOB_MAX=1048576
@@ -376,6 +397,236 @@ paths_are_sensitive() { # stdin: one path per line
   grep -qE "$SENSITIVE_RE"
 }
 
+# SLEEP. One threshold, T1, in milliseconds so 0.5 is arithmetic and not a
+# rounding argument. 25s is where the harness's own check fires (`var Dpn=25`
+# with `if(g<Dpn)return null`), so the two guards agree at the boundary and the
+# deny can speak with one number. There is deliberately NO per-iteration cap:
+# Monitor's description mandates "30s+ for remote APIs (rate limits)" and its
+# own `gh pr checks` example sleeps 30, so a per-iteration threshold at 25 would
+# deny the pattern the harness recommends. One quantity is priced: total
+# foreground wait.
+SLEEP_T1_MS=25000
+# Verbatim from the native deny, so the two read as one voice rather than two
+# competing instructions.
+SLEEP_ADVICE='To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.'
+
+# dur_ms <operand> -- a literal sleep operand in milliseconds, non-zero exit
+# when the operand is not a literal (`sleep "$T"`). A non-literal contributes
+# nothing: bounding it is the variable-verb limit chunk B handed on, and the
+# phase's domain is the three measured bypass classes, not that one.
+dur_ms() {
+  LC_ALL=C awk -v v="$1" 'BEGIN {
+    if (v !~ /^[0-9]+([.][0-9]+)?[smhd]?$/) exit 1
+    c = substr(v, length(v), 1)
+    u = 1
+    if (c == "s") u = 1
+    else if (c == "m") u = 60
+    else if (c == "h") u = 3600
+    else if (c == "d") u = 86400
+    if (c ~ /[smhd]/) v = substr(v, 1, length(v) - 1)
+    printf "%d", v * u * 1000 + 0.5
+  }'
+}
+
+# sleep_ms <text> -- the foreground sleep in <text>, summed over every statement
+# whose COMMAND WORD is sleep. `cmdword_is` is what keeps `echo "sleep 30"` and
+# `# sleep 30` out of the total; a substring scan is the false-positive class
+# lib.sh exists to kill.
+sleep_ms() {
+  local text="$1" total=0 st tok ms
+  while IFS= read -r -d '' st; do
+    case "$st" in *sleep*) ;; *) continue ;; esac
+    printf '%s' "$st" | cmdword_is sleep >/dev/null 2>&1 || continue
+    while IFS= read -r tok; do
+      ms=$(dur_ms "$tok") || continue
+      total=$((total + ms))
+    done < <(printf '%s' "$st" | args | awk 'seen { print; next } /^\\?([^\/]*\/)*sleep$/ { seen = 1 }')
+  done < <(printf '%s' "$text" | stmts)
+  printf '%s' "$total"
+}
+
+# loop_spans -- stdin: the command, heredoc- and comment-masked. stdout: one
+# TAB-separated record per region, `kind<TAB>multiplier<TAB>shape<TAB>text`:
+#
+#   FLAT     1  -        everything outside every loop, run once
+#   MULT     n  -        a loop body whose iteration count resolved to n
+#   OPEN     0  <bound>  a loop whose iteration count is not computable
+#   UNBOUND  0  <loop>   `while true` / `while :` with no `break` in the body
+#
+# A RULE-LOCAL SPAN SCAN, not a `stmts` walk, and that is the whole reason this
+# rule needed new code. Probed 2026-09-20: `for i in $(seq 1 30); do sleep 60;
+# done` flattens to `for i in $()` | `do sleep 60` | `done` | `seq 1 30`, so the
+# bound is re-emitted DETACHED from the loop it bounds and no statement carries
+# both. The span keeps them together; `stmts` and `cmdword_is` then run inside
+# the span text, which is where the quote and heredoc discipline comes back.
+#
+# QUOTES ARE NOT MASKED here, unlike every other rule in this file, because the
+# wrapper sweep requires `eval "for i in 1 2 3; do sleep 30; done"` and its
+# `bash -c` twin to deny and quote-masking erases exactly those bodies. What
+# stops a quoted loop that is DATA from denying is the `sleep_seen` gate at the
+# call site: `echo "for i in 1 2 3; do sleep 30; done"` is one statement whose
+# command word is `echo`, so no sleep is ever in executable position and the
+# rule does not run at all.
+#
+# Reachability is not computable from here and is not attempted: `while true; do
+# true && break; sleep 1; done` and the `|| break` form that never terminates
+# are the same token stream, so the `break` carve-out is syntactic presence in
+# the body. That is one narrow place this rule fails OPEN, taken because denying
+# the class would deny Monitor's own `gh pr checks` example.
+#
+# A `for`/`while`/`until` that never reaches its `done` is not a loop: the frame
+# dissolves into its enclosing context rather than denying, so `echo for; sleep
+# 10` is priced as the 10s it is.
+loop_spans() {
+  LC_ALL=C awk '
+  function kw(t,   w) {
+    w = t
+    sub(/^[$<>(!{\\\047"`]+/, "", w)
+    sub(/[)};{\047"`]+$/, "", w)
+    return w
+  }
+  function seqcount(s,   a, m, i, f, inc, l) {
+    sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
+    m = split(s, a, /[ \t]+/)
+    for (i = 1; i <= m; i++) if (a[i] !~ /^-?[0-9]+$/) return -1
+    if (m == 1) { l = a[1] + 0; return (l >= 1 ? l : 0) }
+    if (m == 2) { f = a[1] + 0; l = a[2] + 0; return (l >= f ? l - f + 1 : 0) }
+    if (m == 3) {
+      f = a[1] + 0; inc = a[2] + 0; l = a[3] + 0
+      if (inc == 0) return -1
+      if (inc > 0) return (l >= f ? int((l - f) / inc) + 1 : 0)
+      return (l <= f ? int((f - l) / (-inc)) + 1 : 0)
+    }
+    return -1
+  }
+  function wordcount(w,   a, lo, hi, st, span) {
+    if (w ~ /^\{-?[0-9]+\.\.-?[0-9]+\}$/) {
+      gsub(/[{}]/, "", w); split(w, a, /\.\./)
+      lo = a[1] + 0; hi = a[2] + 0
+      return (hi >= lo ? hi - lo + 1 : lo - hi + 1)
+    }
+    if (w ~ /^\{-?[0-9]+\.\.-?[0-9]+\.\.-?[0-9]+\}$/) {
+      gsub(/[{}]/, "", w); split(w, a, /\.\./)
+      lo = a[1] + 0; hi = a[2] + 0; st = a[3] + 0
+      if (st == 0) return -1
+      if (st < 0) st = -st
+      span = (hi >= lo ? hi - lo : lo - hi)
+      return int(span / st) + 1
+    }
+    if (w ~ /[*?$`]/ || w ~ /[][{}]/) return -1
+    return 1
+  }
+  # The three computable bound forms and nothing else: a literal list, a brace
+  # range, and `seq` with literal arguments. `seq` is the measured dominant
+  # form (483 of 800 loop+sleep calls), and it is arithmetic, not an opaque
+  # bound. Everything else returns -1 and the loop fails closed.
+  function listcount(s,   m, a, i, tot, c) {
+    if (s ~ /^\$\([ \t]*seq[ \t][^)]*\)$/) {
+      m = s; sub(/^\$\([ \t]*seq[ \t]*/, "", m); sub(/\)$/, "", m)
+      return seqcount(m)
+    }
+    if (s ~ /^`[ \t]*seq[ \t][^`]*`$/) {
+      m = s; sub(/^`[ \t]*seq[ \t]*/, "", m); sub(/`$/, "", m)
+      return seqcount(m)
+    }
+    if (s ~ /[$`]/) return -1
+    tot = 0
+    m = split(s, a, /[ \t]+/)
+    for (i = 1; i <= m; i++) {
+      if (a[i] == "") continue
+      c = wordcount(a[i])
+      if (c < 0) return -1
+      tot += c
+    }
+    return tot
+  }
+  function setbound(d,   h, c) {
+    h = hdr[d]
+    gsub(/ ; /, " ", h)
+    sub(/^[ \t]+/, "", h); sub(/[ \t;]+$/, "", h)
+    if (lk[d] != "for") {
+      if (h == "true" || h == ":") { fk[d] = "U"; shp[d] = lk[d] " " h; return }
+      fk[d] = "T"
+      return
+    }
+    if (h ~ /^\(\(/) { fk[d] = "O"; shp[d] = "a C-style for ((...))"; return }
+    if (h !~ /^[^ \t]+[ \t]+in([ \t]|$)/) {
+      fk[d] = "O"; shp[d] = "a for loop with no `in` list, which iterates over \"$@\""
+      return
+    }
+    sub(/^[^ \t]+[ \t]+in[ \t]*/, "", h)
+    c = listcount(h)
+    if (c < 0) { fk[d] = "O"; shp[d] = h; return }
+    fk[d] = "M"; fct[d] = c
+  }
+  function emitframe(d,   m, a) {
+    if (fk[d] == "U") {
+      if (allt[d] ~ /(^|[^A-Za-z0-9_])break([^A-Za-z0-9_]|$)/) return
+      printf "UNBOUND\t0\t%s\t%s\n", shp[d], allt[d]
+      return
+    }
+    if (fk[d] == "O") { printf "OPEN\t0\t%s\t%s\n", shp[d], allt[d]; return }
+    # A terminating while/until is what the native deny TELLS the model to
+    # write, so its own pacing sleep is not priced at any interval. A bounded
+    # loop nested inside one still is: its total is computable, and the
+    # enclosing terminating frame contributes a factor of 1 rather than 0.
+    if (fk[d] == "T") return
+    m = fct[d]
+    for (a = 1; a < d; a++) if (fk[a] == "M") m = m * fct[a]
+    if (m <= 0) return
+    printf "MULT\t%d\t-\t%s\n", m, dirt[d]
+  }
+  { buf = buf $0 "\n" }
+  END {
+    gsub(/;/, " ; ", buf)
+    gsub(/\n/, " ; ", buf)
+    n = split(buf, TOK, /[ \t]+/)
+    depth = 0
+    rem = ""
+    for (k = 1; k <= n; k++) {
+      tok = TOK[k]
+      if (tok == "") continue
+      w = kw(tok)
+      if (w == "for" || w == "while" || w == "until") {
+        depth++
+        # The KEYWORD, not the raw token. A wrapper leaves its opening quote
+        # attached (`eval "while true; ...` tokenizes to `"while`), and the
+        # UNBOUND and OPEN branches feed allt[] back through `stmts`, where a
+        # stray leading quote turns the whole span into one quoted word and the
+        # sleep inside it disappears.
+        lk[depth] = w; hdr[depth] = ""; dirt[depth] = ""; allt[depth] = w
+        inh[depth] = 1; fk[depth] = "T"; fct[depth] = 0; shp[depth] = "-"
+        continue
+      }
+      if (depth > 0 && inh[depth] && w == "do") {
+        inh[depth] = 0
+        setbound(depth)
+        allt[depth] = allt[depth] " " tok
+        continue
+      }
+      if (depth > 0 && !inh[depth] && w == "done") {
+        allt[depth] = allt[depth] " " w
+        emitframe(depth)
+        t = allt[depth]
+        depth--
+        if (depth > 0) allt[depth] = allt[depth] " " t
+        continue
+      }
+      if (depth > 0) {
+        allt[depth] = allt[depth] " " tok
+        if (inh[depth]) hdr[depth] = hdr[depth] " " tok
+        else dirt[depth] = dirt[depth] " " tok
+      } else rem = rem " " tok
+    }
+    while (depth > 0) {
+      t = hdr[depth] " " dirt[depth]
+      depth--
+      if (depth > 0) dirt[depth] = dirt[depth] " " t; else rem = rem " " t
+    }
+    printf "FLAT\t1\t-\t%s\n", rem
+  }'
+}
+
 # INGEST reads heredoc BODIES, which no other rule here does, because the
 # 164-URL incident never looped `sb borg ingest`: at 00:32:22 it wrote a script
 # with a QUOTED heredoc and at 00:32:40 ran it. The run statement's command word
@@ -428,6 +679,28 @@ while IFS= read -r -d '' stmt; do
   # executable text while `echo "..."` prose stays masked out.
   ingest_stmt=$(printf '%s' "$verbscan" | mask_squote | mask_dquote)
   ingest_exempt=0
+
+  if [ "$sleep_seen" -eq 0 ]; then
+    case "$verbscan" in
+      *sleep*)
+        if printf '%s' "$verbscan" | cmdword_is sleep >/dev/null 2>&1; then
+          sleep_seen=1
+        else
+          # A quoted payload handed to a SHELL is code, whatever lib.sh managed
+          # to make of it. Measured 2026-09-20: `bash -c "for i in $(seq 1 30);
+          # do sleep 60; done"` tokenizes to `bash -c "(); do sleep 60; done"` |
+          # `for i in $` | `seq 1 30`, because the `-c` argument mask and the
+          # command-substitution span collide, so no statement's command word is
+          # `sleep` and a cmdword-only gate closed the door on a required deny.
+          # The gate only OPENS the door: every total below is still summed with
+          # `cmdword_is`, so `bash -c "grep sleep f"` still totals nothing.
+          for sh_verb in eval bash sh zsh; do
+            printf '%s' "$verbscan" | cmdword_is "$sh_verb" >/dev/null 2>&1 && { sleep_seen=1; break; }
+          done
+        fi
+        ;;
+    esac
+  fi
 
   if [ "$cwd_accumulates" -eq 1 ] && printf '%s' "$verbscan" | cmdword_is cd >/dev/null 2>&1; then
     cd_op=$(printf '%s' "$verbscan" | args | sed -n '2p')
@@ -847,6 +1120,40 @@ REFSPECS
         deny "$PUBLIC_DENY (path: $hit; the cached 'private' did not survive revalidation)"
       fi
     fi
+  fi
+fi
+
+# SLEEP. Runs last: it is the least destructive rule here and the only one whose
+# cost is paid on commands that are otherwise fine.
+#
+# Its ENTIRE DOMAIN is what the native check lets through. Probed 2026-09-20 on
+# 2.1.278: `validateInput` runs BEFORE the PreToolUse hook chain, so a statement-
+# 0 `sleep >= 25` is already refused and never reaches us. What does reach us is
+# the three measured bypass classes: B1 position (`echo A; sleep 26`), B2
+# chaining (`sleep 24; sleep 24`, which the native deny text names and does not
+# enforce), and B3 loop-wrapping, which is the form that actually occurs: 488
+# measured polling-loop sleeps, 486 of which ran, 15.9 hours of wall clock.
+if [ "$sleep_seen" -eq 1 ] && [ "$run_bg" -eq 0 ]; then
+  sleep_total_ms=0
+  while IFS=$'\t' read -r kind mult shape text; do
+    case "$kind" in
+      UNBOUND)
+        [ "$(sleep_ms "$text")" -gt 0 ] && deny "this loop sleeps and never terminates on its own (\`$shape\`, with no \`break\` anywhere in its body), so the foreground wait has no bound at all. $SLEEP_ADVICE"
+        ;;
+      OPEN)
+        # Named, not totalled. The guard cannot compute this bound, and saying
+        # which shape stopped it is the difference between a rule a reader can
+        # work with and one that claims a number it does not have.
+        [ "$(sleep_ms "$text")" -gt 0 ] && deny "this loop sleeps and its iteration count is not computable from its bound ($shape), so the foreground wait cannot be bounded. $SLEEP_ADVICE"
+        ;;
+      MULT|FLAT)
+        sleep_total_ms=$((sleep_total_ms + $(sleep_ms "$text") * mult))
+        ;;
+    esac
+  done < <(printf '%s' "$command" | mask_heredoc | mask_comment | loop_spans)
+  if [ "$sleep_total_ms" -ge "$SLEEP_T1_MS" ]; then
+    secs=$(LC_ALL=C awk -v m="$sleep_total_ms" 'BEGIN { s = m / 1000; if (s == int(s)) printf "%d", s; else printf "%g", s }')
+    deny "this command waits ${secs}s in the foreground, summed across its statements and multiplied by each loop's iteration count. The block fires at 25s, which is where the harness's own check fires. $SLEEP_ADVICE"
   fi
 fi
 
