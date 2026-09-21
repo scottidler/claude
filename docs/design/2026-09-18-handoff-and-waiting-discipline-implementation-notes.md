@@ -274,3 +274,25 @@ parameter) and shell constructs (`until`, `sleep`) the agent already shells out 
 ### Open questions
 
 - None.
+
+## Finalization: acceptance-criteria walk and the AC5 amendment
+
+### Design decisions
+- Doc `Status` set to "Implemented, except Phase 5" rather than plain "Implemented" (design doc `:5`): Phase 5 is parked on Scott's interactive `silent_turn_reminder` probe and was never dropped, so a bare "Implemented" would misreport it. The word "Implemented" is present so a mode-2 Implementation Audit reads the doc correctly.
+
+### Deviations
+- **AC5's ceiling amended 400 -> 502 bytes, on Scott's explicit ruling, recorded as Addendum A.4.** This is an amendment to a criterion, so the evidence is here rather than only in the doc. Measured at branch tip `f851161`: 64,668 bytes total, being 51,849 in the 14 always-on rules (`cat HOME/repos/.claude/rules/*.md | wc -c`, less the 6 path-scoped files' share per the doc's stated basis) plus 12,819 in the four memory files (`wc -c HOME/.claude/CLAUDE.md HOME/.claude/WHOAMI.md HOME/.claude/tools.md HOME/repos/CLAUDE.md` -> 5,707 + 3,025 + 3,349 + 738). Pre-F2 was 64,166. Delta +502: Phase 2's WHOAMI.md +138, Phase 6's general.md +364. The criterion was NOT amended to make a failing implementation pass on the implementer's own authority: it was reported as a FAIL, the choice was put to Scott as accept / cut the citation / claw back elsewhere, and he chose accept.
+
+### Tradeoffs
+- Keeping Phase 6's three citation sites costs 102 bytes over the original cap and buys a rule whose facts a future reader can re-verify against the harness. Cutting them would have closed the gap and left three unfalsifiable assertions in always-on context.
+
+### Open questions
+- None from finalization. Phase 4's opaque-bound false-positive class remains `[UNQUANTIFIED]` (its own section), and Phase 5 remains parked on the interactive probe.
+
+### Acceptance criteria, verified at branch tip `f851161` (2026-09-20)
+- AC1 PASS: `Skill(HOME:handoff)` returned the skill body, no `disable-model-invocation` refusal.
+- AC2 PASS: `bash HOME/.claude/hooks/handoff-guard-test.sh` -> `pass=37 fail=0`.
+- AC3 PASS: `bash HOME/.claude/hooks/intent-guard-test.sh` -> `pass=332 fail=0`, up from 187.
+- AC4 PASS: `git -C ~/repos/mattpocock/skills status --porcelain` and `git -C ~/repos/Q00/ouroboros status --porcelain` both empty.
+- AC5 PASS against the amended 502-byte ceiling, FAIL against the original 400. See the deviation above.
+- AC6 PASS both directions.

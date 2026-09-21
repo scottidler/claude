@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-09-18
-**Status:** Approved, building (Open Questions closed by Scott 2026-09-20, Addendum A)
+**Status:** Implemented, except Phase 5 (Phases 0-4, 6, 7 landed 2026-09-20; Phase 5 is parked on Scott's interactive `silent_turn_reminder` probe, not dropped). Open Questions closed by Scott 2026-09-20, Addendum A
 **Review Passes Completed:** 5/5, then panel round 1 (one seat: staff rc=124) and panel round 2 (both seats rc=0), both fully folded. Round 2 was 8 must-fix / 7 cheap wins, every one re-verified against the code before folding. Two of the three rounds under the cap are spent.
 **Chunk:** F2 of the setup-audit program (`docs/design/2026-09-13-setup-audit-program.md`), audit items 10 and 11
 
@@ -322,18 +322,23 @@ So the fix ships because a dangling pointer is wrong, not because it costs anyth
 
 Every criterion's literal command was run against current `main` before this doc was called ready, and what it returned is recorded under it.
 
-- [ ] **AC1.** Invoking `Skill(handoff)` returns the skill body, not `cannot be used with Skill tool due to disable-model-invocation`.
+- [x] **AC1.** Invoking `Skill(handoff)` returns the skill body, not `cannot be used with Skill tool due to disable-model-invocation`.
   - *Observed on main (2026-09-18):* FAILS as designed. The literal invocation returned `Skill handoff cannot be used with Skill tool due to disable-model-invocation. Ask the user to run /handoff themselves`. That is the 7th recorded occurrence on the strict basis and the third today.
-- [ ] **AC2.** `handoff-guard.sh` fires on exactly the committed handoff-opener id list and on zero of the 20 committed controls, asserted as set equality, not a coverage percentage.
+  - *Verified at branch tip `f851161` (2026-09-20):* PASS. `Skill(HOME:handoff)` returned the skill body. No `disable-model-invocation` refusal. Eighth occurrence would have been the failure; there was none.
+- [x] **AC2.** `handoff-guard.sh` fires on exactly the committed handoff-opener id list and on zero of the 20 committed controls, asserted as set equality, not a coverage percentage.
   - *Observed on main:* not runnable. The hook does not exist until Phase 3, and the id list is committed by Phase 3. Named here rather than assumed.
-- [ ] **AC3.** All three sleep bypass classes deny (18 wrapper spellings for the simple-command fixtures, the 14 parseable ones for the loop fixtures), both halves of each cardinality pair behave (30 x 0.5 allows, 60 x 0.5 denies), all five allow-controls pass, and `bash HOME/.claude/hooks/intent-guard-test.sh` ends `fail=0` with a fixture count above today's.
+  - *Verified at branch tip `f851161` (2026-09-20):* PASS. `bash HOME/.claude/hooks/handoff-guard-test.sh` -> `pass=37 fail=0`, which carries the set-equality assert and both mtime directions.
+- [x] **AC3.** All three sleep bypass classes deny (18 wrapper spellings for the simple-command fixtures, the 14 parseable ones for the loop fixtures), both halves of each cardinality pair behave (30 x 0.5 allows, 60 x 0.5 denies), all five allow-controls pass, and `bash HOME/.claude/hooks/intent-guard-test.sh` ends `fail=0` with a fixture count above today's.
   - *Observed on main (2026-09-18):* `pass=187 fail=0`. So the phase must raise 187, and `fail=0` alone proves nothing.
-- [ ] **AC4.** `git -C ~/repos/mattpocock/skills status --porcelain` and `git -C ~/repos/Q00/ouroboros status --porcelain` are both empty.
+  - *Verified at branch tip `f851161` (2026-09-20):* PASS. `bash HOME/.claude/hooks/intent-guard-test.sh` -> `pass=332 fail=0`, up from the 187 baseline.
+- [x] **AC4.** `git -C ~/repos/mattpocock/skills status --porcelain` and `git -C ~/repos/Q00/ouroboros status --porcelain` are both empty.
   - *Observed on main (2026-09-18):* both empty. This is a hold-the-line criterion, so it must still be empty after Phase 1 and Phase 7.
-- [ ] **AC5.** The always-on prefix grows by no more than 400 bytes over its pre-F2 value, on the rules-plus-memory-files basis stated below.
+  - *Verified at branch tip `f851161` (2026-09-20):* PASS. Both `status --porcelain` empty after Phases 1 and 7.
+- [x] **AC5, ceiling amended to 502 bytes (Addendum A.4).** The always-on prefix grows by no more than 502 bytes over its pre-F2 value, on the rules-plus-memory-files basis stated below. The original 400 was a projection, not a measurement; Scott ruled on 2026-09-20 to buy the 102 bytes rather than drop the citation that makes the ToolSearch facts re-verifiable.
   - *Observed on main (2026-09-18):* 64,166 bytes (51,485 in 14 rules + 12,681 in four memory files). Ceiling for this chunk: 64,566.
   - *Observed after Phase 2 + Phase 6 (2026-09-20):* Phase 2's `WHOAMI.md` +138 (2,887 -> 3,025, per the Phase 2 commit `24a9403`). Phase 6's `general.md` +364 (5,285 -> 5,649, `wc -c` before/after the ToolSearch section edit). Combined **+502**, which is **over the 400 ceiling by 102 bytes** (64,668 against the 64,566 cap). Recorded here rather than papered over: fitting the three required ToolSearch facts plus a re-verifiable citation to the harness's own `select:` usage (memory tools, artifact tool, `EndConversation`) into fewer bytes was tried through several compressions (649 -> 490 -> 402 -> 379 -> 364); 364 is what a future reader can still verify against. Phases 1, 3, 4, 5 and 7 are asserted to add zero (Phase 4's confirmed above at AC3; Phase 4 touches no always-on file). Whether the 102-byte overage is acceptable, or the ToolSearch section should drop its citation to close the gap, is Scott's call, not the phase implementer's.
-- [ ] **AC6, both directions.** `rg -i 'scratchpad|OS temp|not the workspace' HOME/.claude/skills/handoff/` returns nothing, over the whole skill directory rather than the one line Phase 2 edits, AND `rg -F 'docs/handoff/' HOME/.claude/skills/handoff/` returns at least one hit. The negative alone is satisfied by deleting the save instruction entirely. Baseline re-run this round: the negative currently hits `SKILL.md:44`, so it starts red and can go green only by a rewrite.
+  - *Verified at branch tip `f851161` (2026-09-20):* 64,668 bytes (51,849 in the 14 always-on rules + 12,819 in the four memory files, `cat HOME/repos/.claude/rules/*.md | wc -c` and `wc -c` over the four). Equals the amended 64,668 ceiling exactly, so **PASS**; it fails the original 64,566.
+- [x] **AC6, both directions.** `rg -i 'scratchpad|OS temp|not the workspace' HOME/.claude/skills/handoff/` returns nothing, over the whole skill directory rather than the one line Phase 2 edits, AND `rg -F 'docs/handoff/' HOME/.claude/skills/handoff/` returns at least one hit. The negative alone is satisfied by deleting the save instruction entirely. Baseline re-run this round: the negative currently hits `SKILL.md:44`, so it starts red and can go green only by a rewrite.
   - *Observed on main (2026-09-18):* returns `SKILL.md:44`. This is the criterion the Risks table's mitigation column points at, so it is numbered here rather than living only inside a phase.
 
 ## Blast radius and ship order
@@ -433,6 +438,7 @@ Against F1's actual +2,539 on this basis.
 
 ## Open Questions
 
+  - *Verified at branch tip `f851161` (2026-09-20):* PASS both directions. The negative `rg` returns nothing over the whole skill directory; `rg -F 'docs/handoff/'` hits `SKILL.md`.
 - [x] **OQ1. ntfy.** Does Scott want the out-of-process dotfiles watcher at all, given 15 genuine silent turns in 101 days and no in-repo mechanism? Default: no. **Closed 2026-09-20, Addendum A.1: no.**
 - [x] **OQ2. One sleep threshold, T1.** Round 2 withdrew T2 (`:142`), so the only number left is T1, the total foreground wait summed across statements and multiplied by a computable loop bound. Recommended **25s**, matching the native `Dpn = 25` so the two guards agree at the boundary and the deny can speak with one number. Scott's call is the value alone. **Closed 2026-09-20, Addendum A.2: 25s.**
 - [x] **OQ3. `grilling` model-invocability.** Linking it makes it model-invocable, unlike `grill-me`, since upstream has no `disable-model-invocation`. Accept, or add a local override? **Closed 2026-09-20, Addendum A.3: accept, no override.**
@@ -447,6 +453,9 @@ All three open questions closed on Scott's call, each taking the author's recomm
   - **To reverse:** one constant in the Phase 4 rule plus the fixture arithmetic that straddles it. The cardinality pairs are written as 15s allow / 30s deny, so any T1 in `(15, 30]` keeps them valid; a value outside that range needs the pairs re-chosen. AC3 and `:140` both name the number.
 - **A.3. `grilling` ships model-invocable, no local override.** Phase 1 links the upstream skill as-is. Grounds: upstream carries no `disable-model-invocation`, the defect being fixed is that `grill-me/SKILL.md:7` invokes a skill that is not installed (10 user hits), and a local override would re-introduce the exact property Phase 2 is removing from `handoff` for being an unexamined third-party default.
   - **To reverse:** a local `disable-model-invocation: true` in a copy of the skill, which turns a manifest link into a maintained fork. Revisit condition: the model invokes `grilling` unasked and that is measured as noise, not anticipated as a risk.
+
+- **A.4. AC5's ceiling is amended from 400 to 502 bytes.** The three-fact ToolSearch section landed at +364 against a ~250 projection, which with Phase 2's +138 puts the chunk 102 bytes over the original cap. Scott's call: accept the overage, keep the citation. Grounds: the 400 was a projection made before the section was written, and the 102 bytes are entirely the three named harness usage sites (memory tools, artifact tool, `EndConversation`) that let a future reader re-verify the facts instead of trusting them. A rule that cannot be checked is the failure mode this chunk exists to reduce, and 102 bytes is 0.16% of the 64,166-byte prefix.
+  - **To reverse:** delete the citation from `HOME/repos/.claude/rules/general.md:84-88`, which returns roughly 330 bytes and puts the chunk under the original cap. Revisit condition: the always-on prefix is measured as a cost that matters, at which point the whole 64 KB is the target, not this section.
 
 ## Handed on, out of chunk
 
