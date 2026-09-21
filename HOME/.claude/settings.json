@@ -1053,7 +1053,6 @@
     "understand-anything@understand-anything": true,
     "slack@tatari-skills": true,
     "spec@tatari-skills": true,
-    "conductor@conductor": true,
     "ttv@tatari-skills": true
   },
   "extraKnownMarketplaces": {
@@ -1067,12 +1066,6 @@
       "source": {
         "source": "github",
         "repo": "Lum1104/Understand-Anything"
-      }
-    },
-    "conductor": {
-      "source": {
-        "source": "github",
-        "repo": "tatari-tv/conductor"
       }
     }
   },
