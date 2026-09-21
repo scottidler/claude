@@ -5,6 +5,13 @@ link:
     HOME/.claude/skills: $HOME/.claude/skills
     HOME/.claude/agents: $HOME/.claude/agents
     HOME/.claude/output-styles: $HOME/.claude/output-styles
+    # pi resource dirs are linked whole so new prompts/extensions/themes appear
+    # without re-running manifest. AGENTS.md, APPEND_SYSTEM.md, and settings.json
+    # ride the recursive file link above. `~/.pi/agent/` itself stays a real dir:
+    # pi writes sessions/, auth, and trust.json into it.
+    HOME/.pi/agent/prompts: $HOME/.pi/agent/prompts
+    HOME/.pi/agent/extensions: $HOME/.pi/agent/extensions
+    HOME/.pi/agent/themes: $HOME/.pi/agent/themes
 
 github:
   mattpocock/skills:
