@@ -9,8 +9,16 @@ link:
 github:
   mattpocock/skills:
     link:
+      # No handoff entry: chunk A (5faca7d) replaced the upstream symlink with a
+      # local skill at HOME/.claude/skills/handoff. The stale link survived and
+      # would clobber the local file on the next apply.
       skills/productivity/grill-me: ~/.claude/skills/grill-me
-      skills/productivity/handoff: ~/.claude/skills/handoff
+      # grill-me/SKILL.md:7 is one line: "Run a `/grilling` session." Without
+      # this link that skill invokes a skill that is not installed, which 10
+      # user hits found the hard way. Model-invocable by design (Addendum A.3):
+      # upstream carries no disable-model-invocation and a local override would
+      # be a maintained fork of a one-line link.
+      skills/productivity/grilling: ~/.claude/skills/grilling
       skills/productivity/teach: ~/.claude/skills/teach
   crafter-station/skills:
     link:
