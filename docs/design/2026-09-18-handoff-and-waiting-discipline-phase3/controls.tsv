@@ -1,0 +1,20 @@
+review docs/design/2026-09-18-handoff-and-waiting-discipline.md
+read /home/saidler/repos/scottidler/claude/docs/design/2026-09-18-handoff-and-waiting-discipline.md and tell me what phase 4 does
+fix the typo in docs/design/2026-09-18-handoff-and-waiting-discipline.md:142
+what did round 2 say about docs/design/2026-09-18-handoff-and-waiting-discipline.md
+compare docs/design/2026-09-17-session-recall.md with docs/design/2026-09-18-handoff-and-waiting-discipline.md
+the handoff process needs work
+write me a handoff
+what is a handoff doc supposed to contain
+explain how handoffs work in this setup
+should we commit handoff docs to the repo
+run otto ci
+what is the status of the F2 chunk
+bump the version and push
+why is swap at 80 percent
+summarize the last three commits
+open README.md
+read docs/design/2026-09-13-setup-audit-program.md
+grep for intent-guard in the hooks dir
+what does session-recall-guard.sh do
+add a test for the sleep rule

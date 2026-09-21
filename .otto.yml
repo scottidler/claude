@@ -110,6 +110,13 @@ tasks:
         docs/design/2026-09-17-session-recall-phase0/spike-hook.sh
         docs/design/2026-09-17-session-recall-phase2/fires.tsv
         docs/design/2026-09-17-session-recall-phase2/freeze.py
+        HOME/.claude/hooks/handoff-guard.sh
+        HOME/.claude/hooks/handoff-guard-test.sh
+        docs/design/2026-09-18-handoff-and-waiting-discipline.md
+        docs/design/2026-09-18-handoff-and-waiting-discipline-implementation-notes.md
+        docs/design/2026-09-18-handoff-and-waiting-discipline-phase3/extract.py
+        docs/design/2026-09-18-handoff-and-waiting-discipline-phase3/controls-check.sh
+        docs/design/2026-09-18-handoff-and-waiting-discipline-phase3/controls.tsv
         docs/design/2026-09-17-session-recall-phase2/replay.py
         docs/design/2026-09-17-session-recall-phase2/tally.py
       )

@@ -1026,6 +1026,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/session-recall-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/handoff-guard.sh"
           }
         ]
       }
