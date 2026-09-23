@@ -1118,6 +1118,7 @@
       "journalctl *",
       "crontab *",
       "ssh *",
+      "slack *",
       "~/.claude/skills/architect/script.sh *",
       "~/.claude/skills/staff-engineer/script.sh *"
     ]
