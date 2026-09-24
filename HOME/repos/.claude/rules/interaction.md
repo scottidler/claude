@@ -46,9 +46,8 @@ This is the [root-cause-always](git.md) principle applied to your own loop.
 
 ## Asking Scott a question: the required shape
 
-**NEVER use the AskUserQuestion tool.** Its picker UI is inscrutable to Scott and
-he has rejected it in the strongest terms. The `block-question-picker.sh`
-PreToolUse hook hard-denies it. Ask in your message text, always.
+Ask in your message text, always. AskUserQuestion's picker UI is mechanically
+denied now, not by this sentence: `block-question-picker.sh` hard-denies it.
 
 This is the shape. Scott authored it; copy it structurally.
 
