@@ -737,7 +737,7 @@
       "/tmp/review-panel"
     ]
   },
-  "model": "fable",
+  "model": "opus",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
@@ -1043,9 +1043,6 @@
   },
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": false,
-    "general@tatari-skills": false,
-    "marquee@tatari-skills": true,
-    "platform@tatari-skills": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
@@ -1056,16 +1053,16 @@
     "ttv@tatari-skills": true
   },
   "extraKnownMarketplaces": {
-    "tatari-skills": {
-      "source": {
-        "source": "directory",
-        "path": "/home/saidler/repos/tatari-tv/tatari-skills"
-      }
-    },
     "understand-anything": {
       "source": {
         "source": "github",
         "repo": "Lum1104/Understand-Anything"
+      }
+    },
+    "tatari-skills": {
+      "source": {
+        "source": "github",
+        "repo": "tatari-tv/tatari-skills"
       }
     }
   },
@@ -1112,6 +1109,7 @@
     "excludedCommands": [
       "cargo *",
       "otto *",
+      "aws-vault *",
       "release *",
       "bump *",
       "systemctl *",
