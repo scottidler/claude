@@ -95,30 +95,16 @@ tasks:
         docs/design/2026-09-17-dm-resolution-and-pipeline-glue-implementation-notes.md
         docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md
         docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/evidence.md
-        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/derive.py
-        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/tally.py
-        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/must-deny.sh
-        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/variant-a.sh
-        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/variant-b.sh
-        docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase3/variant-c.sh
         manifest.yml
         HOME/.claude/hooks/session-recall-guard.sh
         HOME/.claude/hooks/session-recall-guard-test.sh
         docs/design/2026-09-17-session-recall.md
         HOME/.claude/skills/session-recall/SKILL.md
         docs/design/2026-09-17-session-recall-implementation-notes.md
-        docs/design/2026-09-17-session-recall-phase0/spike-hook.sh
-        docs/design/2026-09-17-session-recall-phase2/fires.tsv
-        docs/design/2026-09-17-session-recall-phase2/freeze.py
         HOME/.claude/hooks/handoff-guard.sh
         HOME/.claude/hooks/handoff-guard-test.sh
         docs/design/2026-09-18-handoff-and-waiting-discipline.md
         docs/design/2026-09-18-handoff-and-waiting-discipline-implementation-notes.md
-        docs/design/2026-09-18-handoff-and-waiting-discipline-phase3/extract.py
-        docs/design/2026-09-18-handoff-and-waiting-discipline-phase3/controls-check.sh
-        docs/design/2026-09-18-handoff-and-waiting-discipline-phase3/controls.tsv
-        docs/design/2026-09-17-session-recall-phase2/replay.py
-        docs/design/2026-09-17-session-recall-phase2/tally.py
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
@@ -132,6 +118,16 @@ tasks:
       if [ "$BAD_FRONTMATTER" != "HOME/repos/.claude/rules/voice.md" ]; then
         echo "Rules frontmatter check failed, expected only voice.md, got:"
         echo "$BAD_FRONTMATTER"
+        exit 1
+      fi
+      # docs/ is prose only. Phase spikes and measurement harnesses kept landing
+      # here as .py/.sh/.json/.tsv next to the evidence.md that cited them, and
+      # none of it was ever executed by anything: the whole class was deleted
+      # 2026-09-21. Scripts live in bin/ or HOME/.claude/hooks/, nowhere under docs/.
+      NONPROSE=$(find docs \( -type f -o -type l \) ! -name '*.md' -not -path '*/.claude/*')
+      if [ -n "$NONPROSE" ]; then
+        echo "docs/ takes markdown only, found:"
+        echo "$NONPROSE"
         exit 1
       fi
       whitespace -r

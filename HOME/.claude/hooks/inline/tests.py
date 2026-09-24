@@ -18,15 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from inline.matcher import matches  # noqa: E402
 
 _HOOKS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_REPO = os.path.abspath(os.path.join(_HOOKS_DIR, "..", "..", ".."))
-_FIXTURES = os.path.join(
-    _REPO,
-    "docs",
-    "design",
-    "2026-09-17-dm-resolution-and-pipeline-glue-phase0",
-    "inline-token",
-    "fixtures.json",
-)
+_FIXTURES = os.path.join(_HOOKS_DIR, "fixtures", "inline-token", "fixtures.json")
 
 
 def _slash_offset(context: str, token: str) -> int:

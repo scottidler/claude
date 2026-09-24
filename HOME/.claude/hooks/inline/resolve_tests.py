@@ -209,8 +209,7 @@ class AcceptanceCriterionSevenTest(unittest.TestCase):
     """
 
     FIXTURES = (
-        Path(__file__).resolve().parents[4]
-        / "docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/inline-token/fixtures.json"
+        Path(__file__).resolve().parents[1] / "fixtures/inline-token/fixtures.json"
     )
 
     def _score(self) -> tuple[int, int, int]:

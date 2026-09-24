@@ -53,6 +53,7 @@ alwaysApply: true
 ## Documentation
 
 - Design docs at `docs/design/YYYY-MM-DD-feature-name.md`
+- **`docs/` is markdown and nothing else. NEVER put a script, fixture, corpus, or data file under `docs/` in any repo: no `.py`, `.sh`, `.json`, `.tsv`, `.txt`, `.jsonl`, no `-phase0/`/`-phase3/` artifact directory holding them.** A measurement's numbers get pasted verbatim INTO the `.md`; the harness that produced them does not get committed next to it. If a script is worth keeping it is a tool and belongs in `bin/` or alongside the code it tests; if it is not worth keeping, it dies with the session scratchpad. Scar tissue: 37 such files accumulated under `docs/design/` by 2026-09-21, every one of them dead (nothing in `otto test` or the shipped tree ever executed one), and they were deleted as a class. `otto lint` now fails on any non-`.md` under `docs/`.
 - All doc filenames lowercase, hyphenated
 - No ALL CAPS filenames (e.g. `changelog.md` not `CHANGELOG.md`) except `CLAUDE.md`
 - NEVER embed expected/future version numbers in doc filenames or content as release predictions: bumping drifts (a commit sneaks in, a different bump level, a skipped release), and readers grepping the version hit the wrong doc

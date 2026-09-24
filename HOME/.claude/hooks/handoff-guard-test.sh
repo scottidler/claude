@@ -17,15 +17,15 @@ export LC_ALL=C
 
 HOOKS="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 HOOK="$HOOKS/handoff-guard.sh"
-# AC2's frozen corpus (docs/design/2026-09-18-handoff-and-waiting-discipline-
-# phase3/): 20 committed non-handoff controls, plus the extraction of 85 human
-# handoff-opener fires that Phase 3 froze. Folded here because nothing ran
-# them: .otto.yml's test: task globs HOME/.claude/hooks/*-test.sh, and neither
-# file lived under that glob.
-PHASE3="$HOOKS/../../../docs/design/2026-09-18-handoff-and-waiting-discipline-phase3"
-CONTROLS_TSV="$PHASE3/controls.tsv"
-FIRES_TSV="$PHASE3/fires.tsv"
-COUNTS_JSON="$PHASE3/counts.json"
+# AC2's frozen corpus: 20 committed non-handoff controls, plus the extraction
+# of 85 human handoff-opener fires that the 2026-09-18 handoff-and-waiting
+# design doc's Phase 3 froze. It sat under docs/design/ until 2026-09-21, when
+# docs/ became markdown-only; a live fixture belongs beside the test that reads
+# it, not beside the prose that cites it.
+CORPUS="$HOOKS/fixtures/handoff-guard"
+CONTROLS_TSV="$CORPUS/controls.tsv"
+FIRES_TSV="$CORPUS/fires.tsv"
+COUNTS_JSON="$CORPUS/counts.json"
 pass=0
 fail=0
 

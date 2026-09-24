@@ -31,6 +31,18 @@ When something breaks or behaves unexpectedly, **never speculate, guess, or say 
 - If asked "how long," answer with scope: files affected, steps required, unknowns that block progress
 - Let the human do the sizing
 
+## Non-Negotiable: `docs/` is markdown, nothing else
+
+NEVER put a script, fixture, corpus, or data file anywhere under `docs/`, in any
+repo. No `.py`, `.sh`, `.json`, `.tsv`, `.txt`, `.jsonl`. No `-phase0/` or
+`-phase3/` artifact directory holding them. A measurement's numbers get pasted
+verbatim INTO the `.md` that cites them; the harness that produced them does not
+get committed beside it. Worth keeping means it is a tool and belongs in `bin/`
+or next to the code it tests. Not worth keeping means it dies with the session
+scratchpad. 37 such files accumulated here by 2026-09-21, every one dead, and
+they were deleted as a class. `otto lint` fails on any non-`.md` under `docs/`.
+Full rule: `rules/general.md`, Documentation.
+
 ## Sandbox phantom files are NOT real (known Claude Code bug, unfixed at 2.1.202)
 
 Bash-sandbox (bwrap) deny-mounts leak into the working dir: `crw-rw-rw- ... 1,3`
@@ -55,6 +67,10 @@ Conventions (how I write code & config):
 - `cli`: CLI flag behavior: space-separated, no commas (always-on)
 - `logging`: function-level debug logging (always-on)
 - `python` / `rust` / `js-ts` / `yaml`: language-specific (path-scoped)
+- `fleet-plugins`: the tatari-tv CLI fleet (marquee/persona/clyde/sdv/slack/
+  shepherd/pagerduty) publishes a CLI, an MCP server, a `plugin/` pinned by tag
+  from `tatari-skills`, and a README; all four must agree before a tag
+  (path-scoped to those repos + tatari-skills)
 - `comments`: name it, don't narrate it: self-explanatory names over
   restating-comments; comment only tricky/subtle/scar-tissue cases
   (path-scoped: code files + yaml, not json)
