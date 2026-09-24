@@ -363,7 +363,7 @@ describe('rmRewrite: wrapper forms are denied', () => {
 
 /** The live list as of 2026-09-24, already stripped of the ` *` glob. */
 const EXCLUDED = [
-    'cargo', 'otto', 'release', 'bump', 'systemctl', 'journalctl', 'crontab', 'ssh',
+    'cargo', 'otto', 'aws-vault', 'release', 'bump', 'systemctl', 'journalctl', 'crontab', 'ssh',
     'git push', 'git fetch', 'git pull', 'git ls-remote', 'git clone', 'slack',
     '~/.claude/skills/architect/script.sh', '~/.claude/skills/staff-engineer/script.sh',
 ]
