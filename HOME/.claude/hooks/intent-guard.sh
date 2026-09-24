@@ -31,6 +31,9 @@
 #               over 1 MB to a public remote.
 #   SLEEP       foreground waiting past 25s, which is the harness's own
 #               threshold, in the three shapes its statement-0 check misses.
+#   GIT-NET     git network ops that cannot authenticate as the right persona:
+#               hand-rolled keys/URL rewrites/HTTPS swaps always, and, when the
+#               sandbox is on, any shape sandbox.excludedCommands will not match.
 #
 # GH-WRITE PARSES THE METHOD ITSELF and does not use `flag_value`. Two reasons,
 # both measured, both in the design doc: `flag_value` cannot see the attached
@@ -409,6 +412,37 @@ SLEEP_T1_MS=25000
 # Verbatim from the native deny, so the two read as one voice rather than two
 # competing instructions.
 SLEEP_ADVICE='To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.'
+
+# GIT-NET. ~/.gitconfig-ssh already picks the persona key per repo (dotfiles
+# 6abfae0), so every override below is unnecessary, and auto mode denies them
+# as credential exploration anyway: the 2026-09-24 drata-cli release burned
+# seven furious messages on exactly these variants (HALL-OF-SHAME).
+#
+# The sandbox half is measured, 2026-09-24: inside the sandbox ~/.ssh and
+# ssh-agent are unreachable and the sandbox's own GIT_SSH_COMMAND replaces the
+# wrapper, so a sandboxed push cannot authenticate as either persona.
+# excludedCommands (`git push *` etc.) lifts the sandbox ONLY for a bare
+# simple command: `git ls-remote origin HEAD` and `... 2>&1` ran unsandboxed,
+# while `cd repo && git ls-remote ...`, `git ls-remote ... | cat` and
+# `git -C repo ls-remote ...` all ran sandboxed and failed.
+GITNET_VERBS=" push fetch pull ls-remote clone "
+GITNET_HOW='The persona key is automatic (~/.gitconfig-ssh; rules/secrets.md "git over SSH").'
+GITNET_OVERRIDE_DENY="do not hand-roll git's SSH key, config or remote URL. $GITNET_HOW Run the plain command, e.g. \`git push origin <branch>\`. Denied for"
+GITNET_SHAPE_DENY="this git network command would run INSIDE the sandbox, where it cannot authenticate as either persona. sandbox.excludedCommands only lifts the sandbox for a bare simple command. $GITNET_HOW Make it a separate Bash call: first \`cd <repo>\` alone, then the plain \`git <verb> ...\` alone (a trailing \`2>&1\` is fine; no pipe, no &&, no -C, no wrapper). Denied for"
+sandbox_off=0
+case "$(printf '%s' "$input" | jq -r '.tool_input.dangerouslyDisableSandbox // false' 2>/dev/null)" in
+  true|1) sandbox_off=1 ;;
+esac
+# The shape the harness exempts: after dropping redirects, `git <verb>` with no
+# shell metacharacter left anywhere.
+gitnet_bare_simple() {
+  local s
+  s=$(printf '%s' "$command" | sed -E 's/[[:space:]]+[0-9]*>&[0-9-]+//g; s/[[:space:]]+[0-9]*>>?[[:space:]]*[^[:space:];&|<>]+//g')
+  case "$s" in
+    *[\;\&\|\<\>\(\)\$\`]*|*$'\n'*) return 1 ;;
+  esac
+  printf '%s' "$s" | grep -qE '^[[:space:]]*git[[:space:]]+(push|fetch|pull|ls-remote|clone)([[:space:]]|$)'
+}
 
 # dur_ms <operand> -- a literal sleep operand in milliseconds, non-zero exit
 # when the operand is not a literal (`sleep "$T"`). A non-literal contributes
@@ -961,6 +995,65 @@ while IFS= read -r -d '' stmt; do
       *" --help "*|*" -h "*) : ;;
       *" jira workitem delete "*|*" confluence page delete "*)
         deny "$ACLI_DENY" ;;
+    esac
+  fi
+
+  # GIT-NET, override half: an assignment or export of git's SSH/config env on
+  # any statement. Quote-masked text, so `echo "GIT_SSH_COMMAND=x"` is prose.
+  if printf '%s' "$ingest_stmt" | grep -qE '(^|[[:space:]])GIT_(SSH|SSH_COMMAND|SSH_VARIANT|CONFIG_COUNT|CONFIG_KEY_[0-9]+|CONFIG_VALUE_[0-9]+|CONFIG_PARAMETERS|CONFIG_GLOBAL|CONFIG_SYSTEM)='; then
+    deny "$GITNET_OVERRIDE_DENY (a GIT_SSH*/GIT_CONFIG_* environment override)"
+  fi
+
+  if printf '%s' "$verbscan" | cmdword_is git >/dev/null 2>&1; then
+    # Walk to the subcommand: skip a leading `env`/assignments, then git's
+    # global options (gitnet_bare_simple judges whether any preceded the verb).
+    g_seen=0 g_sub="" g_skip=0 g_rest="" g_prev=""
+    while IFS= read -r tok; do
+      if [ "$g_seen" -eq 0 ]; then
+        [ "$tok" = "git" ] && g_seen=1
+        continue
+      fi
+      if [ -n "$g_sub" ]; then g_rest="$g_rest $tok"; continue; fi
+      if [ "$g_skip" -eq 1 ]; then
+        g_skip=0
+        if [ "$g_prev" = "-c" ]; then
+          case "$(printf '%s' "$tok" | tr '[:upper:]' '[:lower:]')" in
+            core.sshcommand=*|url.*insteadof=*) deny "$GITNET_OVERRIDE_DENY (git -c $tok)" ;;
+          esac
+        fi
+        continue
+      fi
+      case "$tok" in
+        -C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env) g_skip=1; g_prev="$tok" ;;
+        -*) : ;;
+        *) g_sub="$tok" ;;
+      esac
+    done < <(printf '%s' "$verbscan" | args)
+    g_rest_lc=$(printf '%s' "$g_rest" | tr '[:upper:]' '[:lower:]')
+
+    case "$g_sub" in
+      config)
+        case " $g_rest_lc " in
+          *" --get"*|*" --list "*|*" -l "*|*" --show-origin "*) : ;;
+          *" core.sshcommand"*|*" url."*"insteadof"*) deny "$GITNET_OVERRIDE_DENY (git config writing core.sshCommand or url.*.insteadOf)" ;;
+        esac
+        ;;
+      remote)
+        case " $g_rest_lc " in
+          *" set-url "*"https://github.com"*|*" add "*"https://github.com"*) deny "$GITNET_OVERRIDE_DENY (an HTTPS GitHub remote; remotes stay git@github.com)" ;;
+        esac
+        ;;
+    esac
+
+    case "$GITNET_VERBS" in
+      *" $g_sub "*)
+        case " $g_rest_lc " in
+          *" https://github.com/"*|*" http://github.com/"*) deny "$GITNET_OVERRIDE_DENY (an HTTPS GitHub URL; remotes stay git@github.com)" ;;
+        esac
+        if [ "$sandbox_off" -eq 0 ] && ! gitnet_bare_simple; then
+          deny "$GITNET_SHAPE_DENY \`git $g_sub\` in a compound, -C/-c, or wrapped command"
+        fi
+        ;;
     esac
   fi
 

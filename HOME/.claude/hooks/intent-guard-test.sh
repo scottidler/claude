@@ -386,7 +386,9 @@ echo "=== PUBLIC-REPO push: redirects are not refspecs ==="
 # sensitive path, they exercise the refspec walk and must not deny on a
 # redirect token. The repo-state cases live in the scratch-repo probe.
 run allow 'git push origin main 2>&1'
-run allow 'git push origin main 2>&1 | tail -5'
+# Piped, so sandboxed it is a GIT-NET deny; the refspec walk is asserted
+# with the sandbox off (runsb, defined in the GIT-NET section below).
+runsb_pending='git push origin main 2>&1 | tail -5'
 run allow 'git push origin HEAD:main > /dev/null 2>&1'
 run allow 'git push origin main >/dev/null'
 
@@ -557,6 +559,66 @@ run deny  'echo A; sleep .5m'
 
 echo "=== SLEEP: the opaque-bound deny names what it could not compute (audit Q2) ==="
 runsays 'for ((i=0; i<30; i++)); do sleep 1; done' 'this guard cannot bound the foreground wait'
+
+echo "=== GIT-NET: shapes excludedCommands exempts (measured 2026-09-24) run unsandboxed ==="
+run allow 'git push origin HEAD:refs/heads/feature-x'
+run allow 'git push --no-follow-tags -u origin HEAD:refs/heads/fix-cursor-page-size'
+run allow 'git ls-remote origin HEAD 2>&1'
+run allow 'git fetch'
+run allow 'git pull --rebase origin main'
+run allow 'git clone git@github.com:tatari-tv/drata-cli.git'
+run allow 'git push --dry-run origin HEAD:refs/heads/unused 2>&1'
+run allow 'git push origin main > /dev/null'
+# Not network verbs, so compound and -C forms stay fine.
+run allow 'git -C ~/repos/x log --oneline | head -5'
+run allow 'cd ~/repos/x && git status && git diff'
+run allow 'git config --get core.sshCommand'
+run allow 'git remote -v'
+run allow 'echo "GIT_SSH_COMMAND=ssh -i k is what not to do"'
+run allow "grep -n 'git push' rules/git.md"
+
+echo "=== GIT-NET: sandboxed shapes that cannot authenticate ==="
+run deny  'cd ~/repos/tatari-tv/drata-cli && git push origin x'
+run deny  'git push origin x 2>&1 | tail -5'
+run deny  'git -C ~/repos/tatari-tv/drata-cli push origin x'
+run deny  'git -C ~/repos/x fetch'
+run deny  'git fetch && git status'
+run deny  'timeout 60 git push origin x'
+run deny  "bash -c 'git push origin x'"
+run deny  'git ls-remote origin HEAD | cat'
+runsays   'git -C /r push origin x' 'cd <repo>'
+
+echo "=== GIT-NET: the same shapes are fine with the sandbox off ==="
+runsb() { # runsb <expect> <command>: payload with dangerouslyDisableSandbox true
+  local expect="$1" cmd="$2" out decision
+  out=$(jq -n --arg c "$cmd" --arg d "$PWD" \
+    '{tool_name:"Bash",tool_input:{command:$c,run_in_background:false,dangerouslyDisableSandbox:true},cwd:$d}' | bash "$HOOK")
+  decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"')
+  if [ "$decision" = "$expect" ]; then
+    pass=$((pass + 1)); printf 'PASS  [%s, sandbox off] %s\n' "$expect" "$cmd"
+  else
+    fail=$((fail + 1)); printf 'FAIL  [want %s got %s, sandbox off] %s\n' "$expect" "$decision" "$cmd"
+  fi
+}
+runsb allow 'cd ~/repos/tatari-tv/drata-cli && git push origin x'
+runsb allow "$runsb_pending"
+runsb allow 'git -C ~/repos/x push origin main 2>&1 | tail -2'
+# Overrides deny even unsandboxed: they are never needed.
+runsb deny  'GIT_SSH_COMMAND="ssh -i ~/.ssh/identities/work/id_ed25519" git push origin x'
+runsb deny  'git push https://github.com/tatari-tv/drata-cli.git x'
+
+echo "=== GIT-NET: hand-rolled key, config and URL overrides ==="
+run deny  'GIT_SSH_COMMAND="ssh -i ~/.ssh/identities/work/id_ed25519 -o IdentitiesOnly=yes" git push origin x'
+run deny  'export GIT_SSH_COMMAND="ssh -i k"; git push origin x'
+run deny  'env GIT_SSH_COMMAND=ssh git fetch'
+run deny  'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.https://github.com/.pushInsteadOf GIT_CONFIG_VALUE_0=git@github.com: release'
+run deny  'git -c url.https://github.com/.insteadOf=git@github.com: push origin x'
+run deny  'git -c core.sshCommand="ssh -i k" push origin x'
+run deny  'git config core.sshCommand "ssh -i k"'
+run deny  'git config --global url.https://github.com/.pushInsteadOf git@github.com:'
+run deny  'git remote set-url origin https://github.com/tatari-tv/drata-cli.git'
+run deny  'git push --no-follow-tags https://github.com/tatari-tv/drata-cli.git fix-cursor-page-size'
+runsays   'GIT_SSH_COMMAND=x git push' 'persona key is automatic'
 
 echo
 echo "pass=$pass fail=$fail"

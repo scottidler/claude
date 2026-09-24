@@ -73,9 +73,12 @@ git@github.com` defaults to the home key.
   retry the same plain command with the sandbox off, once.
 - `sandbox.excludedCommands` lists `git push *`, `git fetch *`, `git pull *`,
   `git ls-remote *`, `git clone *`, so those run unsandboxed automatically, but
-  only in that exact form. `git -C <path> push` does NOT match and runs
-  sandboxed: `cd` into the repo first (a separate call; cwd persists), then run
-  the plain `git push`.
+  only as a bare simple command (a trailing `2>&1` or `> file` is fine).
+  Measured 2026-09-24: `git -C <path> push`, `cd repo && git push`, and
+  `git push ... | tail` all run sandboxed and fail. `cd` into the repo in its
+  own call (cwd persists), then run the plain `git push` alone.
+  `intent-guard.sh`'s GIT-NET rule denies the sandboxed shapes and every
+  override below mechanically.
 - **Never hand-roll the key.** No `GIT_SSH_COMMAND=... -i`, no
   `GIT_CONFIG_*`/`-c url.*.insteadOf` injection, no HTTPS remote swap: auto mode
   denies these as credential exploration or bypass, and they are unnecessary.
