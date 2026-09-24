@@ -53,10 +53,39 @@ Confirm identity without leaking the token: append `api user --jq .login` (print
 just `scottidler` or `escote-tatari`). `github-pat-service` is a third,
 service-account PAT; use it only when a task explicitly calls for the bot identity.
 
-`git push` / pull already use the correct per-org SSH key (`clone` resolves it via
-`GIT_SSH_COMMAND`), so pushes carry the right identity regardless of the gh token.
-Only the gh API surface (PRs, issues, comments, API calls) needs the token
-override above.
+## git over SSH: the persona is automatic, but ONLY outside the sandbox
+
+`core.sshCommand = ~/.gitconfig-ssh` picks the key per call: any ssh argument
+containing `tatari` gets the work key (`escote-tatari`), everything else the home
+key (`scottidler`). It exports `GITCONFIG_SSH_KEY`, which makes `~/.ssh/config`
+drop its default github.com `IdentityFile`, so exactly one key is eligible and
+ssh-agent load order cannot pick the account (that order is what pushed
+tatari-tv as `scottidler` on 2026-09-23). Remotes stay `git@github.com:...`;
+never propose a `github-work` host alias or URL rewrite. Plain `ssh
+git@github.com` defaults to the home key.
+
+- **Run every git network op unsandboxed** (`push`, `fetch`, `pull`,
+  `ls-remote`, `clone`, and `release`/`bump` already are). In the sandbox
+  `~/.ssh` and ssh-agent are unreachable and the sandbox's own
+  `GIT_SSH_COMMAND` replaces `~/.gitconfig-ssh`, so a sandboxed push CANNOT
+  authenticate as either persona. That failure (`Permission denied`, `denied to
+  scottidler`, `Host key verification failed`) is the sandbox, not the keys:
+  retry the same plain command with the sandbox off, once.
+- `sandbox.excludedCommands` lists `git push *`, `git fetch *`, `git pull *`,
+  `git ls-remote *`, `git clone *`, so those run unsandboxed automatically, but
+  only in that exact form. `git -C <path> push` does NOT match and runs
+  sandboxed: `cd` into the repo first (a separate call; cwd persists), then run
+  the plain `git push`.
+- **Never hand-roll the key.** No `GIT_SSH_COMMAND=... -i`, no
+  `GIT_CONFIG_*`/`-c url.*.insteadOf` injection, no HTTPS remote swap: auto mode
+  denies these as credential exploration or bypass, and they are unnecessary.
+- Verify identity without pushing: `git push --dry-run origin HEAD:refs/heads/<unused>`
+  (unsandboxed); `* [new branch]` means auth and write access are good.
+- If the plain unsandboxed command still fails, report the exact error; do not
+  try variants.
+
+The gh token does not affect SSH pushes. Only the gh API surface (PRs, issues,
+comments, API calls) needs the persona handling above.
 
 ### The live mechanism: the `gh()` function keyed on `$PWD` (plus `GH_PERSONA`)
 

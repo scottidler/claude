@@ -1118,6 +1118,11 @@
       "journalctl *",
       "crontab *",
       "ssh *",
+      "git push *",
+      "git fetch *",
+      "git pull *",
+      "git ls-remote *",
+      "git clone *",
       "slack *",
       "~/.claude/skills/architect/script.sh *",
       "~/.claude/skills/staff-engineer/script.sh *"
