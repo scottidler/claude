@@ -379,11 +379,16 @@ typed_prompt() {
       def relay: startswith("Another Claude session sent a message:");
       def cmdwrap: test("^<command-(message|name|args)");
       def wrap: startswith("<");
+      def text: if type == "string" then . elif type == "array"
+        then [ .[] | select(.type == "text") | .text ] | join("\n") else empty end;
       [ .[]
-        | select(.type == "user")
         | select(.isSidechain != true)
-        | select((.message.content | type) == "string")
-        | {c: .message.content, p: (.promptId // "")}
+        | if .type == "user" and ((.message.content | type) == "string") then
+            {c: .message.content, p: (.promptId // "")}
+          elif .type == "attachment" and .attachment.type == "queued_command"
+               and .attachment.origin.kind == "human" then
+            {c: (.attachment.prompt | text), p: ""}
+          else empty end
         | select((.c | relay) | not)
         | select((.c | cmdwrap) or ((.c | wrap) | not))
       ] as $u
