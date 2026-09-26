@@ -66,5 +66,47 @@ check allow "other tool" '{"tool_name":"mcp__atlassian__getJiraIssue","tool_inpu
 # Edits that add the section back.
 check deny "edit adds section" "$(edit '{"description":"## Context\nwhy\n\n## Acceptance Criteria\n- a"}')"
 
+# acli through Bash.
+FIX=$(mktemp -d)
+trap 'rm -rf "$FIX"' EXIT
+
+bash_cmd() {
+  jq -nc --arg c "$1" --arg d "$FIX" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}'
+}
+
+printf '## Context\nwhy\n\n## Acceptance Criteria\n- a\n' >"$FIX/desc-ac.md"
+printf '## Context\nwhy\n' >"$FIX/desc-ok.md"
+jq -n --arg f customfield_10118 '{projectKey:"SEC",type:"Story",summary:"s",additionalAttributes:{($f):"- a"},description:{type:"doc",version:1,content:[{type:"paragraph",content:[{type:"text",text:"why"}]}]}}' >"$FIX/ok.json"
+jq -n '{projectKey:"SEC",type:"Story",summary:"s",description:{type:"doc",version:1,content:[]}}' >"$FIX/noac.json"
+jq -n --arg f customfield_10118 '{projectKey:"SEC",type:"Story",summary:"s",additionalAttributes:{($f):"- a"},description:{type:"doc",version:1,content:[{type:"heading",content:[{type:"text",text:"Acceptance Criteria"}]}]}}' >"$FIX/adf-ac.json"
+jq -n '{issues:[{summary:"s",projectKey:"DAT",issueType:"Task"},{summary:"t",projectKey:"SRE",issueType:"Story"}]}' >"$FIX/bulk-sre.json"
+jq -n '{issues:[{summary:"s",projectKey:"DAT",issueType:"Story"}]}' >"$FIX/bulk-dat.json"
+printf 'summary,projectKey,issueType\ns,SEC,Epic\n' >"$FIX/bulk-sec.csv"
+printf 'summary,projectKey,issueType\ns,SEC,Task\n' >"$FIX/bulk-task.csv"
+
+check deny "acli inline desc section" "$(bash_cmd $'acli jira workitem create -p DAT -t Task -s s -d "## Acceptance Criteria\n- a"')"
+check deny "acli inline desc heredoc" "$(bash_cmd $'acli jira workitem edit --key SEC-1 --description "$(cat <<X\n## Context\nwhy\n\n**Acceptance Criteria:**\n- a\nX\n)" --yes')"
+check deny "acli description-file section" "$(bash_cmd 'acli jira workitem edit --key SEC-1 --description-file desc-ac.md --yes')"
+check deny "acli from-json ADF heading" "$(bash_cmd "acli jira workitem create --from-json $FIX/adf-ac.json")"
+check deny "acli SEC story by flags" "$(bash_cmd 'acli jira workitem create --project SEC --type Story -s s --description-file desc-ok.md')"
+check deny "acli sre epic short flags" "$(bash_cmd 'cd /tmp && acli jira workitem create -p sre -t epic -s s')"
+check deny "acli from-json no field" "$(bash_cmd 'acli jira workitem create --from-json noac.json')"
+check deny "acli unreadable file" "$(bash_cmd 'acli jira workitem create --from-json missing.json')"
+check deny "acli bulk json SRE story" "$(bash_cmd 'acli jira workitem create-bulk --from-json bulk-sre.json --yes')"
+check deny "acli bulk csv SEC epic" "$(bash_cmd "acli jira workitem create-bulk --from-csv '$FIX/bulk-sec.csv'")"
+
+check allow "acli from-json with field" "$(bash_cmd 'acli jira workitem create --from-json ok.json')"
+check allow "acli SEC task by flags" "$(bash_cmd 'acli jira workitem create -p SEC -t Task -s s -d "why"')"
+check allow "acli other project story" "$(bash_cmd 'acli jira workitem create -p DAT -t Story -s s')"
+check allow "acli edit clean desc" "$(bash_cmd 'acli jira workitem edit --key SEC-1 --description-file desc-ok.md --yes')"
+check allow "acli bulk json other project" "$(bash_cmd 'acli jira workitem create-bulk --from-json bulk-dat.json')"
+check allow "acli bulk csv task" "$(bash_cmd 'acli jira workitem create-bulk --from-csv bulk-task.csv')"
+check allow "acli view" "$(bash_cmd 'acli jira workitem view SEC-3099 --fields customfield_10118')"
+check allow "acli prose mention" "$(bash_cmd 'acli jira workitem create -p SEC -t Task -s s -d "See the Acceptance Criteria field."')"
+check allow "acli quoted in commit message" "$(bash_cmd 'git commit -m "guard acli jira workitem create --from-json sets the field"')"
+check deny "acli after cd and env" "$(bash_cmd 'cd /x && FOO=1 acli jira workitem create -p SEC -t Story -s s')"
+check deny "acli in subshell" "$(bash_cmd 'out=$(acli jira workitem create -p SEC -t Story -s s)')"
+check allow "unrelated bash" "$(bash_cmd 'mkdir -p x && grep -r "Acceptance Criteria" .')"
+
 echo "jira-ac-guard: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

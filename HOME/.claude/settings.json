@@ -878,6 +878,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/slack-post-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/jira-ac-guard.sh"
           }
         ]
       },
