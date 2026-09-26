@@ -49,6 +49,8 @@ tasks:
         HOME/.claude/hooks/intent-guard-test.sh
         HOME/.claude/hooks/slack-post-guard.sh
         HOME/.claude/hooks/slack-post-guard-test.sh
+        HOME/.claude/hooks/jira-ac-guard.sh
+        HOME/.claude/hooks/jira-ac-guard-test.sh
         HOME/.claude/hooks/git-release-guard.sh
         HOME/.claude/hooks/git-release-guard-test.sh
         HOME/.claude/hooks/branch-name-guard.sh

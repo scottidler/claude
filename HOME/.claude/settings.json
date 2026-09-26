@@ -891,6 +891,15 @@
         ]
       },
       {
+        "matcher": "mcp__atlassian__createJiraIssue|mcp__atlassian__editJiraIssue",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/jira-ac-guard.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
