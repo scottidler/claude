@@ -48,15 +48,18 @@ gh api repos/OWNER/REPO/rules/branches/main        # rulesets (repo + org level)
 - Local `branch.main.pushremote=no_push` is a user-side guardrail against accidental `git push` with no remote, NOT proof the remote requires PRs; don't treat its presence as dispositive
 - Never use `--force` / `--force-with-lease` on main without explicit user approval
 
-## Tagging / releases: use `bump`, let it gate-check for you
+## Tagging / releases: `bump release`, then `bump finish`
 
-**The one invariant: never create or push a tag until the exact commit it points to is confirmed on `origin/main`.** `bump` (v0.2.0+) enforces this: it detects branch-protection gates itself, plain `bump` REFUSES to tag on a gated default branch, and `bump --tag-only` verifies `HEAD == origin/<default>` before creating the tag. `bump` never pushes: it prints the exact push commands; you run them in the safe order (branch first, then the tag by explicit name).
+**The one invariant: never create or push a tag until the exact commit it points to is on `origin/<default>` and its CI is green.** `bump release` / `bump finish` (bump v0.4.0+) enforce it: they detect the gates, wait for green check runs on the exact sha, tag that sha, and push the tag by name.
 
-- `bump --gates`: shows both gates (classic protection AND repo/org rulesets) and the recommended flow (run this first if unsure)
-- Ungated repo: the version commit lands first, untagged, and the tag waits for green CI on that exact SHA, because a tag cut before CI can only be repaired by a second tag. Exact command sequence: `bump/SKILL.md` FLOW 1.
-- Gated repo: `bump --no-tag [-m|-M]` on the FEATURE branch (version bump rides the feature PR, no tag) → open PR → merge → on updated main `bump --tag-only` (tags the merged commit) → `git push origin vX.Y.Z`
-- Never run plain `bump` on a gated repo: it will refuse anyway, but `--no-tag` is the right call; `--tag-only` is the post-merge tag step
-- NEVER create a bump-only release branch (`release-X.Y.Z` carrying just a version commit). The bump belongs INSIDE the feature PR. If a PR already merged without its bump: STOP and ask Scott. The default is to fold the bump into the next feature PR, not to invent a branch.
-- A tag created on a branch is burnt and lost forever: squash-merge rewrites the SHA. On a feature branch the ONLY legal bump form is `bump --no-tag` (the git-release-guard hook enforces this).
+- One release, two bare commands, each its own Bash call after a separate `cd <repo>`, run with `run_in_background` (the CI wait can pass the 600s foreground cap):
+  - `bump release [-m|-M]`: ungated, it commits the version, pushes main, waits for CI, tags, pushes the tag, installs. Gated, run on the FEATURE branch with the work committed: it commits the version, pushes the branch, opens the PR itself (`Release: rides this PR (vX.Y.Z)`), and stops.
+  - `bump finish`: gated, after the PR merges, from any worktree of the repo. It fast-forwards the default branch, waits for CI on the merged sha, tags, pushes the tag, installs.
+- No `&&`, no env prefix, no wrapper: a bare `bump ...` matches the allow rule; anything chained or prefixed does not.
+- A re-run after red CI reuses the pending version; it never bumps past it.
+- NEVER create a bump-only release branch. The bump belongs INSIDE the feature PR; `bump release` refuses a branch whose diff is empty or version lines only. The one exception is Scott's explicit order for a version-only release: `bump release --standalone "<his exact words>"`, words quoted into the PR. Never invent the order.
+- If a PR already merged without its bump, `bump finish` refuses; STOP and report. Do not invent a branch.
+- A tag created on a branch is burnt and lost forever: squash-merge rewrites the SHA. The verbs never tag a branch.
+- `bump --gates` shows both gates (classic protection AND repo/org rulesets) when you need to see them.
 - Never `git push --tags`; `push.followTags` is `false` in dotfiles because a followTags push lands the tag even when the branch push is rejected (this orphaned okta-auth-rs v0.2.0)
 - If a push to main is ever rejected after a tag exists locally: STOP. Do not push the tag, do not retry variations, do not change repo settings (merge methods, protection, rulesets); `intent-guard.sh`'s GH-WRITE rule denies the `gh api` and `gh repo edit` forms mechanically. Report the exact rejection to the user.

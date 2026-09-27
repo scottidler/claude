@@ -14,22 +14,21 @@ description: Ship code changes - commit, bump the version, push, and install. Us
 
 "shipit" = ship the current change as a release. **Hand the whole thing to the
 `release-driver` agent.** It runs the release in an isolated context through the
-deterministic `release` driver, so the tag/push logic, where every
-`~/HALL-OF-SHAME.md` failure lives, has no room for the model to pick a wrong
-path or rationalize an orphan.
+two bare verbs `bump release` and `bump finish`, so the tag/push logic, where
+every `~/HALL-OF-SHAME.md` failure lives, sits inside the binary, not in a
+sequence the model has to remember.
 
-## The two flows the driver executes (there is no third)
+## The two flows (there is no third)
 
-- **UNGATED** (main accepts direct pushes): commit on main → `bump --no-tag` →
-  push main → **wait for green CI on that SHA** → `bump --tag-only` →
-  `git push origin vX.Y.Z` by explicit name. The tag is never created before CI
-  has run: tag first and every CI failure costs a SECOND version number (the
-  double-tap; otto burned three pairs that way).
-- **GATED** (main requires a PR): the version bump RIDES THE FEATURE PR
-  (`bump --no-tag` on the feature branch) → push branch → `pr-open` → PR → merge →
-  pull main → `bump --tag-only` → `git push origin vX.Y.Z`. The tag exists only
-  AFTER the merge, on updated main. Never a tag on a branch (squash rewrites the
-  SHA, the tag is burnt forever). Never a bump-only release branch.
+- **UNGATED** (main accepts direct pushes): commit on main, then `bump release`:
+  version commit, push main, **wait for green CI on that sha**, tag it, push the
+  tag by name, install. The tag is never created before CI has run: tag first and
+  every CI failure costs a SECOND version number (the double-tap; otto burned
+  three pairs that way).
+- **GATED** (main requires a PR): on the feature branch, `bump release`: version
+  commit rides the feature PR, branch pushed, PR opened by the verb itself. After
+  the merge, `bump finish` (any worktree): pull main, wait for CI, tag, push the
+  tag, install. Never a tag on a branch. Never a bump-only release branch.
 
 Both flows end the same way: install, then PROVE the new version is live.
 
@@ -53,10 +52,10 @@ Both flows end the same way: install, then PROVE the new version is live.
    - **ACCEPTANCE** (cli only): the commands that exercise the installed binary,
      space or newline separated. Without them the CLI half proves only `--version`.
 
-   The agent commits the real files, runs `release` (which detects gated vs ungated
-   and executes the right flow), opens the PR through `pr-open` (its own tool call,
-   never a subprocess), babysits it to merge, finishes the tag, verifies it's on
-   `origin/<default>`, installs, and proves the version is live. Relay its report.
+   The agent commits the real files, runs `bump release` (which detects gated vs
+   ungated, and on a gated repo opens the PR itself), babysits the PR to merge, runs
+   `bump finish`, verifies the tag is on `origin/<default>`, installs, and proves
+   the version is live. Relay its report.
 
 3. **Fire `/cli-shakedown` yourself** if the release wants one. The agent reports
    "installed at vX.Y.Z, shakedown not run" on purpose: its tool grant is
@@ -66,8 +65,9 @@ Both flows end the same way: install, then PROVE the new version is live.
 ## The PR already merged
 
 Not a fresh release and never a hand-rolled tag. Spawn `release-driver` with
-`ENTRY: finish` and the merged PR url; it reads the release-intent line, runs
-`release --finish` when the bump rode the PR, and STOPS for Scott when it did not.
+`ENTRY: finish` and the merged PR url; it runs `bump finish`, which tags the
+merged tip when the bump rode the PR and refuses when it did not (then it STOPS
+for Scott).
 
 ## Doing it inline (only for a trivial ungated bump)
 
@@ -77,21 +77,23 @@ hand, but follow the `bump` skill exactly:
 ```bash
 # commit the real files by explicit path (NEVER git add -A, it sweeps scratch assets)
 git add <files> && git commit -m "<message>"
-release [-m|-M] [--install "<cmd>"|--no-install]   # clean tree; main if ungated, feature branch if gated
-# gated repos stop at "PR creation required": run the pr-open line, then the gh pr
-# create line it prints, then release --pr <url>; after merge: release --finish
+cd <repo>                                          # its own Bash call
+bump release [-m|-M] [--install "<cmd>"|--no-install]   # bare, run_in_background
+# gated repos stop after opening the PR; after the merge:
+bump finish                                        # bare, run_in_background
 ```
 
 ## Rules that never bend
 
 - **Never** `git push --tags` / `--follow-tags`: push the branch, confirm it
   landed, then the tag by explicit name (`git push origin vX.Y.Z`).
-- **Never** a tag-creating bump off main: on a feature branch the only legal
-  form is `bump --no-tag` (the hook enforces this); the tag comes after the merge
-  via `bump --tag-only` on updated main.
+- **Never** a tag on a branch: on a gated repo the tag comes after the merge,
+  from `bump finish`.
 - **Never** create a bump-only release branch. The bump rides the feature PR. If
   a PR already merged without its bump: STOP and ask Scott, default is to fold
-  the bump into the next feature PR.
+  the bump into the next feature PR. Scott's explicit version-only order is
+  `bump release --standalone "<his exact words>"`, never invented.
+- **Never** wrap, chain, or env-prefix the two verbs.
 - **Never** hand-edit a version, create/delete a tag by hand, or tag a commit not
   yet on `origin/<default>`.
 - **Push rejected after a tag exists locally?** STOP: don't push the tag, don't

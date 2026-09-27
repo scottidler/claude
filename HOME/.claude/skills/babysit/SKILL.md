@@ -112,10 +112,10 @@ owns the async wait in its own context:
 
 - Spawn it with `ENTRY: finish`, the merged PR url, REPO, INSTALL, KIND, and
   either DEPLOY-URL (a deployed service) or ACCEPTANCE (a CLI).
-- It reads the PR body's release-intent line. `Release: rides this PR (vX.Y.Z)`
-  means the bump rode and `release --finish` tags the merged tip, pushes the tag
-  by name, installs, and proves the version is live. `Release: none - <why>` or
-  no line means the bump did NOT ride: it stops and Scott decides.
+- It runs `bump finish`. When the bump rode the PR (`Release: rides this PR
+  (vX.Y.Z)`), that tags the merged tip after CI is green, pushes the tag by name,
+  and installs; the agent then proves the version is live. When the bump did NOT
+  ride, `bump finish` refuses: the agent stops and Scott decides.
 - Never run `bump`, `git tag` or `git push origin vX.Y.Z` from this skill. This
   skill watches PRs; it does not cut releases.
 - The agent returns "installed at vX.Y.Z, shakedown not run". Firing

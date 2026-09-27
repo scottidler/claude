@@ -553,62 +553,30 @@ user declines or does not respond, stop: the per-phase commits are already
 safely in local history and nothing is lost. Run only the actions the user
 approved, in the order below.
 
-### 4. Bump version (only if approved)
+### 4-5. Release: `bump release`, then `bump finish` (only if approved)
 
-Run `bump --gates` first. It reports BOTH gates (classic branch protection and
-repo/org rulesets) and names the flow. Never infer the flow from local git
-config, and never from memory of what this repo did last time.
-
-Default to `patch` unless the design doc describes a breaking change (then `-m`
-or `-M`). Which `bump` form is legal depends on the gate, so the bump and the
-push are one sequence: see step 5.
-
-### 5. Push and tag (only if approved)
-
-**Never push tags in bulk: no `--tags` flag, no `--follow-tags`.** A bulk tag
-push lands the tag even when the branch push is rejected, which is exactly how
-okta-auth-rs v0.2.0 was orphaned. The tag is pushed by explicit name, and only
-once the commit it points at is confirmed on `origin/<default>`. That is
-`rules/git.md`'s sequence, and `bump`
-enforces it: plain `bump` refuses to tag on a gated default branch, and
-`bump --tag-only` refuses unless `HEAD == origin/<default>`.
-
-**Ungated** (both gates clear, main accepts direct pushes):
+One command does the bump, the push, the CI wait, the tag, and the install. Run
+it bare, as its own Bash call after a separate `cd <repo>`, with
+`run_in_background` (the CI wait runs up to 1800s, past the 600s foreground cap):
 
 ```bash
-bump --no-tag [-m|-M]                    # version commit on main, NO tag yet
-git push --no-follow-tags origin main    # publish the commit
-# WAIT for CI green on this exact SHA
-bump --tag-only                          # refuses unless HEAD == origin/main
-git push origin vX.Y.Z                   # by explicit name
+bump release [-m|-M]     # patch by default; -m/-M only for what the design doc calls breaking
 ```
 
-**Gated** (main requires a PR). The bump rides the FEATURE PR and the tag is cut
-after the merge, on updated main. The PR is opened through `pr-open`, in two
-tool calls:
-
-```bash
-bump --no-tag [-m|-M]                    # version commit on the feature branch
-git push origin <branch>
-pr-open --type <t> [--scope <s>] --release rides
-# pr-open PRINTS one `gh pr create ...` line. Run that line VERBATIM as its own
-# Bash tool call. Never eval it, never pipe it to bash: a `gh` call inside a
-# subprocess is invisible to PreToolUse, so neither gate sees the PR.
-# after the PR merges:
-git checkout main && git pull --ff-only origin main
-bump --tag-only
-git push origin vX.Y.Z                   # by explicit name
-```
-
-- `--release rides` only when a version line actually changes vs the base, which
-  is what the `bump --no-tag` above guarantees. Otherwise `--release none
-  --reason "<why>"`. Gate D denies a `rides` claim the diff does not support.
-- A **denied** `gh pr create` means no PR exists. Report the denial text verbatim
-  and stop. Do not hand-edit the command around the gate.
-- **The merge wait belongs to the `release-driver` agent.** Hand it the release
-  rather than babysitting a gated PR inline: it runs `release`, which stops at
-  `PR creation required` with that same literal `pr-open` command, babysits the
-  PR to merge, finishes the tag, and verifies it is not orphaned.
+- **Ungated** (main accepts direct pushes): on main, it commits the version,
+  pushes, waits for green CI on that exact sha, tags the sha, pushes the tag by
+  name, installs. Done.
+- **Gated** (main requires a PR): on the feature branch, it commits the version,
+  pushes the branch, opens the PR itself (`Release: rides this PR (vX.Y.Z)`), and
+  stops. **The merge wait belongs to the `release-driver` agent**: hand it the
+  release rather than babysitting the PR inline. After the merge it runs
+  `bump finish` (any worktree): pull, CI wait on the merged sha, tag, push the tag,
+  install.
+- No `&&`, no env prefix, no wrapper around either verb. A refusal names its one
+  exact next command; do that, never a raw `git tag` / `git push origin vX.Y.Z`.
+- A hook or classifier **denial** means nothing ran. Report the denial text
+  verbatim and stop.
+- If step 3's approval excluded install, pass `--no-install`.
 
 ### 6. Install (only if approved)
 
