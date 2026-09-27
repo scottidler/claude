@@ -107,6 +107,8 @@ tasks:
         HOME/.claude/hooks/handoff-guard-test.sh
         docs/design/2026-09-18-handoff-and-waiting-discipline.md
         docs/design/2026-09-18-handoff-and-waiting-discipline-implementation-notes.md
+        HOME/.claude/skills/relocate-targets/scripts/relocate-targets
+        bin/relocate-targets-test.sh
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
@@ -132,12 +134,23 @@ tasks:
         echo "$NONPROSE"
         exit 1
       fi
-      whitespace -r
+      # `whitespace -r` rewrites files and exits 0, so it could never fail lint;
+      # --check exits 1 on a dirty tree. whitespace has no .gitignore support
+      # and takes only directories, so it scans a copy of exactly the files git
+      # tracks or would track: the harness-synced HOME/.claude/skills/synced/
+      # bucket is ignored third-party content and carries trailing whitespace.
+      WS=$(mktemp -d)
+      git ls-files -z --cached --others --exclude-standard \
+        | tar --null --ignore-failed-read -T - -cf - | tar -C "$WS" -xf -
+      WS_RC=0
+      whitespace --check -r "$WS" || WS_RC=$?
+      rm -rf -- "$WS"   # regenerable: a scratch copy of the working tree
+      exit "$WS_RC"
 
-  # Every HOME/.claude/hooks/*-test.sh regression matrix, plus the rails plugin's
-  # bun tests.
+  # Every HOME/.claude/hooks/*-test.sh regression matrix, the relocate-targets
+  # fixture matrix, plus the rails plugin's bun tests.
   test:
-    help: "Run the hook regression matrices and the rails plugin's bun tests"
+    help: "Run the hook regression matrices, the relocate-targets fixtures, and the rails plugin's bun tests"
     bash: |
       set -e
       for t in HOME/.claude/hooks/*-test.sh; do
@@ -148,6 +161,8 @@ tasks:
       bin/hooks-resolve
       echo "=== HOME/.claude/bin/pr-open-test.sh ==="
       bash HOME/.claude/bin/pr-open-test.sh
+      echo "=== bin/relocate-targets-test.sh ==="
+      bash bin/relocate-targets-test.sh
       (cd HOME/.claude/skills/rails/hooks && bun test)
 
   ci:

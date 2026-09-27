@@ -37,35 +37,52 @@ DEST="/media/saidler/intel-480gb-ssd/cargo-target"
 REPO=""                 # single-repo mode when set
 REMOTE=""               # user@host for cross-machine DEST
 DRY_RUN=0
+MIN_FREE_GIB=40         # DEST must keep this much free after a migration (the sweep-repos watchdog floor)
+LOCK_WAIT=600           # seconds to wait for DEST/.relocate.lock
+INFLIGHT_DST=""         # the dst a tar copy is writing into; the INT/TERM trap removes it
 
 usage() {
   cat >&2 <<'EOF'
-usage: relocate-targets [--root DIR | --repo DIR] [--dest DIR] [--remote USER@HOST] [--dry-run]
+usage: relocate-targets [--root DIR | --repo DIR] [--dest DIR] [--remote USER@HOST]
+                        [--min-free GIB] [--lock-wait SECS] [--dry-run]
   --root DIR        sweep every repo under DIR (default: ~/repos)
   --repo DIR        relocate a single repo (its repo-root dir, the one with Cargo.toml)
   --dest DIR        destination root on the dedicated drive
                     (default: /media/saidler/intel-480gb-ssd/cargo-target)
   --remote USER@HOST  DEST lives on this host; migrate over ssh (implies rsync transport)
+  --min-free GIB    skip a migration that would leave DEST with less than GIB free
+                    (default: 40, the sweep-repos watchdog floor)
+  --lock-wait SECS  wait up to SECS for DEST/.relocate.lock, then fail (default: 600)
   --dry-run         report what would happen; touch nothing
 
 Replaces <repo>/target with a symlink to <dest>/<reposlug>/target. A brand-new
 repo with no target/ yet is pre-linked so its first build lands on the drive.
+A dangling target link into DEST is repaired by recreating the dir it names.
 Transport is auto-selected: same-filesystem -> rename; local cross-fs -> tar
 pipe (fastest, hardlink-safe); cross-machine -> rsync -aHX over ssh.
+
+Every link it creates or visits is recorded, one absolute path per line, in a
+.relocate-link file beside the link's referent; the sweep-repos orphan pass
+reads it as proof that a DEST target is still owned.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --root)    ROOT="$2"; shift 2 ;;
-    --repo)    REPO="$2"; shift 2 ;;
-    --dest)    DEST="$2"; shift 2 ;;
-    --remote)  REMOTE="$2"; shift 2 ;;
-    --dry-run) DRY_RUN=1; shift ;;
-    -h|--help) usage; exit 0 ;;
+    --root)      ROOT="$2"; shift 2 ;;
+    --repo)      REPO="$2"; shift 2 ;;
+    --dest)      DEST="$2"; shift 2 ;;
+    --remote)    REMOTE="$2"; shift 2 ;;
+    --min-free)  MIN_FREE_GIB="$2"; shift 2 ;;
+    --lock-wait) LOCK_WAIT="$2"; shift 2 ;;
+    --dry-run)   DRY_RUN=1; shift ;;
+    -h|--help)   usage; exit 0 ;;
     *) echo "relocate-targets: unknown arg: $1" >&2; usage; exit 2 ;;
   esac
 done
+
+[[ "${MIN_FREE_GIB}" =~ ^[0-9]+$ ]] || { echo "relocate-targets: --min-free takes whole GiB, got: ${MIN_FREE_GIB}" >&2; exit 2; }
+[[ "${LOCK_WAIT}" =~ ^[0-9]+$ ]] || { echo "relocate-targets: --lock-wait takes whole seconds, got: ${LOCK_WAIT}" >&2; exit 2; }
 
 # DRY_RUN is 0/1, so ${DRY_RUN:+...} would always expand ("0" is non-empty).
 # Build the human label once via an arithmetic test instead.
@@ -105,6 +122,45 @@ require_dest_mounted() {
   fi
 }
 
+# Bytes free on the filesystem holding a path's nearest existing ancestor.
+avail_of() {
+  local p="$1"
+  while [[ ! -e "${p}" && "${p}" != "/" ]]; do p="$(dirname "${p}")"; done
+  df -B1 --output=avail -- "${p}" | tail -n 1 | tr -d ' '
+}
+
+# Where a symlink points, resolved the way the kernel would: relative link text
+# is relative to the link's own dir, not the CWD. -m tolerates missing
+# components, so a dangling link still yields the path it names, and `..` is
+# collapsed, so DEST/../x cannot pass a string-prefix match on DEST.
+link_referent() {
+  local link="$1" text
+  text="$(readlink -- "${link}")"
+  [[ "${text}" == /* ]] || text="$(dirname -- "${link}")/${text}"
+  realpath -m -- "${text}"
+}
+
+# Append LINK's absolute path to the .relocate-link marker beside its referent,
+# unless already there. Two links sharing one target both stay recorded. The
+# link is already live when this runs, so a failed write is only a WARN.
+record_link() {
+  local link="$1" abs marker
+  abs="$(realpath -ms -- "${link}")"
+  marker="$(dirname -- "$(link_referent "${link}")")/.relocate-link"
+  if [[ -f "${marker}" ]] && grep -qxF -- "${abs}" "${marker}"; then return 0; fi
+  if ! { printf '%s\n' "${abs}" >> "${marker}"; } 2>/dev/null; then
+    log "WARN could not record ${abs} in ${marker} (the link is live)"; WARN=$((WARN+1))
+  fi
+}
+
+# INT/TERM trap, armed only while a tar copy is in flight: the dst did not exist
+# before this run, so all of it is this copy's partial output.
+abort_inflight() {
+  if [[ -n "${INFLIGHT_DST}" ]]; then rm -rf -- "${INFLIGHT_DST}"; fi
+  log "ERROR interrupted mid-copy; removed partial ${INFLIGHT_DST}, source left in place"
+  exit "$1"
+}
+
 # True if SRC and DST_PARENT are on the same filesystem (a rename will work).
 same_fs() {
   local a b
@@ -114,8 +170,10 @@ same_fs() {
 }
 
 # Migrate a real directory SRC to DST, fastest correct transport, then leave SRC
-# gone (the move half of a move). Returns non-zero without touching SRC on any
-# copy failure, so the caller never symlinks over an incomplete copy.
+# gone from its path (the move half of a move). Returns non-zero without
+# touching SRC on any copy failure, so the caller never symlinks over an
+# incomplete copy. The tar transport sets SRC aside as SRC.relocated-$$ rather
+# than deleting it; the caller removes that once the link is in place.
 #
 # Correctness keystone: cargo target/ dirs are full of HARDLINKS (a dep's .rlib
 # is hardlinked to the final artifact). A copy that doesn't preserve them
@@ -136,7 +194,7 @@ migrate() {
     return 0
   fi
 
-  mkdir -p "${dstparent}"
+  if (( ! DRY_RUN )); then mkdir -p "${dstparent}"; fi
   if same_fs "${src}" "${dstparent}"; then
     log "  transport: rename (same filesystem)"
     (( DRY_RUN )) && return 0
@@ -149,10 +207,18 @@ migrate() {
   # amortize it against locally). Verify before dropping the source.
   log "  transport: tar pipe (local cross-fs)"
   (( DRY_RUN )) && return 0
+  # relocate_one's dest-exists check guarantees DST did not exist before this
+  # run, so every failure path removes all of it: a leaked partial copy both
+  # holds DEST space and blocks this repo's relocation forever.
+  INFLIGHT_DST="${dst}"
+  trap 'abort_inflight 130' INT
+  trap 'abort_inflight 143' TERM
   mkdir -p "${dst}"
   if ! tar -C "${src}" -cf - . | tar -C "${dst}" -xpf - ; then
     local st=("${PIPESTATUS[@]}")
-    log "  ERROR tar pipe failed (read=${st[0]} write=${st[1]}); leaving source in place"
+    log "  ERROR tar pipe failed (read=${st[0]} write=${st[1]}); removing partial ${dst}, leaving source in place"
+    rm -rf -- "${dst}"
+    trap - INT TERM; INFLIGHT_DST=""
     return 1
   fi
   # Verify the copy looks complete (entry counts match) before removing source.
@@ -160,13 +226,20 @@ migrate() {
   n_src="$(find "${src}" | wc -l)"
   n_dst="$(find "${dst}" | wc -l)"
   if [[ "${n_src}" -ne "${n_dst}" ]]; then
-    log "  ERROR entry-count mismatch (src=${n_src} dst=${n_dst}); leaving source in place"
+    log "  ERROR entry-count mismatch (src=${n_src} dst=${n_dst}); removing partial ${dst}, leaving source in place"
+    rm -rf -- "${dst}"
+    trap - INT TERM; INFLIGHT_DST=""
     return 1
   fi
-  # Source is now a verified duplicate of DST. Removing it is the move's second
-  # half (cf. rkvr safety rule: this is not a user delete, it's the tail of a
-  # verified migration -- the data survives intact at DST).
-  rm -rf "${src}"
+  # Commit point: DST is a verified copy. Set the source aside with a same-dir
+  # rename (atomic) instead of deleting it here, so no interruption can leave a
+  # complete DST next to a plain local target/: before the caller's link,
+  # target is absent and the next run's pre-link branch re-adopts DST. Signals
+  # are ignored across the rename alone; the trap must not delete DST once the
+  # source has moved.
+  trap '' INT TERM
+  mv -- "${src}" "${src}.relocated-$$"
+  trap - INT TERM; INFLIGHT_DST=""
 }
 
 # Relocate one repo's target/ to the dedicated drive and symlink it back.
@@ -176,10 +249,33 @@ relocate_one() {
   rel="${repo#"${ROOT}"/}"; [[ "${rel}" == "${repo}" ]] && rel="$(basename "${repo}")"
   ssd="${DEST}/${rel}/target"
 
+  # A target.relocated-<pid> is the set-aside source of a migration that was
+  # interrupted after its commit point: DST already holds a verified copy.
+  local leftover
+  for leftover in "${repo}"/target.relocated-*; do
+    [[ -d "${leftover}" && ! -L "${leftover}" ]] || continue
+    log "[${rel}] removing leftover ${leftover} from an interrupted run${DRY_LABEL}"
+    if (( ! DRY_RUN )); then
+      rm -rf -- "${leftover}"   # regenerable: cargo build output, already copied to DEST
+    fi
+  done
+
   if [[ -L "${tgt}" ]]; then
+    # Dangling link into DEST (its dir was deleted out from under it): cargo
+    # fails with os error 20 until the dir exists again, so recreate it.
+    if [[ -z "${REMOTE}" && ! -e "${tgt}" ]]; then
+      local ref; ref="$(link_referent "${tgt}")"
+      if [[ "${ref}" == "${DEST}"/* ]]; then
+        log "[${rel}] repaired dangling link ${tgt} -> ${ref}${DRY_LABEL}"
+        if (( ! DRY_RUN )); then mkdir -p -- "${ref}"; record_link "${tgt}"; fi
+        REPAIRED=$((REPAIRED+1)); return 0
+      fi
+    fi
     local cur; cur="$(readlink -f "${tgt}" 2>/dev/null || true)"
     case "${cur}" in
-      "${DEST}"/*) return 0 ;;                                  # already done
+      "${DEST}"/*)                                              # already done
+        if [[ -z "${REMOTE}" ]] && (( ! DRY_RUN )); then record_link "${tgt}"; fi
+        return 0 ;;
       *) log "WARN ${tgt} -> ${cur} (not into DEST); leaving alone"; WARN=$((WARN+1)); return 0 ;;
     esac
   fi
@@ -191,11 +287,19 @@ relocate_one() {
     if (( ! DRY_RUN )); then
       if [[ -n "${REMOTE}" ]]; then ssh "${REMOTE}" "mkdir -p '${ssd}'"; else mkdir -p "${ssd}"; fi
       ln -s "${ssd}" "${tgt}"
+      if [[ -z "${REMOTE}" ]]; then record_link "${tgt}"; fi
     fi
     LINKED=$((LINKED+1)); return 0
   fi
 
   [[ -d "${tgt}" ]] || return 0           # a file named target? not ours.
+
+  # A source this user cannot delete (e.g. a root-owned target/ from a sudo
+  # build) would fail the final removal only after a full copy.
+  local owner; owner="$(stat -c %u -- "${tgt}")"
+  if [[ "${owner}" != "$(id -u)" ]]; then
+    log "WARN ${tgt} not owned by uid $(id -u) (owner=${owner}); leaving ${rel} on OS disk"; WARN=$((WARN+1)); return 0
+  fi
 
   # A leftover dest (e.g. an interrupted prior run) would make tar merge into it;
   # skip and let a human resolve rather than risk a half-merged target. (Local
@@ -204,10 +308,32 @@ relocate_one() {
     log "WARN dest already exists, leaving ${rel} on OS disk: ${ssd}"; WARN=$((WARN+1)); return 0
   fi
 
+  # Never start a copy that would take DEST below the floor. du -B1 counts
+  # allocated bytes (what df reports) and each hardlinked inode once, which is
+  # what tar lands on DEST.
+  if [[ -z "${REMOTE}" ]]; then
+    local need avail floor
+    if ! need="$(du -sB1 -- "${tgt}" | cut -f1)" || ! avail="$(avail_of "${DEST}")"; then
+      log "WARN could not measure ${tgt} or ${DEST}; leaving ${rel} on OS disk"; WARN=$((WARN+1)); return 0
+    fi
+    floor=$(( MIN_FREE_GIB * 1024 * 1024 * 1024 ))
+    if (( avail - need < floor )); then
+      log "WARN insufficient space for ${rel}: need=$(numfmt --to=iec "${need}") avail=$(numfmt --to=iec "${avail}") floor=${MIN_FREE_GIB}G"
+      WARN=$((WARN+1)); return 0
+    fi
+  fi
+
   local size; size="$(du -sh "${tgt}" 2>/dev/null | cut -f1)"
   log "[${rel}] migrating ${size} -> drive"
   if migrate "${tgt}" "${ssd}"; then
-    (( ! DRY_RUN )) && ln -s "${ssd}" "${tgt}"
+    if (( ! DRY_RUN )); then
+      ln -s "${ssd}" "${tgt}"
+      if [[ -z "${REMOTE}" ]]; then record_link "${tgt}"; fi
+      # The set-aside source is a verified duplicate of DST. Removing it is the
+      # move's second half (cf. rkvr safety rule: this is not a user delete,
+      # it's the tail of a verified migration -- the data survives at DST).
+      rm -rf -- "${tgt}.relocated-$$"
+    fi
     MOVED=$((MOVED+1))
   else
     log "WARN migration failed for ${rel}; left in place"; WARN=$((WARN+1))
@@ -216,7 +342,22 @@ relocate_one() {
 
 require_dest_mounted
 
-LINKED=0 MOVED=0 WARN=0
+# One run at a time, and never alongside the sweep-repos orphan pass, which
+# takes the same lock. Wait rather than fail fast: the orphan pass holds it for
+# seconds, and failing fast would skip that night's run. Held until exit. Local
+# only (a remote DEST's lock would have to live on the remote), and skipped
+# under --dry-run so a dry run creates nothing.
+if [[ -z "${REMOTE}" ]] && (( ! DRY_RUN )); then
+  mkdir -p "${DEST}"
+  exec 9>"${DEST}/.relocate.lock"
+  if ! flock -w "${LOCK_WAIT}" 9; then
+    log "ERROR lock held >${LOCK_WAIT}s: ${DEST}/.relocate.lock; nothing relocated"
+    toast critical "relocate-targets: lock held" "${DEST}/.relocate.lock was held for over ${LOCK_WAIT}s. Nothing was relocated."
+    exit 1
+  fi
+fi
+
+LINKED=0 MOVED=0 REPAIRED=0 WARN=0
 if [[ -n "${REPO}" ]]; then
   [[ -f "${REPO}/Cargo.toml" ]] || { log "ERROR ${REPO} has no Cargo.toml"; exit 2; }
   log "single-repo mode: ${REPO} -> ${DEST}${REMOTE:+ on ${REMOTE}}${DRY_LABEL}"
@@ -256,4 +397,9 @@ else
   done < <(list_manifests | sort -z)
 fi
 
-log "done: pre-linked=${LINKED} migrated=${MOVED} warnings=${WARN}"
+log "done: pre-linked=${LINKED} migrated=${MOVED} repaired=${REPAIRED} warnings=${WARN}"
+# Cron appends this run to a log nobody reads, so a warning has to reach the
+# desktop to be seen. stderr's target names that log, whatever cron points it at.
+if (( WARN > 0 )); then
+  toast normal "relocate-targets: ${WARN} warning(s)" "See $(readlink "/proc/$$/fd/2" 2>/dev/null || echo stderr)"
+fi

@@ -57,6 +57,14 @@ GB under `target/debug` and `target/release`, a disk-full scare traced to cargo.
 | Brand-new repo, no `target/` yet | Pre-creates the drive dir and symlinks `target/` so the **first** build lands there |
 | Repo already symlinked to the drive | Skips (idempotent) |
 | `target/` is a symlink pointing somewhere else | Warns, leaves it alone |
+| `target/` is a dangling symlink into the drive | Recreates the dir it names, logs `repaired` |
+| Migration would leave the drive under `--min-free` (40GiB) | Warns, skips, touches nothing |
+| Copy fails or is interrupted (INT/TERM) | Removes its own partial copy, leaves the source in place |
+
+Every link it creates or visits is recorded in a `.relocate-link` file beside
+the link's referent, the ownership record `sweep-repos`' orphan pass checks. A
+run holds `DEST/.relocate.lock`, the lock that pass shares, and any warning
+raises a desktop toast with the count.
 
 ### Common invocations
 
