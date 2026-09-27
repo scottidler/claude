@@ -6,8 +6,9 @@
 # the script's mount guard passes, and a full DEST is a kernel ENOSPC, not a
 # stub. PATH shims stand in for notify-send (no desktop toasts), stat (a
 # foreign-owned source: a rootless namespace cannot chown), ln (a pause at the
-# commit point) and tar (a pause mid-copy). Processes that must reach a state
-# before the test acts signal it over a fifo; nothing syncs on a sleep.
+# commit point), tar (a pause mid-copy) and mv (a failed set-aside rename).
+# Processes that must reach a state before the test acts signal it over a fifo;
+# nothing syncs on a sleep.
 #
 # RELOCATE_TARGETS overrides the script under test, so a mutated copy can prove
 # a case bites.
@@ -45,9 +46,10 @@ trap cleanup EXIT
 REAL_LN="$(command -v ln)"
 REAL_STAT="$(command -v stat)"
 REAL_TAR="$(command -v tar)"
+REAL_MV="$(command -v mv)"
 
 SHIMS="$W/shims"
-mkdir -p "$SHIMS" "$W/stat-shim" "$W/ln-shim" "$W/tar-shim"
+mkdir -p "$SHIMS" "$W/stat-shim" "$W/ln-shim" "$W/tar-shim" "$W/mv-shim"
 cat > "$SHIMS/notify-send" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$RT_TOASTS"
@@ -69,6 +71,13 @@ cat > "$W/tar-shim/tar" <<EOF
 case " \$* " in
   *" -xpf "*) "$REAL_TAR" "\$@" || exit; echo ready > "\$RT_READY"; read -r _ < "\$RT_GO" ;;
   *) exec "$REAL_TAR" "\$@" ;;
+esac
+EOF
+cat > "$W/mv-shim/mv" <<EOF
+#!/bin/bash
+case " \$* " in
+  *.relocated-*) echo "mv: shim refuses \$*" >&2; exit 1 ;;
+  *) exec "$REAL_MV" "\$@" ;;
 esac
 EOF
 chmod +x "$SHIMS"/* "$W"/*-shim/*
@@ -127,6 +136,15 @@ run "" -- --min-free lots; rc=$?
 eq 'a non-integer --min-free exits 2' 2 "$rc"
 run "" -- --lock-wait soon; rc=$?
 eq 'a non-integer --lock-wait exits 2' 2 "$rc"
+run "" -- --lock-wait 010; rc=$?
+eq 'a leading-zero --lock-wait exits 2' 2 "$rc"
+fresh
+repo o/r
+build o/r 3
+before=$(entries "$ROOT/o/r/target")
+run "" -- --min-free 08; rc=$?
+eq 'a leading-zero --min-free exits 2' 2 "$rc"
+eq 'leading-zero --min-free: source untouched' "$before" "$(entries "$ROOT/o/r/target")"
 
 echo "=== insufficient space ==="
 fresh size=64m
@@ -247,6 +265,29 @@ eq 'foreign owner: exit 0' 0 "$rc"
 eq 'foreign owner: WARN logged' 1 "$(logged "WARN $ROOT/o/r/target not owned by uid $(id -u) (owner=65534)")"
 eq 'foreign owner: source untouched' "$before" "$(entries "$ROOT/o/r/target")"
 eq 'foreign owner: no dst' absent "$(kind "$DEST/o/r")"
+
+echo "=== source owned by another uid, --remote (the check is local-only) ==="
+fresh
+repo o/r
+build o/r 3
+run "$W/stat-shim" -- --remote unused --repo "$ROOT/o/r" --dry-run; rc=$?
+eq 'remote foreign owner: exit 0' 0 "$rc"
+eq 'remote foreign owner: no ownership WARN' 0 "$(logged 'not owned by uid')"
+eq 'remote foreign owner: counted migrated' 1 "$(logged 'migrated=1 ')"
+
+echo "=== setting the source aside fails after a verified copy ==="
+fresh
+repo o/r
+build o/r 5
+before=$(entries "$ROOT/o/r/target")
+run "$W/mv-shim"; rc=$?
+eq 'set-aside failure: exit 0' 0 "$rc"
+eq 'set-aside failure: ERROR logged' 1 "$(logged 'ERROR could not set .* aside')"
+eq 'set-aside failure: source is still a plain dir' dir "$(kind "$ROOT/o/r/target")"
+eq 'set-aside failure: source untouched' "$before" "$(entries "$ROOT/o/r/target")"
+eq 'set-aside failure: no link inside the source' absent "$(kind "$ROOT/o/r/target/target")"
+eq 'set-aside failure: dst removed' absent "$(kind "$DEST/o/r/target")"
+eq 'set-aside failure: not counted migrated' 1 "$(logged 'migrated=0 ')"
 
 echo "=== SIGTERM at the commit point (before the link) ==="
 fresh

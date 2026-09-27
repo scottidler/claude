@@ -81,8 +81,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "${MIN_FREE_GIB}" =~ ^[0-9]+$ ]] || { echo "relocate-targets: --min-free takes whole GiB, got: ${MIN_FREE_GIB}" >&2; exit 2; }
-[[ "${LOCK_WAIT}" =~ ^[0-9]+$ ]] || { echo "relocate-targets: --lock-wait takes whole seconds, got: ${LOCK_WAIT}" >&2; exit 2; }
+# No leading zero: bash arithmetic reads 010 as octal and dies on 08.
+[[ "${MIN_FREE_GIB}" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "relocate-targets: --min-free takes whole GiB (no leading zero), got: ${MIN_FREE_GIB}" >&2; exit 2; }
+[[ "${LOCK_WAIT}" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "relocate-targets: --lock-wait takes whole seconds (no leading zero), got: ${LOCK_WAIT}" >&2; exit 2; }
 
 # DRY_RUN is 0/1, so ${DRY_RUN:+...} would always expand ("0" is non-empty).
 # Build the human label once via an arithmetic test instead.
@@ -198,7 +199,7 @@ migrate() {
   if same_fs "${src}" "${dstparent}"; then
     log "  transport: rename (same filesystem)"
     (( DRY_RUN )) && return 0
-    mv "${src}" "${dst}"
+    mv "${src}" "${dst}" || return 1
     return 0
   fi
 
@@ -238,7 +239,14 @@ migrate() {
   # are ignored across the rename alone; the trap must not delete DST once the
   # source has moved.
   trap '' INT TERM
-  mv -- "${src}" "${src}.relocated-$$"
+  if ! mv -- "${src}" "${src}.relocated-$$"; then
+    # The source is still a plain dir, so the verified DST must go too, or the
+    # caller would link into the source and DST would sit beside it.
+    log "  ERROR could not set ${src} aside; removing ${dst}, leaving source in place"
+    rm -rf -- "${dst}"
+    trap - INT TERM; INFLIGHT_DST=""
+    return 1
+  fi
   trap - INT TERM; INFLIGHT_DST=""
 }
 
@@ -295,10 +303,12 @@ relocate_one() {
   [[ -d "${tgt}" ]] || return 0           # a file named target? not ours.
 
   # A source this user cannot delete (e.g. a root-owned target/ from a sudo
-  # build) would fail the final removal only after a full copy.
-  local owner; owner="$(stat -c %u -- "${tgt}")"
-  if [[ "${owner}" != "$(id -u)" ]]; then
-    log "WARN ${tgt} not owned by uid $(id -u) (owner=${owner}); leaving ${rel} on OS disk"; WARN=$((WARN+1)); return 0
+  # build) would fail the final removal only after a full copy. Local only.
+  if [[ -z "${REMOTE}" ]]; then
+    local owner; owner="$(stat -c %u -- "${tgt}")"
+    if [[ "${owner}" != "$(id -u)" ]]; then
+      log "WARN ${tgt} not owned by uid $(id -u) (owner=${owner}); leaving ${rel} on OS disk"; WARN=$((WARN+1)); return 0
+    fi
   fi
 
   # A leftover dest (e.g. an interrupted prior run) would make tar merge into it;
