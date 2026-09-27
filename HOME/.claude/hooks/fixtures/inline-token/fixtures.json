@@ -613,7 +613,7 @@
 "token": "shipit",
 "label": "path-glued",
 "offset": 60,
-"context": "release-driver.md:36`, `hooks/git-release-guard.sh:19`. bump/shipit and `~/.claude/bin/release:12-14,237` d"
+"context": "release-driver.md:36`, `hooks/git-release-guard.sh:19`. bump/shipit and `~/.claude/bin/driver:12-14,237` d"
 },
 {
 "date": "2026-09-12",
@@ -781,7 +781,7 @@
 "token": "bump",
 "label": "path-glued",
 "offset": 60,
-"context": "itect/SKILL.md 43, skills/staff-engineer/SKILL.md 40, skills/bump/SKILL.md 32, bin/release 26, agents/rel"
+"context": "itect/SKILL.md 43, skills/staff-engineer/SKILL.md 40, skills/bump/SKILL.md 32, bin/driver 26, agents/rel"
 },
 {
 "date": "2026-09-13",

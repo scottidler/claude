@@ -15,26 +15,19 @@
 #                                      matrix (git-release-guard-test.sh,
 #                                      same directory) against a fixture repo
 #
-# THE TWO LEGAL RELEASE FLOWS (there is no third; `bump --gates` decides). In
-# BOTH of them the VERSION COMMIT lands first and the TAG WAITS for green CI on
-# that exact SHA; neither flow ever tags a local HEAD up front. Why the wait: a
-# tag is the only irreversible artifact in a release, so a tag cut before CI
-# means every failure CI finds can only be repaired by ANOTHER tag, and one
-# intended release burns two version numbers (the double-tap: otto v2.0.0/v2.0.1,
-# v2.0.2/v2.0.3, v2.0.4/v2.0.5). Landing the version commit untagged costs
-# nothing when CI is red: fix it, re-run, and the SAME number gets tagged.
-#   UNGATED main:  bump --no-tag [-m|-M]           version commit on main, and
-#                                                  NO tag exists yet
-#                  git push --no-follow-tags origin main
-#                  (WAIT for CI green on that SHA)
-#                  bump --tag-only && git push origin vX.Y.Z
-#   GATED main:    bump --no-tag [-m|-M]           on the FEATURE branch; the
-#                                                  version commit rides that PR
-#                  (merge) then: git checkout main && git pull --ff-only
-#                  bump --tag-only && git push origin vX.Y.Z
-# `~/.claude/bin/release` executes either flow, the wait included; it is the
-# deterministic driver and the canonical wording is its header plus the /bump
-# skill's FLOW 1 and FLOW 2.
+# THE RELEASE: two bare verbs, `bump release` then `bump finish` (bump v0.4.0+).
+# `bump release` on an ungated main commits the version, pushes, waits for
+# green CI on that exact sha, tags the sha, pushes the tag by name, installs. On
+# a gated repo it runs on the FEATURE branch: version commit, push, PR opened by
+# the verb itself, pause; after the merge `bump finish` (any worktree) waits for
+# CI on the merged sha, tags it, pushes the tag. The verbs enforce their own
+# invariants (CI before any tag, bump-only refusal, branch-slug precondition,
+# the standalone door as `--standalone "<Scott's words>"`), so this hook lets
+# `bump release` / `bump finish` through the legacy bump gates below. Those
+# gates still judge every HAND-RUN bump, git push, and gh pr create. Why the
+# tag waits for CI: a tag cut before CI means every failure CI finds can only be
+# repaired by ANOTHER tag (the double-tap: otto v2.0.0/v2.0.1, v2.0.2/v2.0.3,
+# v2.0.4/v2.0.5).
 #
 # GATE CATALOG (each entry names the incident that created it):
 #   Tags       never `git tag -d`, never push --tags/--follow-tags, never
@@ -57,7 +50,7 @@
 #              origin/<default> is version lines + lockfiles, regardless of
 #              branch name; dep bumps and lockfile-only refreshes pass
 #                                                         (slack-cli #16)
-#   Gate D     every `gh pr create` on a release-managed repo (root manifest
+#   Gate D     every `gh pr create` (not `--help`/`-h`) on a release-managed repo (root manifest
 #              with a version line; v* tags NOT required -- requiring them
 #              exempted never-tagged repos, okta-auth-py #5/#6) must declare
 #              'Release: rides this PR (vX.Y.Z)' or 'Release: none -- <why>'
@@ -72,13 +65,12 @@
 #              denials produced 12 `git show HEAD:f > f` workarounds, which
 #              destroy the same bytes with no guard in front of them)
 #
-# THE DOOR (Scott approved 2026-07-10): BUMP_ORDERED_BY_SCOTT=1 in the command
-# bypasses gates A/B/C only. Legal SOLELY when Scott explicitly ordered a
-# standalone bump (e.g. "bump finish it" with no feature PR to fold into) --
-# that is THE RULING's ask-Scott clause, answered; do not re-ask. The marker is
-# transcript-visible on every use and Scott's ordering words must be quoted in
-# the PR body. Using it without a real order is a hall-of-shame offense.
-# First sanctioned use: mcp-io-rs #8 (v0.1.3), 2026-07-10.
+# THE DOOR: Scott's explicit order for a version-only release is
+# `bump release --standalone "<his exact words>"`, words quoted into the PR. The
+# 2026-07-10 env-var marker it replaces is retired (scottidler/bump
+# docs/design/2026-09-26-one-release-command.md): an env prefix on an excluded
+# command is exactly what the auto-mode classifier denied. Every refusal below
+# that would stop an agent names that door, and none invites inventing the order.
 #
 # MECHANICS: parsing is `lib.sh`'s shared, quote-aware parser, sourced below.
 # `stmts` splits the command into statements on && || ; | and newlines, but it
@@ -114,6 +106,8 @@
 # PROVENANCE: THE RULING 2026-07-03 (~/HALL-OF-SHAME.md) after slack-cli
 # v0.1.1; gates A/B/C + recovery messages 2026-07-10 after slack-cli #16;
 # Gate D + the door 2026-07-10 (Scott approved both) after mcp-io-rs #6/#7;
+# the door moved into `bump release --standalone` and the verbs exempted
+# 2026-09-26 (scottidler/bump one-release-command);
 # Gate D widened to never-tagged repos 2026-07-13 after okta-auth-py #5/#6.
 # Companion docs: /bump skill (agent-facing flows), rules/git.md (the law),
 # ~/HALL-OF-SHAME.md (the case history).
@@ -235,8 +229,31 @@ default_base() {
 # nothing else: every changed file is a version manifest or lockfile, AND every
 # changed non-lockfile line is a `version =` / `"version":` line. A dep bump
 # (Cargo.toml dep line + lock) or a lockfile-only refresh does NOT qualify.
+# The PACKAGE's own version at <rev>, one line per root manifest: Cargo
+# [package]/[workspace.package] `version`, pyproject [project]/[tool.poetry]
+# `version`, package.json top-level "version", VERSION. A `version =` under a
+# [dependencies.<name>] table is a dependency bump, never the package's, which
+# is the distinction bump's src/release/version_diff.rs draws.
+pkg_version_at() {
+  local d="$1" rev="$2"
+  git -C "$d" show "$rev:Cargo.toml" 2>/dev/null | awk '
+    /^[[:space:]]*\[/ { sec=$0; gsub(/[[:space:]]/,"",sec); next }
+    (sec=="[package]" || sec=="[workspace.package]") && /^[[:space:]]*version[[:space:]]*=/ { print "cargo " $0 }'
+  git -C "$d" show "$rev:pyproject.toml" 2>/dev/null | awk '
+    /^[[:space:]]*\[/ { sec=$0; gsub(/[[:space:]]/,"",sec); next }
+    (sec=="[project]" || sec=="[tool.poetry]") && /^[[:space:]]*version[[:space:]]*=/ { print "py " $0 }'
+  git -C "$d" show "$rev:package.json" 2>/dev/null | jq -r '"node " + (.version // "")' 2>/dev/null
+  git -C "$d" show "$rev:VERSION" 2>/dev/null | sed 's/^/file /'
+}
+
+# How many root manifests changed their PACKAGE version between two revs.
+pkg_versions_changed() {
+  local d="$1" base="$2" ref="$3"
+  diff <(pkg_version_at "$d" "$base") <(pkg_version_at "$d" "$ref") 2>/dev/null | grep -c '^>'
+}
+
 is_bump_only_ref() {
-  local d="$1" ref="$2" base files f diff_lines
+  local d="$1" ref="$2" base files f manifest_lines changed
   base=$(default_base "$d"); [ -z "$base" ] && return 0
   git -C "$d" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || return 0
   [ "$(git -C "$d" rev-list --count "$base..$ref" 2>/dev/null || echo 0)" = "0" ] && return 0
@@ -248,13 +265,15 @@ is_bump_only_ref() {
       *) return 0 ;;   # real work is in the diff, so not bump-only
     esac
   done <<< "$files"
-  diff_lines=$(git -C "$d" diff "$base...$ref" -- Cargo.toml package.json pyproject.toml VERSION 2>/dev/null \
-    | grep -E '^[-+]' | grep -Ev '^(\+\+\+|---)')
-  [ -z "$diff_lines" ] && return 0   # lockfile-only change, allowed
-  if printf '%s\n' "$diff_lines" | grep -Evq '^[-+][[:space:]]*"?version"?[[:space:]]*[:=]'; then
-    return 0                          # a non-version manifest line changed, allowed
-  fi
-  return 1
+  manifest_lines=$(git -C "$d" diff -U0 "$base...$ref" -- Cargo.toml package.json pyproject.toml VERSION 2>/dev/null \
+    | grep -E '^[-+]' | grep -Evc '^(\+\+\+|---)')
+  [ "$manifest_lines" = "0" ] && return 0   # lockfile-only change, allowed
+  changed=$(pkg_versions_changed "$d" "$(git -C "$d" merge-base "$base" "$ref")" "$ref")
+  # Bump-only iff every changed manifest line is a package version line: one
+  # removed + one added line per manifest whose package version moved. A dep
+  # bump (a [dependencies] line, inline or table form) leaves extra lines.
+  [ "$changed" -gt 0 ] && [ "$manifest_lines" -eq $((changed * 2)) ] && return 1
+  return 0
 }
 
 check_stmt() {
@@ -294,20 +313,6 @@ check_stmt() {
   printf '%s' "$m" | cmdword_is git && is_git=1
   printf '%s' "$m" | cmdword_is gh && is_gh=1
   printf '%s' "$m" | cmdword_is bump && is_bump=1
-
-  # Scott-override for the bump-only gates (Scott approved adding this door
-  # 2026-07-10): a transcript-visible marker that Scott EXPLICITLY ordered a
-  # standalone bump (e.g. "bump finish it" with no feature PR open to fold
-  # into). The gates below stop AGENT-invented bump-only branches; this is THE
-  # RULING's ask-Scott clause, answered. The marker must ride IN the command
-  # (env-prefix form) so the transcript shows every use, and Scott's ordering
-  # words must be quoted in the PR body. Setting it WITHOUT a real order from
-  # Scott is a hall-of-shame offense. Read off the mask, so the marker cannot
-  # open the door from inside a commit message.
-  local scott_override=0
-  if printf '%s' "$m" | grep -q 'BUMP_ORDERED_BY_SCOTT=1'; then
-    scott_override=1
-  fi
 
   # ---- Tags: never delete, never bulk-push (git.md "Tags") ----
   if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+tag[[:space:]]+(-d|--delete)\b'; then
@@ -350,7 +355,7 @@ check_stmt() {
     if [ -n "$tagname" ]; then
       resolve_stmt_tree
       if [ -n "$stmt_branch" ] && [ "$stmt_branch" != "main" ] && [ "$stmt_branch" != "master" ]; then
-        deny "git.md: tags are cut on main only. A tag on a branch is burnt: squash-merge rewrites the SHA. (Worktree '$stmt_dir' is on '$stmt_branch'.) The gated flow is 'bump --no-tag' on this branch so the version commit rides the PR, then after the merge, on updated main: bump --tag-only && git push origin vX.Y.Z"
+        deny "git.md: tags are cut on main only. A tag on a branch is burnt: squash-merge rewrites the SHA. (Worktree '$stmt_dir' is on '$stmt_branch'.) The gated flow is 'bump release' on this branch (the version commit rides the PR, the verb opens it), then after the merge: 'bump finish'."
       fi
     fi
   fi
@@ -402,9 +407,9 @@ check_stmt() {
         }
       }')
   fi
-  if [ "$is_git" -eq 1 ] && [ "$scott_override" -eq 0 ] && [ -n "$newbr" ] \
+  if [ "$is_git" -eq 1 ] && [ -n "$newbr" ] \
      && printf '%s' "$newbr" | grep -Eq '(^|/)(bump|release)[-/]'; then
-    deny "DENIED: creating a bump-*/release-* branch ('$newbr'). A bump-only release branch is forbidden forever, for ANY reason (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work, it RIDES the feature PR ('bump --no-tag' on the feature branch, before that PR merges; the tag is cut on main after the merge with 'bump --tag-only'). WHAT TO DO NOW: if you were about to bump for work that already merged without its bump, the ONLY sanctioned move is STOP and ask Scott: his default is folding the bump into the NEXT feature PR. DO NOT retry with a different branch name, do not hand-edit the version, do not route around this hook (sibling gates catch content-based bump-only pushes/PRs too). Read the /bump skill before touching anything release-related."
+    deny "DENIED: creating a bump-*/release-* branch ('$newbr'). A bump-only release branch is forbidden (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16). The version bump rides the feature PR: on the feature branch, with the work committed, run 'bump release' (bare); after the merge, 'bump finish'. If Scott already ordered a standalone release in this session, re-run with 'bump release --standalone \"<his exact words>\"'. Otherwise STOP and report; do not invent an order."
   fi
 
   # ---- Force-push to main/master (git.md "Pushing to main") ----
@@ -436,7 +441,11 @@ check_stmt() {
   # for the substring false-positive that blocked unrelated commands merely
   # *mentioning* bump: `git commit -m "...bump..."`, a `bump-*` branch name,
   # `echo bump`, etc.
+  # `bump release` / `bump finish` enforce their own invariants (CI gate, the
+  # bump-only refusal, the standalone door, tracked-changes checks that ignore
+  # untracked files), so they skip every legacy bump gate below.
   if [ "$is_bump" -eq 1 ] \
+     && ! printf '%s' "$mu" | grep -Eq '\bbump[[:space:]]+(release|finish)\b' \
      && ! printf '%s' "$mu" | grep -Eq 'bump.*(--gates|--dry-run|--help|--version|[[:space:]]-n\b|[[:space:]]-h\b|[[:space:]]-V\b)'; then
     if [ -n "$bump_branch" ] && [ "$bump_branch" != "main" ] && [ "$bump_branch" != "master" ]; then
       # On a feature branch exactly ONE bump form is legal: `bump --no-tag`.
@@ -444,15 +453,14 @@ check_stmt() {
       # Any tag-creating form (plain bump, -m/-M without --no-tag, --tag-only)
       # is blocked: a tag cut on a branch is burnt forever (squash rewrites the SHA).
       if ! printf '%s' "$mu" | grep -Eq '\bbump\b.*--no-tag'; then
-        deny "Release flow: on a feature branch the ONLY legal bump is 'bump --no-tag', because the version commit rides the feature PR (never a tag on a branch, never a bump-only release branch). Tags are cut on main AFTER the PR merges: git checkout main && git pull --ff-only origin main && bump --tag-only && git push origin vX.Y.Z. (Target worktree '$bump_dir' is on '$bump_branch'.)"
+        deny "Release flow: on a feature branch release with 'bump release' (bare, its own Bash call): the version commit rides the feature PR and the verb opens it; after the merge, 'bump finish'. A hand-run bump here may only be 'bump --no-tag' (never a tag on a branch). (Target worktree '$bump_dir' is on '$bump_branch'.)"
       fi
       # Gate A: 'bump --no-tag' is legal ONLY on a branch that carries real work.
       # Zero commits ahead of origin/<default> means the bump commit would be the
       # branch's ONLY content, i.e. a bump-only release branch in the making.
       base=$(default_base "$bump_dir")
-      if [ "$scott_override" -eq 0 ] \
-         && [ -n "$base" ] && [ "$(git -C "$bump_dir" rev-list --count "$base..HEAD" 2>/dev/null || echo 1)" = "0" ]; then
-        deny "DENIED: 'bump --no-tag' on branch '$bump_branch', which has ZERO commits ahead of $base, so the bump commit would be this branch's ONLY content, i.e. a bump-only release branch, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work, it rides a feature branch WITH its work: commit the real change first, THEN 'bump --no-tag' on that branch, push, PR; after merge: git checkout main && git pull --ff-only && bump --tag-only && git push origin vX.Y.Z. WHAT TO DO NOW: if the work already merged without its bump, the ONLY sanctioned move is STOP and ask Scott: his default is folding the bump into the NEXT feature PR, never a retrofitted branch. DO NOT retry on a renamed branch or hand-edit the version; sibling gates catch those too. Read the /bump skill."
+      if [ -n "$base" ] && [ "$(git -C "$bump_dir" rev-list --count "$base..HEAD" 2>/dev/null || echo 1)" = "0" ]; then
+        deny "DENIED: 'bump --no-tag' on branch '$bump_branch', which has ZERO commits ahead of $base, so the bump commit would be this branch's ONLY content: a bump-only release branch (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16). Commit the real work first, then run 'bump release' on this branch. If Scott already ordered a standalone release in this session, re-run with 'bump release --standalone \"<his exact words>\"'. Otherwise STOP and report; do not invent an order."
       fi
     fi
     if ! printf '%s' "$mu" | grep -Eq '\bbump\b.*--tag-only'; then
@@ -467,7 +475,7 @@ check_stmt() {
   # hand-edited: if everything the push/PR would land vs origin/<default> is
   # version lines + lockfiles, it IS a bump-only release branch. Deletions
   # (--delete / ':ref' refspecs) push no content and are skipped.
-  if [ "$scott_override" -eq 0 ] && { [ "$is_git" -eq 1 ] || [ "$is_gh" -eq 1 ]; } \
+  if { [ "$is_git" -eq 1 ] || [ "$is_gh" -eq 1 ]; } \
      && printf '%s' "$mu" | grep -Eq '\b(git[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+create)\b' \
      && ! printf '%s' "$mu" | grep -Eq '(--delete|[[:space:]]-d[[:space:]]|[[:space:]]:[^[:space:]])'; then
     gateb_ref=""
@@ -486,7 +494,7 @@ check_stmt() {
       main|master|HEAD|v[0-9]*|"") : ;;   # main pushes / tag pushes are covered by other checks
       *)
         if ! is_bump_only_ref "$bump_dir" "$gateb_ref"; then
-          deny "DENIED: pushing/PR-ing branch '$gateb_ref', whose ENTIRE diff vs origin/<default> is a version bump (version lines + lockfiles, nothing else), which makes it a bump-only release branch/PR regardless of its name, forbidden forever (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16 recommitted exactly this on 2026-07-10). WHY: the version bump is not standalone work, it rides a feature PR WITH real changes; the tag is cut on main after that PR merges ('bump --tag-only'). WHAT TO DO NOW: the ONLY sanctioned move is STOP and ask Scott: his default is deleting this branch and folding the bump into the NEXT feature PR. DO NOT rename the branch, pad the diff, hand-edit the version, or retry variants; report the denial to Scott verbatim and wait. Read the /bump skill."
+          deny "DENIED: pushing/PR-ing branch '$gateb_ref', whose ENTIRE diff vs origin/<default> is a version bump (package version lines + lockfiles, nothing else): a bump-only release branch regardless of its name (THE RULING 2026-07-03, ~/HALL-OF-SHAME.md; slack-cli #16). The bump rides a feature PR with real changes, via 'bump release'. If Scott already ordered a standalone release in this session, re-run with 'bump release --standalone \"<his exact words>\"'. Otherwise STOP and report; do not invent an order."
         fi
       ;;
     esac
@@ -505,7 +513,8 @@ check_stmt() {
   # manifest that is pure tool config (no version) still passes ungated.
   # The Release: line is searched in the FULL command (bodies are multi-line and
   # statement-splitting would sever them from the gh invocation).
-  if [ "$is_gh" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b'; then
+  if [ "$is_gh" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgh[[:space:]]+pr[[:space:]]+create\b' \
+     && ! printf '%s' "$mu" | grep -Eq '(^|[[:space:]])(--help|-h)([[:space:]]|$)'; then
     release_managed=""
     for mf in "$bump_dir/Cargo.toml" "$bump_dir/pyproject.toml"; do
       if [ -f "$mf" ] && grep -Eq '^[[:space:]]*"?version"?[[:space:]]*[:=]' "$mf"; then
@@ -557,13 +566,13 @@ check_stmt() {
         gated_body="$gated_body $(cat "$bf")"
       fi
       if ! printf '%s' "$gated_body" | grep -Eqi 'release:[[:space:]]*(rides|none)'; then
-        deny "DENIED: PR on a release-managed repo without a release-intent line. Decide NOW, in the body: 'Release: rides this PR (vX.Y.Z)' (run 'bump --no-tag' on this branch first so the version commit rides) or 'Release: none - <why>'. This gate exists because PRs that merge without their bump create the no-legal-path deadlock (slack-cli #14/#15, mcp-io-rs #6/#7): after merge, a bump can only ride the NEXT feature PR or a Scott-ordered standalone bump."
+        deny "DENIED: PR on a release-managed repo without a release-intent line. Decide NOW, in the body: 'Release: rides this PR (vX.Y.Z)' or 'Release: none - <why>'. A release PR should come from 'bump release', which writes that line itself. This gate exists because PRs that merge without their bump create the no-legal-path deadlock (slack-cli #14/#15, mcp-io-rs #6/#7): after merge, a bump can only ride the NEXT feature PR or a Scott-ordered 'bump release --standalone'."
       fi
       if printf '%s' "$gated_body" | grep -Eqi 'release:[[:space:]]*rides'; then
         base=$(default_base "$bump_dir")
         if [ -n "$base" ] \
-           && [ "$(git -C "$bump_dir" diff "$base...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null | grep -Ec '^[-+][[:space:]]*\"?version\"?[[:space:]]*[:=]')" = "0" ]; then
-          deny "DENIED: the PR body claims 'Release: rides this PR' but no version line changes in the diff vs $base. Run 'bump --no-tag' on this branch (real work already committed) so the version commit actually rides, then re-open the PR."
+           && [ "$(pkg_versions_changed "$bump_dir" "$(git -C "$bump_dir" merge-base "$base" HEAD)" HEAD)" = "0" ]; then
+          deny "DENIED: the PR body claims 'Release: rides this PR' but no package version line changes in the diff vs $base (a dependency's version is not the package's). Run 'bump release' on this branch instead: it commits the version and opens the PR."
         fi
       fi
     fi

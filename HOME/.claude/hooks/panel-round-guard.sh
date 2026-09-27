@@ -32,8 +32,8 @@
 # both read 2 and both write 3, costing one extra round, once. Stated so no
 # reader assumes atomicity.
 #
-# THE DOOR (mirroring git-release-guard.sh:75's BUMP_ORDERED_BY_SCOTT, Scott
-# approved 2026-07-10) is PANEL_ROUNDS_ORDERED_BY_SCOTT=<n> in the dispatch
+# THE DOOR (modeled on the release guard's env-var door, since retired for
+# `bump release --standalone`; Scott approved 2026-07-10) is PANEL_ROUNDS_ORDERED_BY_SCOTT=<n> in the dispatch
 # prompt. It must be a NONBLANK LINE OF ITS OWN, matched
 # ^PANEL_ROUNDS_ORDERED_BY_SCOTT=[0-9]+$, never at a word boundary anywhere in
 # the prompt. The design doc this guard was built from carries that literal

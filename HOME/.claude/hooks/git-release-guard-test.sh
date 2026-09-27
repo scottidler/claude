@@ -7,7 +7,7 @@
 # synthetic PreToolUse JSON through the hook, asserting the expected allow/deny
 # for every gate: branch-name (C), zero-ahead bump (A), bump-only push/PR
 # content (B), release-intent on gh pr create (D, tagged AND never-tagged),
-# the BUMP_ORDERED_BY_SCOTT=1 door, and all pre-existing checks (tag deletion,
+# the `bump release` / `bump finish` exemption, dependency-TABLE version lines, and all pre-existing checks (tag deletion,
 # --tags push, force-push, dirty-tree bump, false-positive guards). Exits
 # non-zero on any failure.
 #
@@ -185,6 +185,42 @@ mkdir -p "$ROOT/tmpd" "$ROOT/fakehome"
 printf 'Release: rides this PR (v0.1.1)\n\nreal work\n' > "$ROOT/tmpd/body.md"
 printf 'Release: rides this PR (v0.1.1)\n\nreal work\n' > "$ROOT/fakehome/body.md"
 
+# ---------- fixture 7: a dependency TABLE carrying its own `version =` ----------
+# A `version =` under [dependencies.<name>] is the dependency's, not the
+# package's. Gate B and Gate D must count only the package version line, the
+# distinction bump's src/release/version_diff.rs draws (2026-09-26 audit).
+git init -q --bare "$ROOT/origin-deps.git"
+git -C "$ROOT/origin-deps.git" symbolic-ref HEAD refs/heads/main
+git clone -q "$ROOT/origin-deps.git" "$ROOT/repo-deps" 2>/dev/null
+T="$ROOT/repo-deps"
+cd "$T"
+cat > Cargo.toml <<'EOF2'
+[package]
+name = "fixture-deps"
+version = "0.5.0"
+
+[dependencies.foo]
+version = "1.0"
+EOF2
+echo 'lock v1' > Cargo.lock
+mkdir src && echo 'fn main(){}' > src/main.rs
+git add -A && git commit -qm init && git push -q origin main
+git remote set-head origin main
+git checkout -qb dep-table-only
+sed -i 's/^version = "1.0"/version = "1.1"/' Cargo.toml
+echo 'lock v2' > Cargo.lock
+git commit -qam 'chore(deps): foo 1.1'
+git checkout -q main
+git checkout -qb dep-table-work
+sed -i 's/^version = "1.0"/version = "1.1"/' Cargo.toml
+echo '// real change' >> src/main.rs
+git commit -qam 'feat: real work plus foo 1.1'
+git checkout -q main
+git checkout -qb pkg-bump-only
+sed -i 's/^version = "0.5.0"/version = "0.5.1"/' Cargo.toml
+git commit -qam 'Bump version to v0.5.1'
+git checkout -q main
+
 cd "$R"
 
 # ---------- runner ----------
@@ -315,11 +351,27 @@ Release: rides this PR (v0.1.1)
 B
 )\""
 
-echo "=== Scott override: BUMP_ORDERED_BY_SCOTT=1 opens the door ==="
-run allow main         'BUMP_ORDERED_BY_SCOTT=1 git checkout -b bump-0.1.3'
-run allow fresh-branch 'BUMP_ORDERED_BY_SCOTT=1 bump --no-tag'
-run allow sneaky-bump  'BUMP_ORDERED_BY_SCOTT=1 git push -u origin sneaky-bump'
-run deny  fresh-branch 'bump --no-tag'                             # without the marker, still walled
+echo "=== bump release / bump finish enforce their own invariants ==="
+run allow feat-real    'bump release'
+run allow feat-real    'bump release -m'
+run allow main         'bump release'
+run allow fresh-branch 'bump release'                              # the verb refuses bump-only itself
+run allow main         'bump release --standalone "release it as a .1"'
+run allow feat-real    'bump finish'
+runcwd allow "$D" "$D" 'bump finish'                               # untracked file present
+run deny  main         'bump release && git push --tags'           # the verb exemption opens nothing else
+
+echo "=== Gate D: a help lookup is not a PR ==="
+run allow feat-real 'gh pr create --help'
+run allow feat-real 'gh pr create -h'
+
+echo "=== dependency-table version lines are not the package's version ==="
+REPO="$T"
+run allow dep-table-only 'git push -u origin dep-table-only'       # a dep bump is not bump-only
+run deny  pkg-bump-only  'git push -u origin pkg-bump-only'        # the package version alone is
+run deny  dep-table-work 'gh pr create --title "feat: real" --body "Release: rides this PR (v0.5.0)"'  # no package version change
+run allow dep-table-work 'gh pr create --title "feat: real" --body "Release: none - dep bump rides no release"'
+REPO="$R"
 
 echo "=== pre-existing checks still intact ==="
 run deny  main 'git push --tags'
