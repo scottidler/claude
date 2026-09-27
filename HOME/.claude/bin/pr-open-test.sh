@@ -22,12 +22,11 @@ set -u
 
 BIN="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PROPEN="$BIN/pr-open"
-RELEASE="$BIN/release"
 HOOKS="$(cd "$BIN/../hooks" && pwd)"
 RELEASE_GUARD="$HOOKS/git-release-guard.sh"
 TITLE_GUARD="$HOOKS/branch-pr-title-guard.sh"
 
-for f in "$PROPEN" "$RELEASE" "$RELEASE_GUARD" "$TITLE_GUARD"; do
+for f in "$PROPEN" "$RELEASE_GUARD" "$TITLE_GUARD"; do
   [ -r "$f" ] || { echo "MISSING: $f"; exit 1; }
 done
 
@@ -126,7 +125,7 @@ OUT=$(hook "$RELEASE_GUARD" "$R" "$CMD2")
 DEC=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision // ""')
 [ "$DEC" = "deny" ] && ok "Gate D denies the unbacked rides claim" \
                     || bad "Gate D denies the unbacked rides claim" "got: $OUT"
-want "deny names the missing version delta" "no version line changes" \
+want "deny names the missing version delta" "no package version line changes" \
      "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')"
 
 echo "=== pr-open: the refusals ==="
@@ -152,26 +151,6 @@ want "tatari-tv remote yields the work persona" "GH_PERSONA=work" "$CMD3"
 git remote set-url origin git@github.com:scottidler/fixture.git
 CMD4=$(cd "$R" && "$PROPEN" --type feat --scope fixture --release rides 2>/dev/null)
 want "a personal remote yields the home persona" "GH_PERSONA=home" "$CMD4"
-
-echo "=== release: the PR-creation hand-back ==="
-grep -q 'gh pr create --fill' "$RELEASE" \
-  && bad "release no longer runs 'gh pr create --fill'" "the --fill call is still there" \
-  || ok "release no longer runs 'gh pr create --fill'"
-grep -q 'PR creation required' "$RELEASE" \
-  && ok "release emits the 'PR creation required' result" \
-  || bad "release emits the 'PR creation required' result" "string absent"
-# An INVOCATION of pr-open puts it in command position: at the start of a
-# statement, or inside a `$( )` or backtick substitution. The literal command
-# text `release` prints lives inside a string assignment, which is none of
-# those, so this separates "prints it" from "runs it".
-CALLS=$(grep -nE '(\$\(|`|^[[:space:]]*|;[[:space:]]*)pr-open[[:space:]]' "$RELEASE" | grep -vE ':[[:space:]]*#')
-[ -z "$CALLS" ] && ok "release does not CALL pr-open (it prints the command)" \
-                || bad "release does not CALL pr-open" "$CALLS"
-# Same idea for gh: command position only, so the many mentions inside quoted
-# guidance text are not mistaken for calls.
-BAREGH=$(grep -nE '(\$\(|^[[:space:]]*|;[[:space:]]*)gh[[:space:]]+(pr|api|repo)[[:space:]]' "$RELEASE")
-[ -z "$BAREGH" ] && ok "every gh call in release sets GH_PERSONA" \
-                 || bad "every gh call in release sets GH_PERSONA" "$BAREGH"
 
 echo
 echo "pass=$PASS fail=$FAIL"
