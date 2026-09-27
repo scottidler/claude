@@ -75,21 +75,11 @@ script:
     claude mcp remove classifier -s user 2>/dev/null || true; claude mcp add-json classifier '{"type":"http","url":"https://classifier.dev/mcp"}' -s user
     echo "registered 7 MCP servers at user scope"
 
-  # Put the deterministic release driver on PATH. The script itself lives at
-  # HOME/.claude/bin/release (mirrored to ~/.claude/bin/release by the recursive
-  # HOME link above); ~/.claude/bin is not on PATH, so symlink it into ~/bin so
-  # `release` is callable bare. Idempotent. See skills/bump + agents/release-driver.
-  release-on-path: |
-    mkdir -p /home/saidler/bin
-    ln -sf "$HOME/.claude/bin/release" "$HOME/bin/release"
-    echo "release driver linked onto PATH (~/bin/release)"
-
-  # Same treatment for `pr-open`, the PR-command composer `release` hands back
-  # to. It has to be callable bare for the same reason `release` does: the
-  # command `release` prints is run by hand or as an agent's own Bash tool call,
-  # and a path-qualified command in that hand-back is one more thing to get
-  # wrong. See bin/pr-open's header for why it prints `gh pr create` instead of
-  # running it.
+  # Put `pr-open`, the non-release PR-command composer, on PATH: ~/.claude/bin
+  # is not on PATH, and the `gh pr create` line it prints is run as an agent's
+  # own Bash tool call, so it has to be callable bare. See bin/pr-open's header
+  # for why it prints the command instead of running it. (Release PRs come from
+  # `bump release`.)
   pr-open-on-path: |
     mkdir -p /home/saidler/bin
     ln -sf "$HOME/.claude/bin/pr-open" "$HOME/bin/pr-open"

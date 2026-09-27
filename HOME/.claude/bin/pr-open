@@ -2,7 +2,14 @@
 # pr-open: compose the `gh pr create` command that both PreToolUse gates accept,
 # and PRINT it. It never runs `gh` itself, and that is the whole point.
 #
-# The bug this exists to kill: `bin/release` used to run
+# Scope since 2026-09-26: NON-release PRs only. A release PR is opened by
+# `bump release` itself, which builds the title from the branch and writes the
+# `Release: rides` line by construction (scottidler/bump
+# docs/design/2026-09-26-one-release-command.md); the bash release driver that
+# used to hand back to this script is deleted. A docs-only or otherwise
+# release-less PR still comes through here with `--release none --reason`.
+#
+# The bug this was written to kill: the old bash release driver ran
 # `gh pr create --fill` as a SUBPROCESS. A subprocess is invisible to
 # PreToolUse, so neither git-release-guard.sh (Gate D: the release-intent line)
 # nor branch-pr-title-guard.sh (title must match the branch) ever saw the PR
@@ -145,7 +152,7 @@ if [ "$RELEASE" = "rides" ]; then
   VER=$(git diff "$BASEREF...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null \
         | grep -E '^\+[[:space:]]*"?version"?[[:space:]]*[:=]' \
         | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-  [ -n "$VER" ] || die "--release rides, but no version line changes in the diff vs $BASEREF. Gate D denies this claim (git-release-guard.sh:566), so the command is not emitted. Run 'bump --no-tag' on this branch (real work already committed) so the version commit actually rides, or pass '--release none --reason <why>'."
+  [ -n "$VER" ] || die "--release rides, but no version line changes in the diff vs $BASEREF. Gate D denies this claim (git-release-guard.sh:566), so the command is not emitted. A release PR comes from 'bump release', which commits the version and opens the PR itself; otherwise pass '--release none --reason <why>'."
   RELEASE_LINE="Release: rides this PR (v$VER)"
 else
   RELEASE_LINE="Release: none - $REASON"
@@ -179,7 +186,7 @@ printf '%s' "$BODY_FILE" | grep -Eq '^/[A-Za-z0-9/._+-]*$' \
   || die "body-file path '$BODY_FILE' carries a character the gate cannot accept unquoted. Set TMPDIR to a plain absolute path and retry."
 
 # ---- persona: from the remote's org, not from the cwd -----------------------
-# `release`/`pr-open` are bash scripts: the .zshenv gh() persona function does
+# `pr-open` is a bash script: the .zshenv gh() persona function does
 # not exist inside them, and the rails tool.call hook rewrites a Bash tool call,
 # not a subprocess. An unset GH_PERSONA resolves to the WORK account even on a
 # personal repo, so the org the remote names is the only honest source.
@@ -217,7 +224,6 @@ printf '%s\n' "$CMD"
   echo "  DENIED by a hook: do NOT retry variations. Return the denial text to the"
   echo "  caller and record that NO PR exists."
   echo "  FAILED (network, auth): retry the SAME command once, then report."
-  echo "  CREATED: hand the PR url back with 'release --pr <url>', which verifies"
-  echo "  the PR exists before advancing rather than trusting the url."
+  echo "  CREATED: report the PR url."
   echo
 } >&2
