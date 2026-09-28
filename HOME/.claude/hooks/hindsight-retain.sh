@@ -3,7 +3,14 @@
 # Hindsight bank, routed by cwd. Never blocks, never fails the turn.
 set -u
 
-HINDSIGHT_API_URL="${HINDSIGHT_API_URL:-http://hindsight-api.escote.duckdns.org}"
+HINDSIGHT_API_URL="${HINDSIGHT_API_URL:-https://hindsight-api.escote.duckdns.org}"
+
+# Authelia in front of hindsight-api takes base64 "hindsight-client:<password>".
+# A shell started before the secret existed lacks it, so decrypt on demand.
+if [ -z "${ESCOTE_HINDSIGHT_API_BASIC:-}" ]; then
+  eval "$(manifest age decrypt "$HOME/repos/scottidler/keep/.secrets/escote-hindsight-api-basic.age" 2>/dev/null)"
+fi
+[ -z "${ESCOTE_HINDSIGHT_API_BASIC:-}" ] && exit 0
 
 input="$(cat)"
 cwd="$(echo "$input" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("cwd",""))' 2>/dev/null)"
@@ -84,9 +91,9 @@ PYEOF
 [ -z "$payload" ] && exit 0
 
 # Fire-and-forget: background, no output, never blocks or fails the turn.
-# Caddy 308-redirects http to https; -L follows it and a 308 keeps the POST body.
-nohup curl -s -L -m 20 -X POST "${HINDSIGHT_API_URL}/v1/default/banks/${bank}/memories" \
+nohup curl -s -m 20 -X POST "${HINDSIGHT_API_URL}/v1/default/banks/${bank}/memories" \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Basic ${ESCOTE_HINDSIGHT_API_BASIC}" \
   -d "$payload" >/dev/null 2>&1 &
 disown 2>/dev/null
 
