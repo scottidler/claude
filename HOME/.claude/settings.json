@@ -84,6 +84,15 @@
       "WebFetch(domain:google.com)",
       "WebFetch(domain:www.google.com)",
       "WebSearch",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(bump --tag-only:*)",
+      "Bash(git push origin v*)",
+      "Bash(git push --no-follow-tags origin:*)",
+      "Bash(cargo install --path:*)",
+      "Bash(sdv probe:*)",
       "Bash(mkdir:*)",
       "Bash(cargo:*)",
       "Bash(clyde:*)",
@@ -179,10 +188,7 @@
       "Bash(stat:*)",
       "Bash(wc:*)",
       "Bash(echo:*)",
-      "Bash(env:*)",
-      "Bash(chmod:*)",
       "Bash(curl:*)",
-      "Bash(bash:*)",
       "Bash(ps:*)",
       "Bash(pstree:*)",
       "Bash(pgrep:*)",
@@ -200,12 +206,10 @@
       "Bash(rg:*)",
       "Bash(find:*)",
       "Bash(gh:*)",
-      "Bash(python3:*)",
       "Bash(uv run:*)",
       "Bash(uv sync:*)",
       "Bash(uv lock:*)",
       "Bash(docker stop:*)",
-      "Bash(xargs:*)",
       "Bash(fd:*)",
       "Bash(cat:*)",
       "Bash(jq:*)",
@@ -223,7 +227,6 @@
       "Bash(yt-dlp:*)",
       "Bash(whisper:*)",
       "Bash(journalctl:*)",
-      "Bash(lua:*)",
       "Bash(gemini -p*)",
       "Bash(codex exec:*)",
       "Bash(~/.claude/skills/architect/script.sh:*)",
@@ -406,7 +409,6 @@
       "WebFetch(domain:docs.cloud.google.com)",
       "WebFetch(domain:docs.astral.sh)",
       "SendMessage",
-      "Agent",
       "Bash(clone:*)",
       "Bash(command clone:*)",
       "Bash(mktemp:*)",
@@ -496,13 +498,11 @@
       "Bash(/home/saidler/.local/share/pipx/venvs/poetry/bin/python:*)",
       "Bash(pip3 show:*)",
       "Bash(pip show:*)",
-      "Bash(zsh:*)",
       "Bash(git init:*)",
       "Bash(crontab:*)",
       "Bash(~/repos/scottidler/homelab/duckdns/.env)",
       "Bash(docker run:*)",
       "Bash(ssh-add:*)",
-      "Bash(ssh:*)",
       "Bash(/home/saidler/repos/scottidler/git-tools/target/debug/clone:*)",
       "Bash(tiktoken-count)",
       "Bash(acli confluence space view:*)",
@@ -598,7 +598,6 @@
       "Bash(printf %s:*)",
       "Bash(mv:*)",
       "Bash(ln:*)",
-      "Bash(rm:*)",
       "Bash(manifest:*)",
       "Bash(ngrok:*)",
       "mcp__atlassian__createConfluenceInlineComment",
@@ -686,6 +685,11 @@
       "Bash(gws keep *)",
       "Bash(gws meet *)",
       "Bash(gws admin *)",
+      "Bash(aws-vault exec * -- aws * describe-*)",
+      "Bash(aws-vault exec * -- aws * get-*)",
+      "Bash(aws-vault exec * -- aws * list-*)",
+      "Bash(aws-vault exec * -- aws s3 ls*)",
+      "Bash(aws-vault exec * -- aws sts get-caller-identity*)",
       "WebFetch(domain:www.tomshardware.com)",
       "WebFetch(domain:memory.net)",
       "WebFetch(domain:www.amazon.com)",
@@ -716,6 +720,8 @@
       "Bash(gh codespace delete:*)",
       "Bash(gh extension remove:*)",
       "Bash(gh run cancel:*)",
+      "Bash(aws-vault exec * -- aws secretsmanager get-secret-value*)",
+      "Bash(aws-vault exec * -- aws ssm get-parameter*)",
       "AskUserQuestion",
       "ScheduleWakeup",
       "ReportFindings",
@@ -992,6 +998,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/prose.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/hindsight-retain.sh"
           }
         ]
       }
@@ -1083,7 +1093,12 @@
     "enabled": true,
     "network": {
       "allowedDomains": [
-        "tatari-tv.github.io"
+        "api.anthropic.com",
+        "oauth2.googleapis.com",
+        "public-api.drata.com",
+        "tatari-tv.github.io",
+        "slack.com",
+        "*.datadoghq.com"
       ],
       "allowAllUnixSockets": true
     },
@@ -1146,7 +1161,39 @@
   "autoMode": {
     "allow": [
       "$defaults",
-      "Reading the user's own Gmail inbox via the `gws gmail` CLI (search, list threads, fetch messages) and processing or printing the results locally in this session's terminal is allowed: it is the user's own task-directed access to his own mailbox, not exfiltration to a third party or an external audience. This does not clear writing that content to a new file, cloud storage, or any destination outside this session's terminal output."
+      "Reading the user's own Gmail inbox via the `gws gmail` CLI (search, list threads, fetch messages) and processing or printing the results locally in this session's terminal is allowed: it is the user's own task-directed access to his own mailbox, not exfiltration to a third party or an external audience. This does not clear writing that content to a new file, cloud storage, or any destination outside this session's terminal output.",
+      "Reading, listing, grepping, and parsing the user's own Claude Code session transcripts (~/.claude/projects/**/*.jsonl, including his own typed prompts and subagent transcripts) and clyde's session catalog (clyde CLI and clyde MCP session tools) is allowed, from the main session and from any subagent: it is the user's own task-directed analysis of his own conversation history on his own machine, not PII exfiltration. Writing derived counts, tallies, and short excerpts to local scratch files (the session scratchpad, $TMPDIR, /tmp) and printing them in this session is allowed. This does not clear sending transcript content to any external service, cloud storage, or audience outside this machine."
+    ],
+    "soft_deny": [
+      "$defaults",
+      "Bash writes or deploy-style commands targeting namespaces containing `prod`/`production` as a whole word or segment (e.g. `-n intent-guard` or similar prod-flagged k8s namespaces) — scope to this project's observed namespaces intent-guard, plugins pending confirmation of which are prod"
+    ],
+    "environment": [
+      "### Org-wide",
+      "**Organization**: tatari-tv (GitHub org appearing across sibling repos: otto-dev, python-tatari-pyspark, python-tatari-environments, python-tatari-data-utils) — this project's own repo has no remote configured, so this is contextual only, not this-repo scope",
+      "**Cloud provider(s)**: AWS (aws-vault, aws_default CLI usage; bucket names observed)",
+      "**Repository visibility**: assume private — repo facts show no remotes and gh lookup was not queryable here",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: age-encrypted secrets via `manifest age`; gh token picked by repo org (home vs work persona), per CLAUDE.md `secrets` rule",
+      "**Default / protected branches**: not queryable here (no remote/org derivable from origin) — infer none, ask if needed",
+      "**CI/CD deploy targets**: None configured",
+      "**Network posture**: None configured",
+      "**Host containment**: None configured — assume Claude Code runs on an ordinary developer machine with open internet",
+      "**Source control**: The trusted repo and its remote(s) only — this repo (/tmp) currently has no remote configured, so no additional org scope applies",
+      "**Trusted internal domains**: marquee.internal.tatari.dev, tatari.slack.com, tatari.atlassian.net (contacted repeatedly in this project's transcripts)",
+      "**Trusted cloud buckets**: tatari-scratch-dev-us-west-2 (config-derived — not a confirmed upload destination; uploads of local data still require confirmation)",
+      "**Key internal services**: classifier.dev, marquee.internal.tatari.dev (frequently contacted hosts in this project's usage)",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar",
+      "**Data retention / declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment (e.g. matches `prod-db`, not `producer`); note `claude-1000/claude-1000/prod-probe.log` observed in sensitive-path scan",
+      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development (Scott Idler; personal CLAUDE.md references dev tooling, otto, git, rules, skills)",
+      "**Trusted repo**: The git repository the agent started in (its working directory, currently /tmp with no configured remote) and its configured remote(s), if any are later added",
+      "**Org-specific CLIs**: slack, drata, gws, sb, marquee, aws-vault, manifest, clyde, pre-commit, rkvr, acli, otto, pr-open, yt-dlp, bullets, herdr, mise (non-standard CLIs observed in this project's usage)",
+      "**routine under /tmp prefix**: no qualifiers found — repo has no tracked files or remotes"
     ]
   }
 }
