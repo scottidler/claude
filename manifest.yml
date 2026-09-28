@@ -65,7 +65,14 @@ script:
   # regardless of CWD, so it registers at user scope like everything else. The
   # stray project-scope entry in ~/.mcp.json was cleaned up 2026-07-08; the
   # `remove -s project` below is defensive in case it ever reappears.
+  # hindsight-work/hindsight-home point at $HINDSIGHT_API_URL (default
+  # http://hindsight-api.escote.duckdns.org, Caddy in front of the Hindsight
+  # container from homelab/hindsight/docker-compose.yml; set it to override).
+  # The http name 308s to https and the MCP client follows it. Registration succeeds
+  # even if that container isn't up yet (no connectivity check), but the tools
+  # won't actually work until it is; bring it up first on a fresh machine.
   mcp-servers: |
+    HINDSIGHT_API_URL="${HINDSIGHT_API_URL:-http://hindsight-api.escote.duckdns.org}"
     claude mcp remove atlassian -s user 2>/dev/null || true; claude mcp add-json atlassian '{"type":"http","url":"https://mcp.atlassian.com/v1/mcp"}' -s user
     claude mcp remove persona -s user 2>/dev/null || true; claude mcp add-json persona '{"type":"stdio","command":"/home/saidler/.cargo/bin/persona","args":["mcp","serve"],"env":{}}' -s user
     claude mcp remove clyde -s user 2>/dev/null || true; claude mcp add-json clyde '{"type":"stdio","command":"clyde","args":["mcp","serve"],"env":{}}' -s user
@@ -73,7 +80,9 @@ script:
     claude mcp remove slack -s user 2>/dev/null || true; claude mcp add-json slack '{"type":"stdio","command":"/home/saidler/.cargo/bin/slack","args":["mcp","serve"],"env":{"SLACK_VALET_URL":"https://valet.test.tatari.dev"}}' -s user
     claude mcp remove oracle -s project 2>/dev/null || true; claude mcp remove oracle -s user 2>/dev/null || true; claude mcp add-json oracle '{"type":"stdio","command":"sb","args":["oracle","serve"],"env":{}}' -s user
     claude mcp remove classifier -s user 2>/dev/null || true; claude mcp add-json classifier '{"type":"http","url":"https://classifier.dev/mcp"}' -s user
-    echo "registered 7 MCP servers at user scope"
+    claude mcp remove hindsight-work -s user 2>/dev/null || true; claude mcp add-json hindsight-work '{"type":"http","url":"'"$HINDSIGHT_API_URL"'/mcp/work/"}' -s user
+    claude mcp remove hindsight-home -s user 2>/dev/null || true; claude mcp add-json hindsight-home '{"type":"http","url":"'"$HINDSIGHT_API_URL"'/mcp/home/"}' -s user
+    echo "registered 9 MCP servers at user scope"
 
   # Put `pr-open`, the non-release PR-command composer, on PATH: ~/.claude/bin
   # is not on PATH, and the `gh pr create` line it prints is run as an agent's
