@@ -346,6 +346,30 @@ in_scope() {
   return 1
 }
 
+# gh_visibility <repo root> -- one `gh repo view`, lowercased, under the persona
+# that owns origin. This hook is bash, so .zshenv's gh() persona switch never
+# runs and the ambient GH_TOKEN is the WORK PAT. That token cannot see a private
+# scottidler/* repo, gh answered "Could not resolve", and the unknown read as
+# public: a push of keep's .age files was denied 2026-09-27. Raw config, not
+# `remote get-url`, so a url.insteadOf rewrite cannot change the owner.
+gh_visibility() {
+  local root="$1" url token=""
+  url=$(git -C "$root" config --get remote.origin.url 2>/dev/null)
+  case "$url" in
+    *[:/]tatari-tv/*) ;;
+    *)
+      token="${GITHUB_PAT_HOME:-}"
+      [ -n "$token" ] || token=$(manifest age decrypt "$HOME/repos/scottidler/keep/.secrets/github-pat-home.age" 2>/dev/null \
+        | sed -n "s/^export GITHUB_PAT_HOME='\(.*\)'\$/\1/p")
+      ;;
+  esac
+  if [ -n "$token" ]; then
+    (cd "$root" && GH_TOKEN="$token" gh repo view --json visibility -q .visibility 2>/dev/null)
+  else
+    (cd "$root" && gh repo view --json visibility -q .visibility 2>/dev/null)
+  fi | tr '[:upper:]' '[:lower:]'
+}
+
 # repo_visibility <repo root> -- public|private, cached a week under ~/.cache.
 # UNKNOWN, MISSING OR UNREADABLE READS AS PUBLIC, so the guard is on rather than
 # off when it has no answer. A `gh` call on every commit is not acceptable
@@ -363,7 +387,7 @@ repo_visibility() {
       printf '%s' "$vis"; return 0
     fi
   fi
-  vis=$(cd "$root" && gh repo view --json visibility -q .visibility 2>/dev/null | tr '[:upper:]' '[:lower:]')
+  vis=$(gh_visibility "$root")
   case "$vis" in
     public|private|internal) ;;
     *) printf 'public'; return 0 ;;
@@ -381,7 +405,7 @@ repo_visibility() {
 # deny-candidate path, never the hot path. If the recheck cannot run, deny.
 revalidate_private() {
   local root="$1" vis
-  vis=$(cd "$root" && gh repo view --json visibility -q .visibility 2>/dev/null | tr '[:upper:]' '[:lower:]')
+  vis=$(gh_visibility "$root")
   case "$vis" in
     private|internal) return 1 ;;
     public)           return 0 ;;

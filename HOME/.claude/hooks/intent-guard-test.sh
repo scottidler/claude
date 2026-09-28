@@ -314,6 +314,34 @@ runrepo deny  'a push source ref that does not resolve fails closed' \
 git -C "$PR_ROOT" checkout -q main
 runrepo allow 'push main, only docs in range' 'git push origin main'
 
+echo "=== PUBLIC-REPO: visibility is asked with the token of origin's owner ==="
+# The ambient GH_TOKEN is the work PAT, which cannot see a private scottidler/*
+# repo; asking with it denied keep's .age push 2026-09-27. The stub answers only
+# for the home token. insteadOf keeps ls-remote on the local bare repo.
+PR_STUB="${TMPDIR:-/tmp}/intent-guard-gh-stub-$$"
+mkdir -p "$PR_STUB"
+printf '#!/bin/bash\n[ "${GH_TOKEN:-}" = home-sentinel ] && echo PRIVATE\nexit 0\n' > "$PR_STUB/gh"
+chmod +x "$PR_STUB/gh"
+git -C "$PR_ROOT" checkout -q feat
+for owner in scottidler tatari-tv; do
+  git -C "$PR_ROOT" config remote.origin.url "git@github.com:$owner/fake.git"
+  git -C "$PR_ROOT" config "url.$PR_BARE.insteadOf" "git@github.com:$owner/fake.git"
+  rm -f "$PR_VIS/$PR_KEY"
+  expect=allow; [ "$owner" = tatari-tv ] && expect=deny
+  (
+    export PATH="$PR_STUB:$PATH" GITHUB_PAT_HOME=home-sentinel GH_TOKEN=work-sentinel
+    runrepo "$expect" "$owner origin, secret path pushed, gh sees home token only for scottidler" \
+      'git push origin feat:newbranch'
+    printf '%s %s\n' "$pass" "$fail" > "$PR_STUB/counts"
+  )
+  read -r pass fail < "$PR_STUB/counts"
+  git -C "$PR_ROOT" config --unset "url.$PR_BARE.insteadOf"
+done
+git -C "$PR_ROOT" config remote.origin.url "$PR_BARE"
+git -C "$PR_ROOT" checkout -q main
+rm -rf "$PR_STUB"
+printf 'visibility=public\nepoch=%s\n' "$(date +%s)" > "$PR_VIS/$PR_KEY"
+
 echo "=== the false-positive class lib.sh exists to kill ==="
 # Observed live 2026-09-15T19:41: a naive acli.*delete pattern matched the
 # regex TEXT inside a quoted heredoc in scan5.py.
