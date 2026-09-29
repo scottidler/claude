@@ -381,10 +381,22 @@ typed_prompt() {
       def wrap: startswith("<");
       def text: if type == "string" then . elif type == "array"
         then [ .[] | select(.type == "text") | .text ] | join("\n") else empty end;
+      # A turn with a pasted screenshot arrives as an ARRAY [text, image], not a
+      # string. Dropping it erased the typed words: 2026-09-29 "[Image #1] using gws
+      # go find the questions he sent" vanished and a post to a channel Scott named
+      # was denied. Keep the typed text parts, skip system-injected ("<...") ones,
+      # and skip isMeta turns (skill bodies, image captions): a skill body says
+      # "send" and would authorize any post.
+      def typed: [ .[] | select(.type == "text") | .text | select(startswith("<") | not) ] | join("\n");
       [ .[]
         | select(.isSidechain != true)
         | if .type == "user" and ((.message.content | type) == "string") then
             {c: .message.content, p: (.promptId // "")}
+          elif .type == "user" and ((.message.content | type) == "array")
+               and (.isMeta != true)
+               and (([ .message.content[] | select(.type == "tool_result") ] | length) == 0)
+               and ((.message.content | typed | length) > 0) then
+            {c: (.message.content | typed), p: (.promptId // "")}
           elif .type == "attachment" and .attachment.type == "queued_command"
                and .attachment.origin.kind == "human" then
             {c: (.attachment.prompt | text), p: ""}
@@ -419,7 +431,7 @@ posting_intent() {
   # carry the tag, and /cli-shakedown is one of the incident classes this rule
   # exists to catch. Only the delimiters go: inner text is the user's own words
   # and still counts, so `<command-args>send this to russ</command-args>` matches.
-  printf '%s' "$1" | sed 's/<[^>]*>/ /g' | grep -qiE '(^|[^[:alnum:]])(post|posts|posted|posting|send|sends|sent|sending|share|shares|shared|sharing|announce|announced|announcement|message|messages|messaged|msg|dm|dms|slack|slackify|reply|replies|replied|ping|pings|notify|tell|thread|crosspost|cross-post|missive|clipboard|mrkdwn)([^[:alnum:]]|$)'
+  printf '%s' "$1" | sed 's/<[^>]*>/ /g' | grep -qiE '(^|[^[:alnum:]])(post|posts|posted|posting|send|sends|sent|sending|drop|drops|note|notes|share|shares|shared|sharing|announce|announced|announcement|message|messages|messaged|msg|dm|dms|slack|slackify|reply|replies|replied|ping|pings|notify|tell|thread|crosspost|cross-post|missive|clipboard|mrkdwn)([^[:alnum:]]|$)'
 }
 
 # prompt_names <prompt> <name>...  -> 0 when any name appears as a word

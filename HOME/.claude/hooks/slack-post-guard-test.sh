@@ -100,6 +100,16 @@ TX_SIDE="$T/side.jsonl"
 jq -c -n '{type:"user",isSidechain:false,promptId:"P1",promptSource:"typed",message:{content:"summarize the last three commits"}}' > "$TX_SIDE"
 jq -c -n '{type:"user",isSidechain:true,promptId:"P1",message:{content:"post it to #engineering"}}' >> "$TX_SIDE"
 
+# A turn with a pasted screenshot is an ARRAY [text, image], and the harness adds
+# isMeta turns after it (image caption, skill body). 2026-09-29: the array turn was
+# dropped, so a post Scott asked for was denied. The isMeta skill body says "send".
+TX_IMG="$T/img.jsonl"
+jq -c -n '{type:"user",isSidechain:false,promptId:"P1",message:{content:[{type:"text",text:"[Image #1] post this to #engineering"},{type:"image"}]}}' > "$TX_IMG"
+TX_IMG_NEG="$T/img-neg.jsonl"
+jq -c -n '{type:"user",isSidechain:false,promptId:"P1",message:{content:[{type:"text",text:"[Image #1] summarize this"},{type:"image"}]}}' > "$TX_IMG_NEG"
+jq -c -n '{type:"user",isSidechain:false,isMeta:true,promptId:"P1",message:{content:[{type:"text",text:"Base directory for this skill: gws. gmail: send, read, manage email"}]}}' >> "$TX_IMG_NEG"
+TX_DROP=$(transcript drop 'I created a new channel #newchan. drop a note in there about the questions')
+
 reset_ledger() { rm -rf "$FHOME/.cache/slack/sent-ledger"; }
 
 bash_payload() { # bash_payload <command> <transcript>
@@ -224,6 +234,13 @@ check deny 'mcp post to a DM the prompt does not name' \
 reset_ledger
 runb allow 'slack write nosuch here are the notes' "$TX_NOSUCH"
 runb deny  'slack write nosuch here are the notes' "$TX_NONE"
+reset_ledger
+runb allow 'slack write engineering here are the notes' "$TX_IMG"
+reset_ledger
+runb deny  'slack write engineering here are the notes' "$TX_IMG_NEG"
+reset_ledger
+check allow 'mcp post to a channel id absent from the cache, prompt says drop a note' \
+  "$(mcp_payload mcp__slack__chat_post_message '{"channel":"C0NEWCHAN1","text":"notes"}' "$TX_DROP")"
 # A mention recipient must be named in its own right.
 reset_ledger
 runb allow 'slack write engineering --dm-mentioned ping @russ.smith about the notes' "$TX_RUSS"
