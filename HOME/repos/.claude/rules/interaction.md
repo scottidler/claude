@@ -121,7 +121,10 @@ capped mechanically now, not by this sentence: `panel-round-guard.sh` denies a
 4th `Agent` dispatch of the `review-panel` subagent on the same doc; there is
 nothing left here to compensate for. Scott opens the door for a specific run
 with a `PANEL_ROUNDS_ORDERED_BY_SCOTT=<n>` control line in the dispatch prompt,
-a ceiling rather than a boolean. Never run a full dotfiles manifest apply
+a ceiling rather than a boolean. The cap is not a budget: another round runs
+ONLY when open items or disputes remain, and the same guard denies a round 2+
+dispatch whose prompt names none (`OPEN: <item>` / `DISPUTE: <finding> |
+<pushback>` lines). Never run a full dotfiles manifest apply
 unscoped: target the specific entry.
 
 ## Don't idle-poll a stalled subagent

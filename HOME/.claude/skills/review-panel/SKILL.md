@@ -33,6 +33,21 @@ findings list. Never substitute your own review for theirs.
    with rationale, escalate only what can't be closed) is the caller's job,
    not this skill's, this skill's job ends at the dispatch and the relay.
 
+## Another round runs ONLY on open items or disputes
+
+After a round, fold in every finding you agree with and push back on the rest.
+Then:
+
+- **Nothing open, nothing disputed**: the doc is ready. Tell Scott so. Do not
+  dispatch. "Verify the fixes", "the doc changed", "the fixes are big", and
+  "rounds remain under the cap" are not reasons.
+- **Something open or disputed**: dispatch the next round with each item on a
+  line of its own, `OPEN: <item>` or `DISPUTE: <finding> | <your pushback>`,
+  and scope the round to exactly those.
+
+`panel-round-guard.sh` denies a round-2+ dispatch with no such line. Scott's
+`PANEL_ROUNDS_ORDERED_BY_SCOTT=<n>` counts as his reason.
+
 ## The round cap is enforced at dispatch, not here
 
 `panel-round-guard.sh` (a `PreToolUse` hook on the Agent dispatch, matched on
@@ -47,6 +62,6 @@ to stop.
 
 - **Never** review the doc yourself and call it a panel round. The value is
   the two *different models*; this skill exists only to reach them.
-- **Never** skip straight to a second dispatch because the first "seemed
-  incomplete". Read what came back, and if the doc changed, say so and
-  dispatch again with that named as the scope.
+- **Never** dispatch again because the first round "seemed incomplete" or
+  because the doc changed. Read what came back, fold it in, and dispatch again
+  only for items still open or disputed.

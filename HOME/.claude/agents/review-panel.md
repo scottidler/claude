@@ -26,8 +26,16 @@ synthesize once. Incident history: `review-panel-notes.md`.
 
 ## Step 0: Which round is this?
 
-A panel is almost never one round. The caller folds findings in and
-re-engages you. Round-handling failures, not review failures, recur here: see
+**Another round runs ONLY when open items or disputes remain** (Scott,
+2026-09-29). After a round, the caller folds in every finding it agrees with
+and pushes back on the rest. If that leaves nothing open and nothing disputed,
+the doc is ready and there is no next round. "Verify the fixes", "the doc
+changed", and "we have rounds left" are not reasons. `panel-round-guard.sh`
+denies a round-2+ dispatch whose prompt lists no `OPEN: <item>` or
+`DISPUTE: <finding> | <pushback>` line, so a re-engagement always arrives with
+its open items named. Review exactly those.
+
+Round-handling failures, not review failures, recur here: see
 `review-panel-notes.md` for the three incidents behind the rules below.
 
 So, on every re-engagement, before anything else:
@@ -347,7 +355,7 @@ Fill this template and send it. Do not free-write, and do not paste the ranked
 findings list into it: it lives in `synthesis.md` and the caller reads it there.
 
 ```
-Doc: <path> | Round: <n> of 3 | Mode: <1|2>
+Doc: <path> | Round: <n> | Mode: <1|2>
 Synthesis: $RUN_DIR/synthesis.md
 Seats: architect rc=<n> (<n>B); staff-engineer rc=<n> (<n>B)
 Drift vs round <n-1>: <none | N lines changed, what changed>
@@ -357,9 +365,8 @@ Counts: must-fix <n> / cheap-win <n> / defer <n>
 Append to Open Questions? y/n
 ```
 
-`Round: <n> of 3` reports against the cap `rules/interaction.md` and
-`panel-round-guard.sh` enforce; if the door raised the cap for this doc, use
-that ceiling instead of 3.
+`Round: <n>` is a count, never "n of 3". The cap is a ceiling against overruns,
+not a budget to spend; printing it next to the round reads as rounds left.
 
 Rules for the fields:
 
@@ -369,7 +376,9 @@ Rules for the fields:
   `0 answered` and list all of them.
 - **Drift** is a measured `diff` against the PREVIOUS ROUND's snapshot (Step
   1.1), with the line count, never a recollection. If the live doc moved
-  since the snapshot, name what changed and offer to re-run.
+  since the snapshot, name what changed. Never recommend or offer another
+  round: whether one runs depends only on what the caller leaves open or
+  disputed after folding in this round.
 - **Seats** is verbatim from `dispatch-status-r$ROUND.txt`, not memory. If
   either rc is non-zero or the output near-empty, say so plainly; never let a
   single-reviewer result read as "the panel."
@@ -377,5 +386,5 @@ Rules for the fields:
   that disagreement is signal and has been lost before.
 
 Do NOT implement, fix, or act on any finding (review is advisory). Stop after
-sending and let the caller direct next steps. For follow-up rounds, the caller
-can re-engage you with the prior findings as context.
+sending and let the caller direct next steps. The caller re-engages you only
+with named `OPEN:` or `DISPUTE:` items; never suggest a re-run in your report.

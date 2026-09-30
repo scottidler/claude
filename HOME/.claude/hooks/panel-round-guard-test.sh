@@ -51,8 +51,12 @@ fresh_cache() { # fresh_cache
   export PANEL_ROUND_CACHE_DIR="$CACHE"
 }
 
+# Every fixture prompt carries an OPEN: line by default, so the round-counting
+# groups below keep testing the cap and not the reason gate. NO_REASON=1 drops
+# it; only the reason-gate group sets that.
 run() { # run <expect deny|allow> <label> <prompt> [<want substring in the reason>]
   local expect="$1" label="$2" prompt="$3" want="${4-}" out decision reason
+  [ -n "${NO_REASON:-}" ] || prompt="$prompt"$'\n'"OPEN: fixture open item"
   out=$(jq -n --arg s "$SUB" --arg p "$prompt" --arg d "$REPO" \
     '{tool_name:"Agent",tool_input:{subagent_type:$s,prompt:$p},cwd:$d}' \
     | bash "$HOOK" 2>/dev/null)
@@ -341,6 +345,23 @@ run allow 'line-suffixed path, round 1' "Design Review of $ALPHA:281-288"
 run allow 'alpha round 2 proves the suffix was stripped' "Design Review of $ALPHA"
 run allow 'alpha round 3' "Design Review of $ALPHA"
 run deny  'alpha round 4' "Design Review of $ALPHA" 'this is round 4'
+
+echo "=== reason gate: round 2+ runs ONLY on an open item or a dispute ==="
+fresh_cache
+export NO_REASON=1
+run allow 'round 1 needs no reason' "Design Review of $GAMMA"
+run deny  'round 2 with no reason is denied' "Design Review of $GAMMA, round 2, verify the fixes" 'names no open item and no dispute'
+run deny  'the deny says the doc is ready' "Design Review of $GAMMA" 'the doc is ready: do not dispatch'
+run deny  'a denied round is not counted' "Design Review of $GAMMA" "round 2 on $GAMMA"
+run deny  'OPEN: inside a fence does not count' "Design Review of $GAMMA"$'\n```\nOPEN: quoted from the doc\n```' 'names no open item'
+run deny  'OPEN: with no text does not count' "Design Review of $GAMMA"$'\nOPEN:' 'names no open item'
+run deny  'lowercase open: does not count' "Design Review of $GAMMA"$'\nopen: something' 'names no open item'
+run allow 'OPEN: line opens round 2' "Design Review of $GAMMA"$'\nOPEN: Q3 regroup proof unresolved'
+run allow 'DISPUTE: line opens round 3' "Design Review of $GAMMA"$'\nDISPUTE: M4 shim stdin | buffered to a temp file, reviewer disagrees'
+fresh_cache
+run allow 'door round 1' "Design Review of $GAMMA"
+run allow 'Scott door counts as a reason' "Design Review of $GAMMA"$'\nPANEL_ROUNDS_ORDERED_BY_SCOTT=3'
+unset NO_REASON
 
 echo
 echo "pass=$pass fail=$fail"

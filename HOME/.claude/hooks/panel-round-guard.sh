@@ -58,6 +58,11 @@
 # Allow is exit 0 with NO stdout (AC1/AC2 assert empty), which is why this one
 # does not echo the siblings' '{}'.
 #
+# THE REASON GATE (2026-09-29): round 2+ is also denied unless the prompt names
+# what is still open, one `OPEN: <item>` or `DISPUTE: <finding> | <pushback>`
+# line each, outside fences. Scott's door counts as a reason. The cap stops
+# overruns; the gate stops rounds with no job. See the gate's own comment below.
+#
 # Debug: PANEL_ROUND_GUARD_DEBUG=1 traces every decision to stderr.
 #
 # Emits a PreToolUse "deny" decision (with a reason Claude sees), or nothing.
@@ -262,6 +267,29 @@ fi
 
 this_round=$((rounds + 1))
 log "doc=$doc mode=$mode rounds=$rounds this_round=$this_round cap=$cap entry=$entry"
+
+# THE REASON GATE (Scott, 2026-09-29): "THE ONLY thing that makes it run another
+# round is if there are still open items or disputes." Round 1 needs no reason.
+# Round 2+ needs the dispatch prompt to name what is still open, each on a line
+# of its own, outside any fence: `OPEN: <item>` or `DISPUTE: <finding> | <the
+# pushback>`. No such line means every finding was folded in and nothing is
+# open, so the doc is ready and another round has no job. The incident: a round
+# 3 dispatched with zero disputes and an empty Open Questions section, framed as
+# "verifying the fixes", on docs/design/2026-09-29-pr-create-skill-and-hook.md
+# in tatari-skills. Scott's door counts as a reason: his order is his call.
+if [ "$this_round" -ge 2 ] && [ -z "$door" ]; then
+  reasons=$(printf '%s\n' "$prompt" | tr -d '\r' \
+    | awk '/^[[:space:]]*(```|~~~)/{fence=!fence; next} !fence' \
+    | grep -cE '^[[:space:]]*(OPEN|DISPUTE):[[:space:]]+[^[:space:]]')
+  log "reason gate: round $this_round, $reasons OPEN/DISPUTE line(s)"
+  if [ "${reasons:-0}" -eq 0 ]; then
+    deny "$(printf '%s\n%s\n%s\n%s' \
+      "panel-round-guard: round $this_round on $doc names no open item and no dispute." \
+      "Another round runs ONLY when something is still open or disputed. List each, one per line:" \
+      "  OPEN: <the open question or unfolded finding>   |   DISPUTE: <the finding> | <your pushback>" \
+      "If nothing is open or disputed, the doc is ready: do not dispatch. Tell Scott it is ready.")"
+  fi
+fi
 
 if [ "$this_round" -gt "$cap" ]; then
   # The counter path as a human reads it, so the deny text names a file Scott

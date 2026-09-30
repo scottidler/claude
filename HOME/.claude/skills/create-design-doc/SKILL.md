@@ -51,6 +51,13 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
    every finding is dispositioned and Open Questions is empty**, Scott never
    builds with open questions or disputes.
 
+   **Another panel round runs ONLY when open items or disputes remain.** Once
+   every finding is folded in or pushed back and nothing is open or disputed,
+   the doc is ready: stop and tell Scott. Never re-dispatch to "verify the
+   fixes" or because rounds remain under the cap. A round 2+ dispatch lists
+   each item as `OPEN: <item>` or `DISPUTE: <finding> | <pushback>`, and
+   `panel-round-guard.sh` denies one that lists none.
+
    Trust the findings, not the verdicts. Across four rounds on 2026-08-13 the
    seats produced real defects every round (3, 1, 5, 3 must-fix) while also
    returning a wrong "APPROVED", a wrong "no 8th key", and a wrong "no 9th key".
