@@ -68,9 +68,11 @@ script:
   # hindsight-work/hindsight-home point at $HINDSIGHT_API_URL (default
   # https://hindsight-api.escote.duckdns.org, Caddy + Authelia in front of the
   # Hindsight container from homelab/; set it to override). The Authorization
-  # header is stored as the literal ${ESCOTE_HINDSIGHT_API_BASIC} and Claude Code
-  # expands it at connect time, so a session whose shell lacks that keep secret
-  # fails to connect rather than leaking or baking in a value. Registration succeeds
+  # header comes from the `headersHelper` HOME/.claude/bin/hindsight-headers,
+  # which decrypts the keep secret at every connect. A static
+  # ${ESCOTE_HINDSIGHT_API_BASIC} header expanded from claude's own process env,
+  # so claude launched from a shell older than the secret sent `Basic ` and got
+  # 401 (2026-10-02: herdr pane shell from 09-25, secret added 09-27). Registration succeeds
   # even if that container isn't up yet (no connectivity check), but the tools
   # won't actually work until it is; bring it up first on a fresh machine.
   mcp-servers: |
@@ -82,8 +84,8 @@ script:
     claude mcp remove slack -s user 2>/dev/null || true; claude mcp add-json slack '{"type":"stdio","command":"/home/saidler/.cargo/bin/slack","args":["mcp","serve"],"env":{"SLACK_VALET_URL":"https://valet.test.tatari.dev"}}' -s user
     claude mcp remove oracle -s project 2>/dev/null || true; claude mcp remove oracle -s user 2>/dev/null || true; claude mcp add-json oracle '{"type":"stdio","command":"sb","args":["oracle","serve"],"env":{}}' -s user
     claude mcp remove classifier -s user 2>/dev/null || true; claude mcp add-json classifier '{"type":"http","url":"https://classifier.dev/mcp"}' -s user
-    claude mcp remove hindsight-work -s user 2>/dev/null || true; claude mcp add-json hindsight-work '{"type":"http","url":"'"$HINDSIGHT_API_URL"'/mcp/work/","headers":{"Authorization":"Basic ${ESCOTE_HINDSIGHT_API_BASIC}"}}' -s user
-    claude mcp remove hindsight-home -s user 2>/dev/null || true; claude mcp add-json hindsight-home '{"type":"http","url":"'"$HINDSIGHT_API_URL"'/mcp/home/","headers":{"Authorization":"Basic ${ESCOTE_HINDSIGHT_API_BASIC}"}}' -s user
+    claude mcp remove hindsight-work -s user 2>/dev/null || true; claude mcp add-json hindsight-work '{"type":"http","url":"'"$HINDSIGHT_API_URL"'/mcp/work/","headersHelper":"'"$HOME"'/repos/scottidler/claude/HOME/.claude/bin/hindsight-headers"}' -s user
+    claude mcp remove hindsight-home -s user 2>/dev/null || true; claude mcp add-json hindsight-home '{"type":"http","url":"'"$HINDSIGHT_API_URL"'/mcp/home/","headersHelper":"'"$HOME"'/repos/scottidler/claude/HOME/.claude/bin/hindsight-headers"}' -s user
     echo "registered 9 MCP servers at user scope"
 
   # Put `pr-open`, the non-release PR-command composer, on PATH: ~/.claude/bin

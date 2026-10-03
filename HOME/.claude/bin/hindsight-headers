@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# hindsight-headers: MCP `headersHelper` for hindsight-home / hindsight-work.
+# Prints {"Authorization":"Basic <cred>"} decrypted fresh from keep at connect time.
+#
+# Why not a static `${ESCOTE_HINDSIGHT_API_BASIC}` header: Claude Code expands
+# that from its OWN process env, which is frozen when the launching shell started.
+# A herdr pane shell from before the secret existed (2026-09-25 shell, secret
+# added 2026-09-27) launched claude with no value, so every session from it
+# sent `Basic ` and got 401. Decrypting here makes the launch env irrelevant.
+set -euo pipefail
+
+secret="$HOME/repos/scottidler/keep/.secrets/escote-hindsight-api-basic.age"
+line=$("$HOME/.cargo/bin/manifest" age decrypt --format env "$secret") || {
+    echo "hindsight-headers: decrypt failed for $secret" >&2
+    exit 1
+}
+cred=${line#*=}
+cred=${cred#\'}
+cred=${cred%\'}
+if [[ -z "$cred" ]]; then
+    echo "hindsight-headers: empty credential from $secret" >&2
+    exit 1
+fi
+# Base64 basic-auth credential: no characters that need JSON escaping.
+printf '{"Authorization":"Basic %s"}\n' "$cred"
