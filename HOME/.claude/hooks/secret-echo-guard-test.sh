@@ -136,6 +136,27 @@ run deny  'systemctl show-environment'
 run allow 'systemctl --user status borg.service'
 run allow 'systemctl --user restart cortex.service'
 
+echo "=== process environments print every value (2026-10-05 GITHUB_PAT_HOME leak) ==="
+run deny  'cat /proc/3257333/environ'
+run deny  "cat /proc/3257333/environ | tr '\\0' '\\n' | rg -i 'fabric|HOME|PROFILE'"
+run deny  'xargs -0 -n1 < /proc/self/environ'
+run deny  'strings /proc/1/task/1/environ'
+run deny  'tr "\\0" "\\n" < "/proc/$pid/environ"'
+run deny  'ps e'
+run deny  'ps axe'
+run deny  'ps eww -p 123'
+run deny  'ps aux e | rg cortex'
+run allow 'cat /proc/123/stat'
+run allow 'cat /proc/123/wchan'
+run allow 'ls -l /proc/123/fd/0'
+run allow 'ps -ef'
+run allow 'ps aux | rg exe'
+run allow 'ps -o pid,etime,args -p 123'
+run allow 'ps -eo pid,etime,comm'
+run allow 'ps -o etime -p 1'
+run allow 'pgrep -af "otto ci"'
+run allow 'echo https://apps.example.com'
+
 echo "=== readers that cannot project deny against a credential path ==="
 run deny 'cat /run/user/1000/borg.env'
 run deny 'cat ~/.cache/slack/token.json'
@@ -194,6 +215,10 @@ runread deny  "$HOME/.cache/slack/token.json"
 runread deny  "$HOME/.cache/okta/tokens.json"
 runread deny  "$HOME/.zsh_history"
 runread allow "$HOME/repos/scottidler/claude/README.md"
+runread deny  '/proc/3257333/environ'
+runread deny  '/proc/self/environ'
+runread deny  '/proc/1/task/1/environ'
+runread allow '/proc/self/status'
 runread allow "$HOME/repos/scottidler/claude/HOME/.claude/settings.json"
 
 echo "=== every leak holds in every shape bash offers ==="
@@ -205,6 +230,8 @@ runwrapped 'echo $GH_TOKEN'
 runwrapped 'printenv AWS_SECRET_ACCESS_KEY'
 runwrapped 'cat /run/user/1000/borg.env'
 runwrapped 'systemctl --user show-environment'
+runwrapped 'cat /proc/1/environ'
+runwrapped 'ps axe'
 runwrapped 'aws secretsmanager get-secret-value --secret-id prod/slack'
 
 echo "=== round-6: the artifact pre-filter gated on the quote-masked copy ==="

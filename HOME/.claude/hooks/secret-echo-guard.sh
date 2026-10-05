@@ -109,6 +109,12 @@ path_is_secret() { # path_is_secret <token>
   return 1
 }
 
+# /proc/<pid>/environ is NUL-separated NAME=value for every variable the process
+# holds, so any reader prints values. 2026-10-05: a debug session ran
+# `cat /proc/<pid>/environ | tr '\0' '\n' | rg -i 'fabric|HOME|PROFILE'`; HOME
+# matched GITHUB_PAT_HOME and the token landed in a subagent transcript.
+PROC_ENVIRON_HELP="For one variable's presence in a child use \${VAR:+present} in the child's own command; to see which names a process holds, ask for names only, never values."
+
 SECRET_PATH_HELP="These files hold credential VALUES: token.json / tokens.json, /run/user/*/*.env, ~/.config/*/*.env and the shell history files. To check one WITHOUT printing a value: stat or ls -l for mode and mtime, jq 'has(\"access_token\")' for presence, jq .expires_at for expiry, grep -c or grep -q for a match count."
 
 # ------------------------------------------------------------- the Read tool ---
@@ -118,6 +124,9 @@ SECRET_PATH_HELP="These files hold credential VALUES: token.json / tokens.json, 
 # `"matcher": "Read"` block DOES fire and its deny DOES beat `Read(**)` sitting
 # in `permissions.allow`, so this is a seam rather than an assumption.
 if [ "$tool" = "Read" ]; then
+  case "$read_path" in
+    /proc/*environ) deny_now "Blocked (proc-environ): $read_path is that process's whole environment, values included. $PROC_ENVIRON_HELP" ;;
+  esac
   if [ -n "$read_path" ] && path_is_secret "$read_path"; then
     deny_now "Blocked (read-secret-file): $read_path holds credential values, and reading it puts them in the transcript. That is the 06-16 leak exactly: sk-ant-, 108 characters, through this tool. $SECRET_PATH_HELP"
   fi
@@ -345,6 +354,9 @@ capture_is_exempt() {
 artifact_verdict() {
   local stmt="$1" verb filter q i n k tok hit seen_verb pattern seen_pattern
   local -a toks optoks
+  case "$stmt" in
+    */proc/*environ*) printf '%s' "proc-environ"; return 0 ;;
+  esac
   mapfile -t toks < <(printf '%s' "$stmt" | args)
   n=${#toks[@]}
 
@@ -482,6 +494,35 @@ artifact_verdict() {
   return 0
 }
 
+# ps_shows_env <statement>: the BSD `e` option (`ps e`, `ps axe`, `ps eww`)
+# appends every listed process's environment, values included. `-e` is the
+# unrelated "every process" selector and stays allowed, as do option arguments
+# (`-o etime`), so only a bare-letters token outside an option argument counts.
+# Pure bash on purpose: the subprocess tokenizer made every `ps`-bearing command
+# about 7x slower (20 ms -> 140 ms), and this only has to find bare-letter
+# tokens after the word ps. The caller confirms ps is the command word.
+ps_shows_env() {
+  local -a toks
+  local tok seen=0 skip=0
+  read -ra toks <<< "$1"
+  for tok in "${toks[@]}"; do
+    if [ "$seen" = 0 ]; then
+      tok=${tok//\\/}; tok=${tok//\"/}; tok=${tok//\'/}
+      [ "$tok" = ps ] && seen=1
+      continue
+    fi
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case "$tok" in
+      '|'|'||'|'&&'|';'|'&'|*'|'*|*';'*|*'&'*) break ;;
+      -o|-O|-p|-q|-C|-u|-U|-g|-G|-t|-s|-k|--format|--sort|--pid|--ppid|--user|--group|--tty|--cols|--columns|--width|--lines|--rows) skip=1 ;;
+      -*) ;;
+      *[!a-zA-Z]*) ;;
+      *e*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # One masked statement per line, so the matcher's [^\n;|&]* windows cannot
 # straddle two statements and the safe-form anchors below mean "statement start".
 scan=""
@@ -503,11 +544,13 @@ while IFS= read -r -d '' stmt; do
   # bare and double-quoted forms denied. The branch below already reads verbscan.
   verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
   case "$verbscan" in
-    *get-secret-value*|*show-environment*|*.env*|*token.json*|*tokens.json*|*_history*)
+    *get-secret-value*|*show-environment*|*.env*|*token.json*|*tokens.json*|*_history*|*/proc/*environ*)
       artifact=$(artifact_verdict "$verbscan")
       case "$artifact" in
         aws-secret-value)
           deny_now "Blocked (aws-secret-value): get-secret-value prints the decrypted secret, and --query SecretString SELECTS that value rather than hiding it (it is what leaked an xoxb- bot token on 06-23 and 06-25). Project something that cannot carry a value: --query ARN, Name, VersionId or CreatedDate." ;;
+        proc-environ)
+          deny_now "Blocked (proc-environ): /proc/<pid>/environ is that process's whole environment, values included, and every reader prints them. $PROC_ENVIRON_HELP" ;;
         systemctl-environment)
           deny_now "Blocked (systemctl-environment): show-environment prints every variable in the manager environment WITH its value, which leaked a 110-character Anthropic key on 07-30. For one variable's presence use \${VAR:+present}; to inspect the set use the redaction-shimmed \`env\`." ;;
         print-secret-file|unknown-reader)
@@ -517,6 +560,16 @@ while IFS= read -r -d '' stmt; do
         matcher-line)
           deny_now "Blocked (matcher-line): a grep or rg match prints the matching LINE, which is the credential itself. Use -c for a count or -q for an exit code. $SECRET_PATH_HELP" ;;
       esac
+      ;;
+  esac
+
+  case "$verbscan" in
+    # Any "ps" substring: a text anchor on the bare word misses `\ps` and
+    # `"ps"`, which cmdword_is resolves (the wrapper sweep caught both).
+    *ps*)
+      if ps_shows_env "$verbscan" && printf '%s' "$verbscan" | cmdword_is ps >/dev/null 2>&1; then
+        deny_now "Blocked (ps-environment): ps's BSD \`e\` option prints every listed process's environment WITH values. Drop the e (\`ps aux\`, \`ps -ef\`, \`ps -o pid,etime,args\`). $PROC_ENVIRON_HELP"
+      fi
       ;;
   esac
 
