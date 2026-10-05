@@ -886,6 +886,41 @@ runsays   'rm ~/My\ Tools/slack' 'spaced.service:2'
 run deny  'rm -rf ~/My\ Tools'
 run allow 'rm ~/My\ Toolsx'
 
+
+echo "=== lib.sh word boundaries: the text beside a substitution or an escape is read ==="
+# 74913d8 joined lib.sh tokens at every escaped byte and every `$(`/`<(`/`)`
+# delimiter, for every mode, to give DELETE-REF `My\ Tools` as one operand. The
+# literal text beside a substitution or an escape stopped being a token of its
+# own, and every row here went from deny (9c456c4) to allow (74913d8). `args` is
+# the split reading again; only DELETE-REF reads the joined one, and it takes
+# the union of both.
+run deny  'gh $(true)api -X DELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins'
+run deny  'gh "$(true)"api -X DELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins'
+run deny  'acli $(true)jira workitem delete --key SEC-2997 --yes'
+run deny  'echo A; sleep $(true)26'
+run deny  'sleep $(true)24; sleep 24'
+run deny  'while true; do sleep "$(true)"30; done'
+run deny  'ln $(true)-s /tmp /tmp/loop'
+run deny  'ln -s /tmp $(true)/tmp/loop'
+run deny  'ln -s x\>y /tmp /tmp/loop'
+run deny  'ln -s\ /tmp /tmp/loop'
+run deny  'rm -v x\>y ~/.local/bin/slack'
+run deny  'rm -v $(true)~/.local/bin/slack'
+run deny  'rm -v "$(true)"~/.local/bin/slack'
+run deny  'rm -v\ ~/.local/bin/slack'
+
+echo "=== a command inside a substitution or behind an escape is still its own statement ==="
+# The statement half of the same question, pinned: `stmts` yields a
+# substitution body as a statement of its own, and boundary_at cuts at an
+# escaped `;` or paren the same as a bare one. 74913d8 did not move these.
+run deny  'echo $(gh api -X DELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins)'
+run deny  'x=$(acli jira workitem delete --key SEC-2997 --yes)'
+run deny  'cat <(gh api -X DELETE repos/tatari-tv/valet/branches/main/protection/enforce_admins)'
+run deny  'echo `acli jira workitem delete --key SEC-2997 --yes`'
+run deny  'x\;acli jira workitem delete --key SEC-2997 --yes'
+run deny  '\(acli jira workitem delete --key SEC-2997 --yes\)'
+run deny  'echo $(rm -v ~/.local/bin/slack)'
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

@@ -71,6 +71,10 @@ case_args() { # case_args <label> <input> <expected, arguments joined by |>
   eq "$1" "$3" "$(printf '%s' "$2" | args | tr '\n' '|' | sed -e 's/|$//' | vis)"
 }
 
+case_words() { # case_words <label> <input> <expected, words joined by |>
+  eq "$1" "$3" "$(printf '%s' "$2" | words | tr '\n' '|' | sed -e 's/|$//' | vis)"
+}
+
 case_unquote() { # case_unquote <label> <input> <expected>
   eq "$1" "$3" "$(printf '%s' "$2" | unquote | vis)"
 }
@@ -299,6 +303,12 @@ case_cmdword 'a for header names no command' 'for x in 1' git 1
 case_cmdword 'the loop variable is not the command' 'for git in 1' git 1
 case_cmdword 'a wrapper alone wraps nothing' 'sudo' git 1
 case_cmdword 'the word as an operand is still not the command' 'ls git' git 1
+case_cmdword 'an assignment from a substitution is stepped over (JOINED reading)' \
+  'x=$(true) git push --tags' git 0
+case_cmdword 'an escaped space inside an assignment is stepped over (JOINED reading)' \
+  'X=a\ b git push --tags' git 0
+case_cmdword 'a wrapper value cut at an escape still finds the verb (SPLIT reading)' \
+  'sudo -u root\ git push --tags' git 0
 
 echo "=== unquote ==="
 case_unquote 'a split flag reads as the flag it is' \
@@ -350,25 +360,44 @@ case_args 'a mask byte survives as its own argument' \
   "git checkout -b ${SQ}$(printf '\001\001')${SQ}" \
   'git|checkout|-b|@@'
 case_args 'an empty command yields nothing' '' ''
-case_args 'an escaped space joins the word, and the backslash drops out' \
+echo "=== args: the SPLIT reading, cut at every escape and substitution delimiter ==="
+# 74913d8 joined these for every mode, and the text beside the escape or the
+# substitution stopped being an argument: `rm -v x\>y ~/.local/bin/slack` (after
+# a guard's redirect strip) and `git $(true)checkout -b fix/x` went from deny to
+# allow. The backslash still comes off each piece.
+case_args 'an escaped space cuts the argument' \
+  'rm ~/My\ Tools/slack' \
+  'rm|~/My|Tools/slack'
+case_args 'a backslash left by a redirect strip does not swallow the next argument' \
+  'rm -v x\ ~/.local/bin/slack' \
+  'rm|-v|x|~/.local/bin/slack'
+case_args 'the text glued to a substitution is an argument of its own' \
+  'git $(true)checkout -b fix/x' \
+  'git|$|true|checkout|-b|fix/x'
+case_args 'a process substitution is cut the same way' \
+  'ln -s x <(y)/tmp/loop' \
+  'ln|-s|x|y|/tmp/loop'
+
+echo "=== words: the JOINED reading, as bash reads the word (DELETE-REF only) ==="
+case_words 'an escaped space joins the word, and the backslash drops out' \
   'rm ~/My\ Tools/slack' \
   'rm|~/My Tools/slack'
-case_args 'an unquoted backslash escapes any character and is removed' \
+case_words 'an unquoted backslash escapes any character and is removed' \
   'rm a\b \\x \"q\" \$HOME' \
   'rm|ab|\x|"q"|$HOME'
-case_args 'an escaped separator is part of the word, not a statement break' \
+case_words 'an escaped separator is part of the word, not a statement break' \
   'find . -exec rm {} \;' \
   'find|.|-exec|rm|{}|;'
-case_args 'in double quotes only \\ \" \$ and \` lose the backslash' \
+case_words 'in double quotes only \\ \" \$ and \` lose the backslash' \
   'echo "a\\b \"c\" \$d \`e\` \n"' \
   'echo|a\b "c" $d `e` \n'
-case_args 'a backslash in single quotes is literal' \
+case_words 'a backslash in single quotes is literal' \
   "echo ${SQ}a\\ b${SQ}" \
   'echo|a\ b'
-case_args 'a command or process substitution stays inside its word' \
+case_words 'a command or process substitution stays inside its word' \
   'rm $HOME/.local/$(echo bin)/slack x"$(a b)"y <(c d)' \
   'rm|$HOME/.local/$(echo bin)/slack|x$(a b)y|<(c d)'
-case_args 'a backslash-newline continues the word' \
+case_words 'a backslash-newline continues the word' \
   "$(printf 'rm ab\\\ncd')" \
   'rm|abcd'
 

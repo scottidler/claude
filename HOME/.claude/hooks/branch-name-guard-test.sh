@@ -153,6 +153,18 @@ runwrapped() { # runwrapped <command>
 runwrapped 'git checkout -b fix/x'
 runwrapped 'git switch -c Bad_Name'
 
+
+echo "=== lib.sh word boundaries: the text beside a substitution is read ==="
+# deny on 9c456c4, allow on 74913d8: joining at `$(`/`)` made
+# `$(true)checkout` one word, so the subcommand and the -b/-c flag vanished.
+run deny 'git $(true)checkout -b fix/x'
+run deny 'git checkout $(true)-b fix/x'
+run deny 'git "$(true)"switch -c Bad_Name'
+run deny 'git switch "$(true)"-c Bad_Name'
+# Pinned, unchanged by 74913d8: a substitution body is its own statement.
+run deny 'echo $(git checkout -b fix/x)'
+run deny 'x\;git switch -c Bad_Name'
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

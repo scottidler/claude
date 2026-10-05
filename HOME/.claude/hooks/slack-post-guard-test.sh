@@ -558,6 +558,20 @@ runb deny 'slack --output json repost bruce v14' "$TX_WX"
 reset_ledger
 runb allow 'slack --output json write clipboard v15' "$TX_ENG"
 
+
+echo "=== a command inside a substitution or behind an escape is its own statement ==="
+# Pinned against the lib.sh tokenizer change in 74913d8. The last two allowed on
+# 9c456c4 and deny since 74913d8: `x=$(true)` through cmdword_is's JOINED
+# reading, `\write` because args still takes the backslash off.
+for w in 'echo $(slack write engineering here are the release notes)' \
+         'cat <(slack write engineering here are the release notes)' \
+         'x\;slack write engineering here are the release notes' \
+         'x=$(true) slack write engineering here are the release notes' \
+         'slack \write engineering here are the release notes'; do
+  reset_ledger
+  check deny "$w" "$(bash_payload "$w" "$TX_NONE")"
+done
+
 echo
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

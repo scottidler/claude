@@ -75,6 +75,18 @@ runwrapped() { # runwrapped <command>
 runwrapped 'manifest'
 runwrapped 'manifest apply'
 
+
+echo "=== a command inside a substitution or behind an escape is its own statement ==="
+# Pinned against the lib.sh tokenizer change in 74913d8. The `x=$(true)` row
+# allowed on 9c456c4 and denies since 74913d8; cmdword_is keeps the JOINED
+# reading for exactly that.
+run deny 'echo $(manifest)'
+run deny 'x=$(manifest apply)'
+run deny 'cat <(manifest)'
+run deny 'echo `manifest apply`'
+run deny 'x\;manifest'
+run deny 'x=$(true) manifest apply'
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

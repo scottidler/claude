@@ -552,6 +552,25 @@ runcwdwrapped "$D" "$D" 'git reset --hard'
 runcwdwrapped "$D" "$D" 'git clean -fd'
 runcwdwrapped "$D" "$D" 'git checkout -- .'
 
+
+echo "=== lib.sh word boundaries: substitutions and escapes ==="
+# 74913d8 joined lib.sh tokens at escapes and substitution delimiters. The
+# first seven are pinned: a command inside a substitution is its own statement,
+# and a flag glued to an empty substitution is still the flag. The last two are
+# cmdword_is, which now asks both readings: `x=$(true) git` is git only JOINED
+# (an allow on 9c456c4 that 74913d8 closed), `sudo -u root\ git` only SPLIT (a
+# deny on 9c456c4 that 74913d8 opened).
+run deny main 'echo $(git push origin --tags)'
+run deny main 'x=$(git push --tags)'
+run deny main 'cat <(git push --tags)'
+run deny main 'echo $(git tag -d v0.1.0)'
+run deny main 'echo `git push --tags`'
+run deny main 'x\;git push --tags'
+run deny main '\(git push --tags\)'
+run deny main 'git push origin $(true)--tags'
+run deny main 'x=$(true) git push --tags'
+run deny main 'sudo -u root\ git push --tags'
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

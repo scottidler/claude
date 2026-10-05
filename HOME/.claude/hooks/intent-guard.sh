@@ -1418,18 +1418,20 @@ delref_cargo_bins() {
   printf '%s\n' "$name"
 }
 
-# delref_check <statement text> <cwd> -- denies on the first referenced path a
-# delete statement would remove. Called in the main shell, never in $( ), so
-# deny's exit ends the hook and delref_load's cache survives across statements.
-delref_check() {
-  local st="$1" base="$2" verb="" v w t i n endopts=0 skip="" tdir="" root="" r kind path hit
-  local -a toks=() ops=() raw=() specs=() cbins=() resolved=() origs=()
-  for v in rm mv rkvr cargo; do
-    printf '%s' "$st" | cmdword_is "$v" >/dev/null 2>&1 && { verb="$v"; break; }
-  done
-  [ -n "$verb" ] || return 0
+# delref_operands <statement text> <verb> <args|words> <cwd> -- appends to
+# delref_ops every path the delete removes under ONE reading of the statement's
+# words. `words` is bash's reading (`My\ Tools` and `a/$(x)/b` are one operand
+# each, which is what resolves); `args` is lib.sh's split reading, which cuts at
+# every escape and substitution delimiter and so surfaces the literal text
+# beside them (`rm -v x\>y ~/.local/bin/slack` after the redirect strip below,
+# `rm $(true)~/.local/bin/slack`). delref_check takes the union, so DELETE-REF
+# denies whatever either reading denies.
+delref_ops=()
+delref_operands() {
+  local st="$1" verb="$2" reading="$3" base="$4" v w t i n endopts=0 skip="" tdir="" root="" r
+  local -a toks=() ops=() raw=() specs=() cbins=()
   # Redirect operators and their operands are not operands of the delete.
-  mapfile -t toks < <(printf '%s' "$st" | sed -E 's/[0-9]*>>?&?[[:space:]]*[^[:space:]]*//g' | args)
+  mapfile -t toks < <(printf '%s' "$st" | sed -E 's/[0-9]*>>?&?[[:space:]]*[^[:space:]]*//g' | "$reading")
   n=${#toks[@]}
   i=0
   while [ "$i" -lt "$n" ]; do
@@ -1531,6 +1533,24 @@ delref_check() {
     fi
     for t in "${cbins[@]}"; do ops+=("$root/bin/$t"); done
   fi
+  delref_ops+=("${ops[@]}")
+}
+
+# delref_check <statement text> <cwd> -- denies on the first referenced path a
+# delete statement would remove. Called in the main shell, never in $( ), so
+# deny's exit ends the hook and delref_load's cache survives across statements.
+delref_check() {
+  local st="$1" base="$2" verb="" v t r i kind path hit reading
+  local -a ops=() resolved=() origs=()
+  for v in rm mv rkvr cargo; do
+    printf '%s' "$st" | cmdword_is "$v" >/dev/null 2>&1 && { verb="$v"; break; }
+  done
+  [ -n "$verb" ] || return 0
+  delref_ops=()
+  for reading in words args; do
+    delref_operands "$st" "$verb" "$reading" "$base"
+  done
+  mapfile -t ops < <(printf '%s\n' "${delref_ops[@]}" | awk 'NF && !seen[$0]++')
 
   for t in "${ops[@]}"; do
     r=$(delref_resolve "$t" "$base") || continue

@@ -275,12 +275,22 @@ function masked(s, set,   n, i, out, c) {
 }
 
 # tb[k]/te[k] are the byte bounds of token k; tsep[k] says a metacharacter (not
-# just whitespace) came before it, so `-m ;` has no value token. A backslash-
-# escaped byte (esc) and the `$(`/`<(`/`)` delimiters of a substitution (nd) are
-# inside the word, as bash reads them: splitting `My\ Tools` or `a/$(x)/b` there
-# handed DELETE-REF two operands it could not resolve. `in nd`, never `nd[i]`,
+# just whitespace) came before it, so `-m ;` has no value token.
+#
+# Two readings of the same bytes. SPLIT (joined=0) cuts at every unquoted
+# metacharacter and blank, escaped or not, and at the `$(`/`<(`/`)` delimiters
+# of a substitution, so the literal text beside a substitution or an escape is a
+# token of its own: `git $(true)checkout -b x` still shows `checkout`. Every
+# gate matches on this reading; it over-splits, and over-splitting is the
+# fail-closed direction. JOINED (joined=1) keeps an escaped byte (esc) and the
+# delimiters (nd) inside the word, as bash does, so `My\ Tools` and `a/$(x)/b`
+# are one word each. Only `words` (DELETE-REF's path resolution) and the second
+# half of cmdword_ok read it. Joining for every mode was 74913d8's regression:
+# `git $(true)checkout -b fix/x`, `gh $(true)api -X DELETE ...`, and
+# `rm -v x\>y ~/.local/bin/slack` (whose `x\` a guard's redirect-strip sed left
+# escaping the next blank) went from deny to allow. `in nd`, never `nd[i]`,
 # which would create the key that boundary_at tests for.
-function tokenize(s,   n, i, c, brk) {
+function tokenize(s, joined,   n, i, c, brk) {
   delete tb
   delete te
   delete tsep
@@ -290,15 +300,15 @@ function tokenize(s,   n, i, c, brk) {
   brk = 0
   while (i <= n) {
     c = substr(s, i, 1)
-    if (cls[i] == "." && !esc[i] && (c == " " || c == "\t")) { i++; continue }
-    if (cls[i] == "." && !esc[i] && !(i in nd) && (c == "\n" || index(SEPCH, c) > 0)) { brk = 1; i++; continue }
+    if (cls[i] == "." && !(joined && esc[i]) && (c == " " || c == "\t")) { i++; continue }
+    if (cls[i] == "." && !(joined && (esc[i] || (i in nd))) && (c == "\n" || index(SEPCH, c) > 0)) { brk = 1; i++; continue }
     tn++
     tb[tn] = i
     tsep[tn] = brk
     brk = 0
     while (i <= n) {
       c = substr(s, i, 1)
-      if (cls[i] == "." && !esc[i] && !(i in nd) && (c == " " || c == "\t" || c == "\n" || index(SEPCH, c) > 0)) break
+      if (cls[i] == "." && !(joined && (esc[i] || (i in nd))) && (c == " " || c == "\t" || c == "\n" || index(SEPCH, c) > 0)) break
       i++
     }
     te[tn] = i - 1
@@ -319,9 +329,10 @@ function toktext(s, k) { return substr(s, tb[k], te[k] - tb[k] + 1) }
 # a word inside a message-flag value must not be read as a name.
 #
 # Backslashes go through quote removal too, the way bash reads the word: outside
-# quotes `\x` is x (so `My\ Tools` is one argument), inside double quotes only
-# `\\ \" \$ \``, and `\<newline>` vanishes. Every other mode keeps tokword's
-# backslash-preserving text, which the verb and flag gates match against.
+# quotes `\x` is x, inside double quotes only `\\ \" \$ \``, and `\<newline>`
+# vanishes. Every other mode keeps tokword's backslash-preserving text, which the
+# verb and flag gates match against. `args` emits the SPLIT reading and `words`
+# the JOINED one (see tokenize), so `My\ Tools` is two args and one word.
 function args_out(s,   k) {
   for (k = 1; k <= tn; k++) printf "%s\n", argword(s, k)
 }
@@ -550,7 +561,7 @@ function emit_piece(s, a, b,   i, c, out, bare) {
 
 function split_one(s,   n, i, c, a, k) {
   scan(s)
-  tokenize(s)
+  tokenize(s, 0)
   find_dashc(s)
   find_eval(s)
   for (k = 1; k <= nsn; k++) { wn++; wq[wn] = substr(s, nsb[k], nse[k] - nsb[k] + 1) }
@@ -591,9 +602,17 @@ function build_stmts(s,   qi) {
   }
 }
 
-function cmdword_ok(s, word,   k) {
+# The verb under EITHER reading. SPLIT alone reads `x=$(true) git push --tags`
+# as the verb `true` (the substitution body is a token of its own); JOINED alone
+# reads `sudo -u root\ git push` as the verb `push`, where SPLIT, like 9c456c4,
+# sees git. A gate asks "could this be X", so a yes from either is a yes.
+function cmdword_ok(s, word) {
   scan(s)
-  tokenize(s)
+  return (cmdword_in(s, word, 0) || cmdword_in(s, word, 1))
+}
+
+function cmdword_in(s, word, joined,   k) {
+  tokenize(s, joined)
   k = cmdword_index(s, 1)
   if (k == 0) return 0
   return (verbword(tokword(s, k)) == word)
@@ -634,24 +653,24 @@ END {
   if (mode == "squote")  { scan(buf); printf "%s", masked(buf, "SE"); exit 0 }
   if (mode == "dquote")  { scan(buf); printf "%s", masked(buf, "D"); exit 0 }
   if (mode == "comment") { scan(buf); printf "%s", masked(buf, "#"); exit 0 }
-  if (mode == "optarg")  { scan(buf); tokenize(buf); printf "%s", mask_optarg_text(buf); exit 0 }
+  if (mode == "optarg")  { scan(buf); tokenize(buf, 0); printf "%s", mask_optarg_text(buf); exit 0 }
   if (mode == "cmdword") { exit (cmdword_ok(buf, a1) ? 0 : 1) }
-  if (mode == "args") {
+  if (mode == "args" || mode == "words") {
     scan(buf)
-    tokenize(buf)
+    tokenize(buf, mode == "words")
     args_out(buf)
     exit 0
   }
   if (mode == "flagvalue") {
     scan(buf)
-    tokenize(buf)
+    tokenize(buf, 0)
     v = flag_value(buf, a1, a2)
     if (v != "") printf "%s\n", v
     exit 0
   }
   if (mode == "cdtarget") {
     scan(buf)
-    tokenize(buf)
+    tokenize(buf, 0)
     v = cd_last(buf)
     if (v != "") printf "%s\n", v
     exit 0
@@ -661,7 +680,7 @@ END {
     v = ""
     for (k = 1; k < a1 + 0 && k <= sn; k++) {
       scan(st[k])
-      tokenize(st[k])
+      tokenize(st[k], 0)
       t = cd_last(st[k])
       if (t != "") v = t
     }
@@ -690,6 +709,7 @@ heredoc_expanded()  { _lib_run hdexpand; }
 
 stmts()        { _lib_run stmts; }
 args()         { _lib_run args; }
+words()        { _lib_run words; }
 flag_value()   { _lib_run flagvalue "${1-}" "${2-}"; }
 cd_target()    { _lib_run cdtarget; }
 cd_at()        { _lib_run cdat "${1-}"; }

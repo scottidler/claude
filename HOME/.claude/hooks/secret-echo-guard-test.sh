@@ -238,6 +238,17 @@ run deny  'jq -r .value /home/saidler/.config/marquee/tokens.json | curl -H @- h
 # shape is in the corpus.
 run deny  'RT=$(jq -r .refresh_token /home/saidler/.config/marquee/tokens.json); echo "len=${#RT} prefix=${RT:0:8}"'
 
+
+echo "=== a command inside a substitution or behind an escape is its own statement ==="
+# Pinned against the lib.sh tokenizer change in 74913d8. The `x=$(true)` row
+# allowed on 9c456c4 and denies since 74913d8; cmdword_is keeps the JOINED
+# reading for exactly that.
+run deny 'x=$(echo $GH_TOKEN)'
+run deny 'cat <(printenv GH_TOKEN)'
+run deny 'echo `printenv GH_TOKEN`'
+run deny 'x\;echo $GH_TOKEN'
+run deny 'x=$(true) echo $GH_TOKEN'
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]
