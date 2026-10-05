@@ -142,6 +142,9 @@ newest=""
 newest_mt=0
 for doc in "$root"/docs/handoff/*.md; do
   [ -f "$doc" ] || continue
+  # The basename is interpolated into model context, and a cloned repo controls
+  # it. Only a slug (the skill's naming rule) is ever emitted.
+  [[ "$(basename -- "$doc")" =~ ^[a-z0-9]+(-[a-z0-9]+)*\.md$ ]] || continue
   grep -qxF -- "Branch: $branch" "$doc" 2>/dev/null || continue
   mt=$(stat -c %Y -- "$doc" 2>/dev/null) || continue
   if [ "$mt" -gt "$newest_mt" ]; then
