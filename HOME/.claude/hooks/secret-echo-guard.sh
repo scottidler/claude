@@ -520,7 +520,9 @@ unquote() {
 env_read_verdict() {
   local -a toks
   local tok seen=0 skip=0
-  read -ra toks <<< "$(unquote "$1")"
+  # -d '': read the WHOLE statement. A plain `read` stops at the first newline,
+  # so `ps \` + newline + `axe` hid the flag on line 2 (security review).
+  read -ra toks -d '' <<< "$(unquote "$1")" || true
   for tok in "${toks[@]}"; do
     case "$tok" in
       environ|*/environ|*/environ[!a-zA-Z0-9_]*) printf '%s' "proc-environ"; return 0 ;;
@@ -552,6 +554,28 @@ env_read_verdict() {
   done
   return 1
 }
+
+# env_read_deny <code>: shared by the continuation pre-pass and the per-statement
+# loop below, so both report the same reason.
+env_read_deny() {
+  case "$1" in
+    proc-environ)
+      deny_now "Blocked (proc-environ): this reads a process environment (/proc/<pid>/environ), which holds every variable WITH its value; every reader prints them. $PROC_ENVIRON_HELP" ;;
+    ps-environment)
+      deny_now "Blocked (ps-environment): ps's BSD \`e\` option prints every listed process's environment WITH values. Drop the e (\`ps aux\`, \`ps -ef\`, \`ps -o pid,etime,args\`). $PROC_ENVIRON_HELP" ;;
+  esac
+}
+
+# Continuation pre-pass. lib.sh's statement splitter does not join
+# backslash-newline (the known limit handed to chunk I), so `ps \` and `axe`
+# arrive as two statements and neither looks like ps's e option. Join the
+# continuations here and judge each resulting line. A heredoc body is not masked
+# on this pass, so prose naming environ inside one denies: that is the fail-closed
+# side of the trade, and the per-statement loop still masks heredocs.
+joined=${command//$'\\\n'/ }
+while IFS= read -r line; do
+  env_read_deny "$(env_read_verdict "$line")"
+done <<< "$joined"
 
 # One masked statement per line, so the matcher's [^\n;|&]* windows cannot
 # straddle two statements and the safe-form anchors below mean "statement start".
@@ -591,12 +615,7 @@ while IFS= read -r -d '' stmt; do
       ;;
   esac
 
-  case "$(env_read_verdict "$verbscan")" in
-    proc-environ)
-      deny_now "Blocked (proc-environ): this reads a process environment (/proc/<pid>/environ), which holds every variable WITH its value; every reader prints them. $PROC_ENVIRON_HELP" ;;
-    ps-environment)
-      deny_now "Blocked (ps-environment): ps's BSD \`e\` option prints every listed process's environment WITH values. Drop the e (\`ps aux\`, \`ps -ef\`, \`ps -o pid,etime,args\`). $PROC_ENVIRON_HELP" ;;
-  esac
+  env_read_deny "$(env_read_verdict "$verbscan")"
 
   # Resolving the command word costs a subprocess per verb, so it runs only for
   # a statement that could possibly deny. This pattern is a deliberate SUPERSET

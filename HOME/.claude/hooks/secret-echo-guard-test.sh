@@ -180,6 +180,10 @@ run allow 'ps -e'
 run allow 'ps -E'
 run allow 'ps --sort=-etime -e'
 run allow 'ps -eo user,pid,etime,args --sort etime'
+# a statement spanning lines: the token scan must read every line, not the first
+run deny  "$(printf 'cat \\\n  /proc/1/environ')"
+run deny  "$(printf 'ps \\\n  axe')"
+run deny  "$(printf 'xargs -0 -n1 \\\n  < /proc/self/environ')"
 
 
 echo "=== readers that cannot project deny against a credential path ==="
