@@ -14,7 +14,7 @@ You are **RESUMING** if any of these is true:
 
 - a handoff document, or a summary of one, was in your context when this session started
 - the user pointed you at a handoff file, a baton or tracker doc, or said "pick up", "continue", "where we left off", "you are the next session"
-- a handoff file already exists for this branch or work item
+- a handoff file already exists for this branch or work item (`rg -l '^Branch: <branch>$' docs/handoff/`)
 
 Otherwise you are **WRITING**.
 
@@ -40,9 +40,11 @@ You are the receiver. Your job is to **do the work**, not to describe its state.
 
 ## Write mode
 
-Write a handoff so a fresh agent can continue. Save it to **`docs/handoff/<branch>.md`** in the repo being worked, where `<branch>` is `git rev-parse --abbrev-ref HEAD`. One file per branch, committed with the work.
+Write a handoff so a fresh agent can continue. Save it to **`docs/handoff/<slug>.md`** in the repo being worked, committed with the work.
 
-The path is fixed and keyed on the branch because that is what the resume side can compute without being told: `handoff-guard.sh` stats exactly that path and points the next session at it. A per-session temporary location cannot be found by anything and dies with the session that wrote it. If HEAD is detached or the work is not in a repo, ask the user where it goes rather than inventing a throwaway location.
+- **`<slug>` names the work, never the branch.** 3-5 of the most significant words describing what is being handed off, lowercase, hyphenated, no dates: `borg-auth-and-subprocess-fixes.md`, `ingest-queue-status.md`. Never `main.md`, `master.md`, or any other bare branch name, even when the branch is descriptive.
+- **The first line under the title is `Branch: <branch>`**, where `<branch>` is `git rev-parse --abbrev-ref HEAD`. `handoff-guard.sh` greps `docs/handoff/*.md` for that exact line to point the next session on the same branch at the doc, so it must be present, on its own line, unformatted.
+- A per-session temporary location cannot be found by anything and dies with the session that wrote it. If HEAD is detached or the work is not in a repo, ask the user where it goes rather than inventing a throwaway location.
 
 - Do not duplicate what other artifacts already hold (design docs, plans, ADRs, issues, commits, diffs). Reference them by path or URL.
 - **Name the commits.** The branch, its HEAD sha, and what landed in each commit that matters. A receiver who cannot tell which commits are yours re-derives the diff.
@@ -54,4 +56,4 @@ The path is fixed and keyed on the branch because that is what the resume side c
 - Lead with the single next action, not with history.
 - Redact secrets, tokens, and personally identifiable information.
 - If the user passed arguments, treat them as the next session's focus and tailor the doc to it.
-- One handoff per work item. If one already exists, update it rather than adding another.
+- One handoff per work item. Before writing, `rg -l '^Branch: <branch>$' docs/handoff/` and read what it finds; if one covers this work, update it in place rather than adding another.

@@ -32,7 +32,10 @@
 # reference discrimination reused rather than re-derived.
 #
 # Fire 2, a handoff for this branch exists and is NEWER than the last commit.
-# `docs/handoff/<branch>.md` versus `git log -1 --format=%ct`. This is the fire
+# Handoffs are named for the work (`docs/handoff/<descriptive-slug>.md`), never
+# for the branch, so the branch is read from a `Branch: <branch>` line inside
+# the doc, not from the filename. Every `docs/handoff/*.md` carrying that exact
+# line is checked against `git log -1 --format=%ct`; the newest wins. This is the fire
 # that justifies a hook at all: prose can ask the model to remember to look,
 # only a hook can stat the file. Mtime beats content: a handoff written and then
 # committed has an mtime at or before HEAD's commit time, so committing the
@@ -130,17 +133,29 @@ branch=$(git -C "$CWD" symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
 root=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null) || exit 0
 [ -n "$root" ] || exit 0
 
-doc="$root/docs/handoff/$branch.md"
-[ -f "$doc" ] || exit 0
+[ -d "$root/docs/handoff" ] || exit 0
 
 head_ct=$(git -C "$CWD" log -1 --format=%ct 2>/dev/null) || exit 0
 [ -n "$head_ct" ] || exit 0
 
-doc_mt=$(stat -c %Y -- "$doc" 2>/dev/null) || exit 0
-[ -n "$doc_mt" ] || exit 0
+newest=""
+newest_mt=0
+for doc in "$root"/docs/handoff/*.md; do
+  [ -f "$doc" ] || continue
+  # The basename is interpolated into model context, and a cloned repo controls
+  # it. Only a slug (the skill's naming rule) is ever emitted.
+  [[ "$(basename -- "$doc")" =~ ^[a-z0-9]+(-[a-z0-9]+)*\.md$ ]] || continue
+  grep -qxF -- "Branch: $branch" "$doc" 2>/dev/null || continue
+  mt=$(stat -c %Y -- "$doc" 2>/dev/null) || continue
+  if [ "$mt" -gt "$newest_mt" ]; then
+    newest="$doc"
+    newest_mt="$mt"
+  fi
+done
+[ -n "$newest" ] || exit 0
 
-if [ "$doc_mt" -gt "$head_ct" ]; then
-  rel="docs/handoff/$branch.md"
+if [ "$newest_mt" -gt "$head_ct" ]; then
+  rel="docs/handoff/$(basename -- "$newest")"
   emit "handoff hook: $rel is newer than the last commit on \`$branch\`, so work was handed off after that commit and has not been picked up yet.
 
 Read it before doing anything else, then run \`Skill(handoff)\`, which will put you in RESUME mode: do the work it names, re-test every blocker it claims with a command before believing it, and do NOT write a second handoff. If the user's prompt is plainly unrelated to that work, say in one line that the handoff is outstanding and carry on with what they asked."
