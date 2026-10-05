@@ -957,6 +957,13 @@ ingest_heredocs=$(printf '%s' "$command" | awk '
 # hook runs on every Bash call, so the sources are read lazily, once per
 # command, and only for a statement that has a resolvable operand.
 #
+# An operand that cannot be fully resolved fails CLOSED, not open: braces
+# (lists and sequences) expand as bash does and an expansion past
+# DELREF_BRACE_MAX denies; `$x`, `$(...)`, backticks and globs inside literal
+# path text become wildcards and the pattern is matched. The one accepted
+# residual is an operand with NO literal path text (`"$tmp"`, `"$(mktemp -d)"`):
+# skipped, because its pattern matches everything. Layers 1-2 backstop it.
+#
 # Every source root is overridable by env so the matrix runs on fixtures and
 # never reads the live system:
 #   DELREF_UNIT_DIRS        newline-separated unit dirs; set (even empty)
@@ -1123,40 +1130,185 @@ $HOME/.config/autostart}"
   return 0
 }
 
-# delref_resolve <operand> <cwd> -- `abs<TAB>path` for an absolute path,
-# `rel<TAB>path` when the operand is relative and the cwd is unknown. Non-zero
-# when the operand is not knowable from here (`"$x"`, `~user`, `$(...)`, a
-# brace sequence or a brace list delref_brace_expand left unexpanded).
+# delref_close <word> <open index> <open char> <close char> -- sets delref_j to
+# the index of the matching close, or to the word's length when it never closes.
+delref_j=0
+delref_close() {
+  local w="$1" o="$3" c="$4" n="${#1}" depth=0 k ch
+  for (( k = $2; k < n; k++ )); do
+    ch="${w:k:1}"
+    if [ "$ch" = "$o" ]; then depth=$((depth + 1))
+    elif [ "$ch" = "$c" ]; then depth=$((depth - 1)); [ "$depth" -eq 0 ] && break
+    fi
+  done
+  delref_j=$k
+}
+
+# delref_resolve <operand> <cwd> -- what the operand can name, as one of:
+#   abs<TAB>path      a literal or glob absolute path
+#   rel<TAB>path      a literal or glob relative path, cwd unknown
+#   abspat<TAB>pat    a PARTLY resolvable operand as an absolute pattern
+#   relpat<TAB>pat    the same, relative, cwd unknown
+# Partly resolvable means literal path text around segments this hook cannot
+# know: `$x`, `${x}`, `$(...)`, backticks, `~user`, a brace group that did not
+# expand (`{1..$n}`). Each such segment becomes `*`, which in a `case` pattern
+# also matches across `/`, so the pattern matches MORE than the shell could
+# delete, never less. `~`, `$HOME` and `${HOME}` are resolved, not wildcards.
+#
+# Non-zero, skipped, only for an operand with no literal path text at all
+# (`"$tmp"`, `"$(mktemp -d)"`, `"$tmp"/*`): its pattern matches every path, so
+# it carries nothing to check. That is the accepted residual; Layers 1-2 (the
+# rkvr rule and the reviewer) backstop it. A relative `..` with an unknown cwd
+# is skipped as before.
 delref_resolve() {
-  local p="$1" base="$2"
+  local p="$1" base="$2" out="" lit=0 dyn=0 lead=0 i=0 n c nx name pat kind
+  local -a comps=() kept=()
   case "$p" in
-    '$HOME'|'${HOME}') p="$HOME" ;;
-    '$HOME/'*)         p="$HOME/${p#\$HOME/}" ;;
-    '${HOME}/'*)       p="$HOME/${p#\$\{HOME\}/}" ;;
-    '~')               p="$HOME" ;;
-    '~/'*)             p="$HOME/${p#\~/}" ;;
+    '~')   p="$HOME" ;;
+    '~/'*) p="$HOME/${p#\~/}" ;;
+    '~'*)  out='*'; dyn=1; lead=1
+           case "$p" in */*) p="/${p#*/}" ;; *) p="" ;; esac ;;
   esac
-  case "$p" in ''|*'$'*|*'`'*|'~'*|*'{'*','*'}'*|*'{'*'..'*'}'*) return 1 ;; esac
-  case "$p" in
-    /*) printf 'abs\t%s' "$(norm_path "$p")" ;;
-    *)
-      if [ -n "$base" ]; then
-        printf 'abs\t%s' "$(norm_path "$base/$p")"
-      else
-        while [ "${p#./}" != "$p" ]; do p="${p#./}"; done
-        while [ "${p%/}" != "$p" ]; do p="${p%/}"; done
-        case "$p" in ''|.|..|../*|*/..|*/../*) return 1 ;; esac
-        printf 'rel\t%s' "$p"
-      fi
-      ;;
-  esac
+  n=${#p}
+  while [ "$i" -lt "$n" ]; do
+    c="${p:i:1}"
+    nx="${p:i+1:1}"
+    name=""
+    case "$c" in
+      '$')
+        case "$nx" in
+          '(') delref_close "$p" "$((i + 1))" '(' ')'; i=$((delref_j + 1)) ;;
+          '{') delref_close "$p" "$((i + 1))" '{' '}'
+               name="${p:i+2:delref_j-i-2}"; i=$((delref_j + 1))
+               [ "$name" = "HOME" ] || name="" ;;
+          [A-Za-z_])
+               [[ "${p:i+1}" =~ ^[A-Za-z_][A-Za-z0-9_]* ]]
+               name="${BASH_REMATCH[0]}"; i=$((i + 1 + ${#name}))
+               [ "$name" = "HOME" ] || name="" ;;
+          [0-9@*#?\$!-]) i=$((i + 2)) ;;
+          *) out+='$'; lit=1; i=$((i + 1)); continue ;;
+        esac
+        if [ -n "$name" ]; then out+="$HOME"; lit=1; continue; fi ;;
+      '`')
+        nx="${p:i+1}"; nx="${nx%%\`*}"; i=$((i + 2 + ${#nx})) ;;
+      '{')
+        delref_close "$p" "$i" '{' '}'
+        name="${p:i+1:delref_j-i-1}"
+        if [ "$delref_j" -lt "$n" ] && [[ "$name" == *,* || "$name" == *..* ]]; then
+          i=$((delref_j + 1))
+        else
+          out+='{'; lit=1; i=$((i + 1)); continue
+        fi ;;
+      *)
+        out+="$c"
+        case "$c" in /|'*'|'?') ;; *) lit=1 ;; esac
+        i=$((i + 1)); continue ;;
+    esac
+    [ -z "$out" ] && lead=1
+    out+='*'; dyn=1
+  done
+
+  if [ "$dyn" -eq 0 ]; then
+    p="$out"
+    case "$p" in
+      '') return 1 ;;
+      /*) printf 'abs\t%s' "$(norm_path "$p")" ;;
+      *)
+        if [ -n "$base" ]; then
+          printf 'abs\t%s' "$(norm_path "$base/$p")"
+        else
+          while [ "${p#./}" != "$p" ]; do p="${p#./}"; done
+          while [ "${p%/}" != "$p" ]; do p="${p%/}"; done
+          case "$p" in ''|.|..|../*|*/..|*/../*) return 1 ;; esac
+          printf 'rel\t%s' "$p"
+        fi
+        ;;
+    esac
+    return 0
+  fi
+
+  [ "$lit" -eq 1 ] || return 1
+  kind=abspat
+  if [ "$lead" -eq 1 ] || [ "${out:0:1}" = "/" ]; then pat="$out"
+  elif [ -n "$base" ]; then pat="$base/$out"
+  else
+    kind=relpat
+    pat="$out"
+    case "/$pat/" in */../*) return 1 ;; esac
+  fi
+  # Lexical normalization, except that a `..` after a wildcard can climb out of
+  # whatever the wildcard stood for, so everything before it becomes `*`.
+  IFS=/ read -r -a comps <<<"$pat"
+  for c in "${comps[@]}"; do
+    case "$c" in
+      ''|.) ;;
+      ..)
+        case "${kept[*]}" in
+          *[*?[]*) kept=('*') ;;
+          *) [ "${#kept[@]}" -gt 0 ] && unset 'kept[-1]' ;;
+        esac ;;
+      *) kept+=("$c") ;;
+    esac
+  done
+  pat=$(IFS=/; printf '%s' "${kept[*]}")
+  case "${pat//[\/*?]/}" in '') return 1 ;; esac
+  [ "$kind" = abspat ] && [ "${kept[0]}" != '*' ] && pat="/$pat"
+  printf '%s\t%s' "$kind" "$pat"
+}
+
+# delref_brace_seq <group body> -- sets delref_seq to bash's expansion of a
+# sequence body (`1..3`, `01..10`, `1..10..2`, `a..e`, `a..e..2`). Returns 1
+# when the body is not a sequence (bash leaves it literal), 2 when it would
+# produce more than DELREF_BRACE_MAX words.
+delref_seq=()
+delref_brace_seq() {
+  local s="$1" x y inc lx ly width=0 cnt v d
+  delref_seq=()
+  if [[ "$s" =~ ^([-+]?[0-9]+)\.\.([-+]?[0-9]+)(\.\.([-+]?[0-9]+))?$ ]]; then
+    lx="${BASH_REMATCH[1]}"; ly="${BASH_REMATCH[2]}"; inc="${BASH_REMATCH[4]:-1}"
+    for v in "$lx" "$ly" "$inc"; do
+      d="${v#[-+]}"; d="${d#"${d%%[!0]*}"}"
+      [ "${#d}" -le 15 ] || return 2
+    done
+    # bash pads to the wider endpoint when either one has a leading zero.
+    for v in "$lx" "$ly"; do
+      case "$v" in 0?*|-0?*) [ "${#v}" -gt "$width" ] && width=${#v} ;; esac
+    done
+    x=$((10#${lx#[-+]})); [ "${lx:0:1}" = "-" ] && x=$((-x))
+    y=$((10#${ly#[-+]})); [ "${ly:0:1}" = "-" ] && y=$((-y))
+    inc=$((10#${inc#[-+]})); [ "$inc" -eq 0 ] && inc=1
+  elif [[ "$s" =~ ^([A-Za-z])\.\.([A-Za-z])(\.\.([-+]?[0-9]+))?$ ]]; then
+    lx="${BASH_REMATCH[1]}"; ly="${BASH_REMATCH[2]}"; inc="${BASH_REMATCH[4]:-1}"
+    d="${inc#[-+]}"; d="${d#"${d%%[!0]*}"}"
+    [ "${#d}" -le 15 ] || return 2
+    printf -v x '%d' "'$lx"
+    printf -v y '%d' "'$ly"
+    inc=$((10#${inc#[-+]})); [ "$inc" -eq 0 ] && inc=1
+    width=-1
+  else
+    return 1
+  fi
+  cnt=$(( (x > y ? x - y : y - x) / inc + 1 ))
+  [ "$cnt" -le "$DELREF_BRACE_MAX" ] || return 2
+  [ "$x" -gt "$y" ] && inc=$((-inc))
+  for (( v = x; inc > 0 ? v <= y : v >= y; v += inc )); do
+    if [ "$width" -lt 0 ]; then
+      printf -v d '%03o' "$v"; printf -v d "\\$d"
+    elif [ "$width" -gt 0 ]; then
+      printf -v d '%0*d' "$width" "$v"
+    else
+      d=$v
+    fi
+    delref_seq+=("$d")
+  done
 }
 
 # delref_brace_expand <word> [from] -- appends bash's brace expansion of the
-# word to delref_expanded: comma lists, nested, left to right. A group with no
-# top-level comma stays literal (`{x}`, and a `{1..3}` sequence, which
-# delref_resolve then refuses). `${` is a parameter, not a group. Non-zero past
-# DELREF_BRACE_MAX words, leaving partial output for the caller to discard.
+# word to delref_expanded: comma lists and sequences, nested, left to right. A
+# group that is neither stays literal (`{x}`, `{1..$n}`, which delref_resolve
+# then turns into a wildcard). `${` is a parameter, not a group. Non-zero past
+# DELREF_BRACE_MAX words: the caller denies, because a partial expansion is an
+# unchecked delete.
 DELREF_BRACE_MAX=256
 delref_expanded=()
 delref_brace_expand() {
@@ -1178,14 +1330,23 @@ delref_brace_expand() {
         *) cur+="$c" ;;
       esac
     done
-    [ "$j" -lt "$n" ] && [ "${#alts[@]}" -gt 0 ] || continue
-    alts+=("$cur")
+    [ "$j" -lt "$n" ] || continue
+    if [ "${#alts[@]}" -gt 0 ]; then
+      alts+=("$cur")
+    else
+      delref_brace_seq "$cur"
+      case $? in
+        0) alts=("${delref_seq[@]}") ;;
+        2) return 1 ;;
+        *) continue ;;
+      esac
+    fi
     for a in "${alts[@]}"; do
-      [ "${#delref_expanded[@]}" -lt "$DELREF_BRACE_MAX" ] || return 1
       delref_brace_expand "${w:0:i}$a${w:j+1}" "$i" || return 1
     done
     return 0
   done
+  [ "${#delref_expanded[@]}" -lt "$DELREF_BRACE_MAX" ] || return 1
   delref_expanded+=("$w")
 }
 
@@ -1194,7 +1355,7 @@ delref_brace_expand() {
 # under it. A glob operand matches as a pattern; a relative operand with an
 # unknown cwd matches as a path suffix, which over-matches rather than misses.
 delref_hit() {
-  local kind="$1" p="$2" ref where
+  local kind="${1%pat}" p="$2" ref where
   while IFS=$'\t' read -r ref where; do
     [ -n "$ref" ] || continue
     if [ "$p" = "/" ]; then printf '%s\t%s' "$ref" "$where"; return 0; fi
@@ -1230,7 +1391,7 @@ delref_cargo_bins() {
 # deny's exit ends the hook and delref_load's cache survives across statements.
 delref_check() {
   local st="$1" base="$2" verb="" v w t i n endopts=0 skip="" tdir="" root="" r kind path hit
-  local -a toks=() ops=() raw=() specs=() cbins=() resolved=()
+  local -a toks=() ops=() raw=() specs=() cbins=() resolved=() origs=()
   for v in rm mv rkvr cargo; do
     printf '%s' "$st" | cmdword_is "$v" >/dev/null 2>&1 && { verb="$v"; break; }
   done
@@ -1317,7 +1478,9 @@ delref_check() {
     case "$t" in
       *'{'*)
         delref_expanded=()
-        if delref_brace_expand "$t"; then ops+=("${delref_expanded[@]}"); else ops+=("$t"); fi ;;
+        delref_brace_expand "$t" \
+          || deny "DELETE-REF: $t brace-expands to more than DELREF_BRACE_MAX ($DELREF_BRACE_MAX) words, so what it deletes cannot be checked. Denied rather than assumed unreferenced; split the delete."
+        ops+=("${delref_expanded[@]}") ;;
       *) ops+=("$t") ;;
     esac
   done
@@ -1340,13 +1503,18 @@ delref_check() {
   for t in "${ops[@]}"; do
     r=$(delref_resolve "$t" "$base") || continue
     resolved+=("$r")
+    origs+=("$t")
   done
   [ "${#resolved[@]}" -gt 0 ] || return 0
   delref_load || deny "DELETE-REF: $delref_fail. Denied rather than assumed unreferenced."
-  for r in "${resolved[@]}"; do
+  for i in "${!resolved[@]}"; do
+    r="${resolved[$i]}"
     kind="${r%%${DELREF_TAB}*}"
     path="${r#*${DELREF_TAB}}"
     hit=$(delref_hit "$kind" "$path") || continue
+    case "$kind" in *pat)
+      deny "DELETE-REF: ${origs[$i]} is only partly resolvable here; as the pattern $path it can remove ${hit%%${DELREF_TAB}*}, referenced by ${hit#*${DELREF_TAB}}. $DELREF_TAIL" ;;
+    esac
     if [ "${hit%%${DELREF_TAB}*}" = "$path" ]; then
       deny "DELETE-REF: $path is referenced by ${hit#*${DELREF_TAB}}. $DELREF_TAIL"
     fi

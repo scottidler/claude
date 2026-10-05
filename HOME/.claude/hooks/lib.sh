@@ -76,6 +76,8 @@ BEGIN {
 function scan(s,   n, i, ch, nx, rest, tok, w, j) {
   n = length(s)
   delete cls
+  delete esc
+  delete qrm
   delete nd
   delete nsb
   delete nse
@@ -96,6 +98,8 @@ function scan(s,   n, i, ch, nx, rest, tok, w, j) {
         nx = substr(s, i + 1, 1)
         if (nx == "$") { cls[i] = "E"; cls[i + 1] = "E" }
         else { cls[i] = "D"; if (i < n) cls[i + 1] = "D" }
+        if (nx == "$" || nx == "`" || nx == "\"" || nx == "\\") qrm[i] = 1
+        if (nx == "\n") { qrm[i] = 1; qrm[i + 1] = 1 }
         i += 2
         continue
       }
@@ -109,6 +113,11 @@ function scan(s,   n, i, ch, nx, rest, tok, w, j) {
     if (ch == "\\") {
       if (substr(s, i + 1, 1) == "$") { cls[i] = "E"; cls[i + 1] = "E" }
       else { cls[i] = "."; if (i < n) cls[i + 1] = "." }
+      if (i < n) {
+        qrm[i] = 1
+        esc[i + 1] = 1
+        if (substr(s, i + 1, 1) == "\n") qrm[i + 1] = 1
+      }
       i += 2
       continue
     }
@@ -266,7 +275,11 @@ function masked(s, set,   n, i, out, c) {
 }
 
 # tb[k]/te[k] are the byte bounds of token k; tsep[k] says a metacharacter (not
-# just whitespace) came before it, so `-m ;` has no value token.
+# just whitespace) came before it, so `-m ;` has no value token. A backslash-
+# escaped byte (esc) and the `$(`/`<(`/`)` delimiters of a substitution (nd) are
+# inside the word, as bash reads them: splitting `My\ Tools` or `a/$(x)/b` there
+# handed DELETE-REF two operands it could not resolve. `in nd`, never `nd[i]`,
+# which would create the key that boundary_at tests for.
 function tokenize(s,   n, i, c, brk) {
   delete tb
   delete te
@@ -277,15 +290,15 @@ function tokenize(s,   n, i, c, brk) {
   brk = 0
   while (i <= n) {
     c = substr(s, i, 1)
-    if (cls[i] == "." && (c == " " || c == "\t")) { i++; continue }
-    if (cls[i] == "." && (c == "\n" || index(SEPCH, c) > 0)) { brk = 1; i++; continue }
+    if (cls[i] == "." && !esc[i] && (c == " " || c == "\t")) { i++; continue }
+    if (cls[i] == "." && !esc[i] && !(i in nd) && (c == "\n" || index(SEPCH, c) > 0)) { brk = 1; i++; continue }
     tn++
     tb[tn] = i
     tsep[tn] = brk
     brk = 0
     while (i <= n) {
       c = substr(s, i, 1)
-      if (cls[i] == "." && (c == " " || c == "\t" || c == "\n" || index(SEPCH, c) > 0)) break
+      if (cls[i] == "." && !esc[i] && !(i in nd) && (c == " " || c == "\t" || c == "\n" || index(SEPCH, c) > 0)) break
       i++
     }
     te[tn] = i - 1
@@ -304,8 +317,19 @@ function toktext(s, k) { return substr(s, tb[k], te[k] - tb[k] + 1) }
 # original contract with the decision left where it belongs: feed the ORIGINAL
 # when a `$` or a backtick has to survive to be refused, feed a MASKED copy when
 # a word inside a message-flag value must not be read as a name.
+#
+# Backslashes go through quote removal too, the way bash reads the word: outside
+# quotes `\x` is x (so `My\ Tools` is one argument), inside double quotes only
+# `\\ \" \$ \``, and `\<newline>` vanishes. Every other mode keeps tokword's
+# backslash-preserving text, which the verb and flag gates match against.
 function args_out(s,   k) {
-  for (k = 1; k <= tn; k++) printf "%s\n", tokword(s, k)
+  for (k = 1; k <= tn; k++) printf "%s\n", argword(s, k)
+}
+
+function argword(s, k,   i, out) {
+  out = ""
+  for (i = tb[k]; i <= te[k]; i++) if (cls[i] != "q" && !qrm[i]) out = out substr(s, i, 1)
+  return out
 }
 
 # The shell WORD a token expands to as far as quoting goes: the quote characters

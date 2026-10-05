@@ -34,6 +34,7 @@ printf '[Desktop Entry]\nName=fixture\nExec="%s/.local/bin/drtest-desk" --handle
 ln -s "$HOME/repos/drtest/mytool" "$DR/bin/mytool"
 printf '[Service]\nExecStart=%%h/bin/tool --config=%%h/.config/tool.yml\n' > "$DR/units/tool.service"
 printf '[Service]\nExecStart="%%h/My Tools/slack" deliver\n' > "$DR/units/spaced.service"
+printf '[Service]\nExecStart=%%h/.local/bin/slack2\nExecStartPost=%%h/.local/bin/drtest-seq07\nExecStopPost=%%h/.local/bin/drtest-seq-c\n' > "$DR/units/seq.service"
 mkdir -p "$DR/units-locked" "$DR/units-sublocked/sub" "$DR/apps-locked" "$DR/bin-locked"
 printf '[Service]\nExecStart=%%h/.local/bin/drtest-locked\n' > "$DR/units-unreadable.service"
 mkdir -p "$DR/units-filelocked" && mv "$DR/units-unreadable.service" "$DR/units-filelocked/locked.service"
@@ -807,8 +808,62 @@ run allow 'rm ~/tmp/{a,b}'
 run allow 'rm ~/.local/bin/{slack-old,slack.bak}'
 # Not a brace expansion in bash: one word, no comma.
 run allow 'rm ~/.local/bin/{slack}'
-# A sequence is not expanded: unresolvable, skipped like `$x`.
-run allow 'rm ~/.local/bin/slack{1..3}'
+# A sequence expands the way bash does: this row was an allow when sequences
+# were left unexpanded and skipped as unresolvable, which hid slack2.
+run deny  'rm ~/.local/bin/slack{1..3}'
+runsays   'rm ~/.local/bin/slack{1..3}' 'seq.service:2'
+run deny  'rm -v ~/.local/bin/slack{,1..3}'
+run deny  'rm ~/.local/bin/{x,slack{1..3}}'
+run allow 'rm ~/.local/bin/slack{4..6}'
+run deny  'rm ~/.local/bin/slack{3..1}'
+run deny  'rm ~/.local/bin/drtest-seq{05..09}'
+run allow 'rm ~/.local/bin/drtest-seq{5..9}'
+run deny  'rm ~/.local/bin/drtest-seq{01..10..2}'
+run allow 'rm ~/.local/bin/drtest-seq{02..10..2}'
+run deny  'rm ~/.local/bin/drtest-seq-{a..e}'
+run allow 'rm ~/.local/bin/drtest-seq-{d..f}'
+run deny  'rm ~/.local/bin/drtest-seq-{a..e..2}'
+run allow 'rm ~/.local/bin/drtest-seq-{b..f..2}'
+
+echo "=== DELETE-REF: a brace expansion past DELREF_BRACE_MAX denies ==="
+run deny  'rm ~/tmp/x{1..300}'
+runsays   'rm ~/tmp/x{1..300}' 'DELREF_BRACE_MAX'
+run deny  'rm ~/tmp/{a,b}{1..200}'
+run deny  'rm ~/tmp/x{1..99999999999999999999}'
+run allow 'rm ~/tmp/x{1..16}{1..16}'
+
+echo "=== DELETE-REF: a partly resolvable operand matches as a pattern ==="
+run deny  'rm ~/.local/bin/$x'
+runsays   'rm ~/.local/bin/$x' "as the pattern $HOME/.local/bin/* it can remove $HOME/.local/bin/"
+run deny  'rm -rf ~/.config/drtest/$x'
+runsays   'rm -rf ~/.config/drtest/$x' 'env.service:'
+run allow 'rm ~/tmp/$x'
+run deny  'rm "${HOME}/.local/bin/${name}"'
+run deny  'rm $HOME/.local/$(echo bin)/slack'
+run deny  'rm ~/.local/bin/`echo slack`'
+run deny  'rm ~/.local/b?n/slack'
+run deny  'rm ~/.local/bin/{$x,y}'
+run deny  'rm ~/.local/bin/slack{1..$n}'
+run allow 'rm ~/tmp/x{1..$n}'
+run deny  'rm $x/.local/bin/slack'
+run allow 'rm $x/definitely-unreferenced-file'
+run deny  'rm ~/.local/$x/../bin/slack'
+run deny  'rm ~nobody/.local/bin/slack'
+run deny  'rm -rf "$HOME/$x"'
+runcwd deny  "$HOME/.local" 'rm bin/$x'
+runcwd allow "$HOME" 'rm tmp/$x'
+runcwd deny  '' 'rm bin/$x'
+# Fully dynamic: no literal path text, so nothing to match. Layers 1-2 backstop.
+run allow 'rm "$tmp"'
+run allow 'rm -rf "$(mktemp -d)"'
+run allow 'rm -rf "$tmp"/*'
+runcwd allow "$HOME/.local/bin" 'rm $x'
+
+echo "=== DELETE-REF: a backslash-escaped space stays in the word ==="
+run deny  'rm ~/My\ Tools/slack'
+runsays   'rm ~/My\ Tools/slack' 'spaced.service:2'
+run deny  'rm -rf ~/My\ Tools'
+run allow 'rm ~/My\ Toolsx'
 
 echo
 echo "pass=$pass fail=$fail"
