@@ -69,27 +69,32 @@ the phase. The one delivery was its completion notification.
 
 ### Reap each worker once its report is accepted
 
-A finished `phase-implementer` sits in `ListAgents` as `idle` indefinitely, and
-the roster fills up with workers that have nothing left to do. After you accept
-a report (CI green, commit SHA present) and before dispatching the next phase,
-send that worker:
+A worker spawned with the Agent tool is a plain background subagent, not an
+agent-team teammate. It lingers in `ListAgents` as `completed` after its
+report, and the processes it backgrounded can outlive it. After you accept a
+report (CI green, commit SHA present) and before dispatching the next phase:
 
-```json
-{"type": "shutdown_request", "reason": "phase <N> report accepted"}
-```
+1. **`TaskStop` the worker by its agent id.** This flips its `ListAgents` row
+   from `completed` to `killed` (measured 2026-10-04, `second-brain`
+   ingest-queue-status run). Never `SendMessage` a `{"type":
+   "shutdown_request"}` to it: `SendMessage` refuses protocol-frame text to a
+   non-teammate ("message text must not be a teammate protocol frame"), and the
+   structured form it suggests is not reachable from the tool's string
+   `message` field. Two refusals on 2026-10-04.
+2. **Kill what it left running.** A completion notice that says "stopped with
+   background work of its own still running" means a process survived the
+   worker, usually a backgrounded `otto ci`. On 2026-10-04 four of them sat hung
+   on the vault `fabric --version` test for up to 2h24m, stacked on one
+   `target/`, plus a `until rg ...; do sleep` loop waiting on one of them. Find
+   them with `pgrep -af 'otto ci|cargo test'` run **unsandboxed** (the sandbox
+   has its own pid namespace and shows nothing), and kill the stale ones.
+   Never touch `~/.otto/` itself (`rules/otto.md`).
 
-- **Assert the roster, not the approval.** `shutdown_approved` is
-  **asynchronous**: it arrived several turns after the request, and the worker
-  was already gone from `ListAgents` before it landed (0d addendum). A worker
-  still listed in the turn you sent the request is NOT a failure, and it is not
-  something to resend. The check is the end-of-run one: `ListAgents` shows no
-  phase worker.
 - **Only after accepting.** A red or incomplete report means that worker's
-  context is still the cheapest place to fix the phase. Message it back, and
-  reap only once the follow-up report is accepted.
-- `SendMessage`'s own guidance says not to originate `shutdown_request` unless
-  asked. This workflow asks, for the phase workers it spawned itself and for
-  nothing else.
+  context is still the cheapest place to fix the phase. Message it back in
+  plain text, and reap only once the follow-up report is accepted.
+- **End-of-run check:** `ListAgents` shows no phase worker other than `killed`,
+  and the unsandboxed `pgrep` shows no `otto ci` you did not start.
 
 ## Prerequisites
 
@@ -331,8 +336,8 @@ After committing, **IMMEDIATELY** proceed to the next phase:
 4. **Begin the loop again** - DO NOT STOP, DO NOT ASK THE USER
 
 In Delegated mode the report arrives as a wake, and two things happen in that
-same turn before the next dispatch: **emit the beat**, and **send the accepted
-worker a `shutdown_request`**. Both are specified above, under "Orchestrating a
+same turn before the next dispatch: **emit the beat**, and **reap the accepted
+worker** (`TaskStop`, then kill any process it left running). Both are specified above, under "Orchestrating a
 delegated run". After the LAST phase the same turn dispatches the
 implementation audit (finalization step 2), with no user prompt in between.
 
