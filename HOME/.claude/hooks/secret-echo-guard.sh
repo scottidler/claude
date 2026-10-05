@@ -125,7 +125,7 @@ SECRET_PATH_HELP="These files hold credential VALUES: token.json / tokens.json, 
 # in `permissions.allow`, so this is a seam rather than an assumption.
 if [ "$tool" = "Read" ]; then
   case "$read_path" in
-    /proc/*environ) deny_now "Blocked (proc-environ): $read_path is that process's whole environment, values included. $PROC_ENVIRON_HELP" ;;
+    */environ|*/environ/) deny_now "Blocked (proc-environ): $read_path is that process's whole environment, values included. $PROC_ENVIRON_HELP" ;;
   esac
   if [ -n "$read_path" ] && path_is_secret "$read_path"; then
     deny_now "Blocked (read-secret-file): $read_path holds credential values, and reading it puts them in the transcript. That is the 06-16 leak exactly: sk-ant-, 108 characters, through this tool. $SECRET_PATH_HELP"
@@ -354,9 +354,6 @@ capture_is_exempt() {
 artifact_verdict() {
   local stmt="$1" verb filter q i n k tok hit seen_verb pattern seen_pattern
   local -a toks optoks
-  case "$stmt" in
-    */proc/*environ*) printf '%s' "proc-environ"; return 0 ;;
-  esac
   mapfile -t toks < <(printf '%s' "$stmt" | args)
   n=${#toks[@]}
 
@@ -494,21 +491,48 @@ artifact_verdict() {
   return 0
 }
 
-# ps_shows_env <statement>: the BSD `e` option (`ps e`, `ps axe`, `ps eww`)
-# appends every listed process's environment, values included. `-e` is the
-# unrelated "every process" selector and stays allowed, as do option arguments
-# (`-o etime`), so only a bare-letters token outside an option argument counts.
-# Pure bash on purpose: the subprocess tokenizer made every `ps`-bearing command
-# about 7x slower (20 ms -> 140 ms), and this only has to find bare-letter
-# tokens after the word ps. The caller confirms ps is the command word.
-ps_shows_env() {
+# unquote <text>: what the shell will see once quoting is removed. A text
+# match on the raw statement is a parser differential: `ps a"x"e`, `ps 'axe'`,
+# `cat /proc/1/envir"on"` all run the denied form while reading as something
+# else. Dropping every quote and backslash over-joins words now and then; it
+# can only add denies, never remove one.
+unquote() {
+  local t="$1"
+  t=${t//\$\'/\'}; t=${t//\'/}; t=${t//\"/}; t=${t//\\/}
+  printf '%s' "$t"
+}
+
+# env_read_verdict <statement> -> prints a deny code, or nothing
+#
+# Process environments print every variable WITH its value. 2026-10-05: a debug
+# session ran `cat /proc/<pid>/environ | tr '\0' '\n' | rg -i 'fabric|HOME'`;
+# HOME matched GITHUB_PAT_HOME and the token landed in a subagent transcript.
+# Pure bash on purpose: it runs for every statement, and the one subprocess
+# (cmdword_is, to confirm ps is the command word) runs only for a candidate.
+#   proc-environ   a token named `environ` or ending in `/environ`, which covers
+#                  `$p/environ` and `cd /proc/N && cat environ`; or a glob that
+#                  starts with `env` or sits in a /proc path (`/proc/1/env*`)
+#   ps-environment ps's BSD `e` option (`ps e`, `ps axe`, `ps eww`). `-e` is
+#                  the unrelated "every process" selector and stays allowed, as
+#                  do option arguments (`-o etime`).
+# Variable indirection beyond this (`v=environ; cat /proc/1/$v`) is the
+# known-unfixable static class (variable verbs), named in the setup audit.
+env_read_verdict() {
   local -a toks
   local tok seen=0 skip=0
-  read -ra toks <<< "$1"
+  read -ra toks <<< "$(unquote "$1")"
+  for tok in "${toks[@]}"; do
+    case "$tok" in
+      environ|*/environ|*/environ[!a-zA-Z0-9_]*) printf '%s' "proc-environ"; return 0 ;;
+      # An interpreter dumping its own environment: os.environ prints every
+      # value the same way (`python3 -c 'import os; print(os.environ)'`).
+      *os.environ|*os.environ[!a-zA-Z0-9_]*) printf '%s' "proc-environ"; return 0 ;;
+      */proc*[*?[]*|env*[*?[]*|*/env*[*?[]*) printf '%s' "proc-environ"; return 0 ;;
+    esac
+  done
   for tok in "${toks[@]}"; do
     if [ "$seen" = 0 ]; then
-      tok=${tok//\\/}; tok=${tok//\"/}; tok=${tok//\'/}
-      [ "$tok" = ps ] && seen=1
+      [ "${tok##*/}" = ps ] && seen=1
       continue
     fi
     if [ "$skip" = 1 ]; then skip=0; continue; fi
@@ -517,7 +541,13 @@ ps_shows_env() {
       -o|-O|-p|-q|-C|-u|-U|-g|-G|-t|-s|-k|--format|--sort|--pid|--ppid|--user|--group|--tty|--cols|--columns|--width|--lines|--rows) skip=1 ;;
       -*) ;;
       *[!a-zA-Z]*) ;;
-      *e*) return 0 ;;
+      *e*)
+        if printf '%s' "$1" | cmdword_is ps >/dev/null 2>&1 \
+        || printf '%s' "$1" | cmdword_is /usr/bin/ps >/dev/null 2>&1 \
+        || printf '%s' "$1" | cmdword_is /bin/ps >/dev/null 2>&1; then
+          printf '%s' "ps-environment"; return 0
+        fi
+        return 1 ;;
     esac
   done
   return 1
@@ -544,13 +574,11 @@ while IFS= read -r -d '' stmt; do
   # bare and double-quoted forms denied. The branch below already reads verbscan.
   verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
   case "$verbscan" in
-    *get-secret-value*|*show-environment*|*.env*|*token.json*|*tokens.json*|*_history*|*/proc/*environ*)
+    *get-secret-value*|*show-environment*|*.env*|*token.json*|*tokens.json*|*_history*)
       artifact=$(artifact_verdict "$verbscan")
       case "$artifact" in
         aws-secret-value)
           deny_now "Blocked (aws-secret-value): get-secret-value prints the decrypted secret, and --query SecretString SELECTS that value rather than hiding it (it is what leaked an xoxb- bot token on 06-23 and 06-25). Project something that cannot carry a value: --query ARN, Name, VersionId or CreatedDate." ;;
-        proc-environ)
-          deny_now "Blocked (proc-environ): /proc/<pid>/environ is that process's whole environment, values included, and every reader prints them. $PROC_ENVIRON_HELP" ;;
         systemctl-environment)
           deny_now "Blocked (systemctl-environment): show-environment prints every variable in the manager environment WITH its value, which leaked a 110-character Anthropic key on 07-30. For one variable's presence use \${VAR:+present}; to inspect the set use the redaction-shimmed \`env\`." ;;
         print-secret-file|unknown-reader)
@@ -563,14 +591,11 @@ while IFS= read -r -d '' stmt; do
       ;;
   esac
 
-  case "$verbscan" in
-    # Any "ps" substring: a text anchor on the bare word misses `\ps` and
-    # `"ps"`, which cmdword_is resolves (the wrapper sweep caught both).
-    *ps*)
-      if ps_shows_env "$verbscan" && printf '%s' "$verbscan" | cmdword_is ps >/dev/null 2>&1; then
-        deny_now "Blocked (ps-environment): ps's BSD \`e\` option prints every listed process's environment WITH values. Drop the e (\`ps aux\`, \`ps -ef\`, \`ps -o pid,etime,args\`). $PROC_ENVIRON_HELP"
-      fi
-      ;;
+  case "$(env_read_verdict "$verbscan")" in
+    proc-environ)
+      deny_now "Blocked (proc-environ): this reads a process environment (/proc/<pid>/environ), which holds every variable WITH its value; every reader prints them. $PROC_ENVIRON_HELP" ;;
+    ps-environment)
+      deny_now "Blocked (ps-environment): ps's BSD \`e\` option prints every listed process's environment WITH values. Drop the e (\`ps aux\`, \`ps -ef\`, \`ps -o pid,etime,args\`). $PROC_ENVIRON_HELP" ;;
   esac
 
   # Resolving the command word costs a subprocess per verb, so it runs only for

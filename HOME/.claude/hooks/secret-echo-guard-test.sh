@@ -156,6 +156,31 @@ run allow 'ps -eo pid,etime,comm'
 run allow 'ps -o etime -p 1'
 run allow 'pgrep -af "otto ci"'
 run allow 'echo https://apps.example.com'
+# parser differentials: quoting, escapes, globs and indirection (security review)
+run deny  'ps a"x"e'
+run deny  "ps 'axe'"
+run deny  "ps \$'axe'"
+run deny  'ps ax\e'
+run deny  'p=/proc/1; cat $p/environ'
+run deny  'cat /proc/1/env*'
+run deny  'cat /proc/1/e?viron'
+run deny  'cat /proc/1/envir"on"'
+run deny  "cat /proc/1/envir''on"
+run deny  'cd /proc/1 && cat environ'
+run deny  'cat /proc/1/environ/'
+run deny  '/usr/bin/ps axe'
+run deny  "python3 -c 'print(open(\"/proc/1/environ\").read())'"
+run deny  "python3 -c 'import os; print(os.environ)'"
+run deny  "python3 -c 'import os; print(os.environ.get(\"GH_TOKEN\"))'"
+run allow 'echo "$PATH" | tr : "\\n"'
+run allow 'rg -n environment src'
+run allow 'ls /proc/1/'
+run allow 'cat /proc/1/status'
+run allow 'ps -e'
+run allow 'ps -E'
+run allow 'ps --sort=-etime -e'
+run allow 'ps -eo user,pid,etime,args --sort etime'
+
 
 echo "=== readers that cannot project deny against a credential path ==="
 run deny 'cat /run/user/1000/borg.env'
@@ -219,6 +244,8 @@ runread deny  '/proc/3257333/environ'
 runread deny  '/proc/self/environ'
 runread deny  '/proc/1/task/1/environ'
 runread allow '/proc/self/status'
+runread deny  '//proc/1/environ'
+runread deny  '/proc/self/root/proc/1/environ'
 runread allow "$HOME/repos/scottidler/claude/HOME/.claude/settings.json"
 
 echo "=== every leak holds in every shape bash offers ==="
