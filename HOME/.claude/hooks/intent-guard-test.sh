@@ -20,7 +20,7 @@ fail=0
 # in this file, so no row reads the live units, crontab, ~/bin or cargo state.
 # Operands under $HOME are only ever fed to the hook as text; nothing deletes.
 DR=$(mktemp -d "${TMPDIR:-/tmp}/intent-guard-delref.XXXXXX") || exit 1
-delref_cleanup() { [ -d "$DR" ] && rm -rf "$DR"; return 0; }
+delref_cleanup() { [ -d "$DR" ] && chmod -R u+rwx "$DR" && rm -rf "$DR"; return 0; }
 trap delref_cleanup EXIT
 mkdir -p "$DR/units/sub" "$DR/dotfiles" "$DR/apps" "$DR/bin" "$DR/stub"
 printf '[Unit]\nDescription=fixture\n\n[Service]\nExecStart=%%h/.local/bin/slack scheduled deliver\n' > "$DR/units/slack-deliver.service"
@@ -32,6 +32,12 @@ printf '[Service]\nExecStart=%%h/.local/bin/drtest-bak-only\n' > "$DR/units/old.
 printf '[Unit]\nConditionPathExists=!%%h/.config/drtest/cond\n[Service]\nEnvironmentFile=-%%h/.config/drtest/env\nExecStartPre=+/usr/bin/true\n' > "$DR/units/sub/env.service"
 printf '[Desktop Entry]\nName=fixture\nExec="%s/.local/bin/drtest-desk" --handle-uri %%u\n' "$HOME" > "$DR/apps/tool.desktop"
 ln -s "$HOME/repos/drtest/mytool" "$DR/bin/mytool"
+printf '[Service]\nExecStart=%%h/bin/tool --config=%%h/.config/tool.yml\n' > "$DR/units/tool.service"
+printf '[Service]\nExecStart="%%h/My Tools/slack" deliver\n' > "$DR/units/spaced.service"
+mkdir -p "$DR/units-locked" "$DR/units-sublocked/sub" "$DR/apps-locked" "$DR/bin-locked"
+printf '[Service]\nExecStart=%%h/.local/bin/drtest-locked\n' > "$DR/units-unreadable.service"
+mkdir -p "$DR/units-filelocked" && mv "$DR/units-unreadable.service" "$DR/units-filelocked/locked.service"
+chmod 000 "$DR/units-locked" "$DR/units-sublocked/sub" "$DR/apps-locked" "$DR/bin-locked" "$DR/units-filelocked/locked.service"
 echo '{"installs":{"slack-cli 0.14.7 (path+file:///x)":{"bins":["slack"]},"other 1.0.0 (registry+x)":{"bins":["other"]}}}' > "$DR/crates2.json"
 echo '{"installs":' > "$DR/crates2-bad.json"
 printf '#!/bin/sh\necho "no crontab for $USER" >&2\nexit 1\n' > "$DR/stub/crontab-none"
@@ -762,6 +768,47 @@ DELREF_SYSTEMD_ANALYZE="$DR/stub/sa-fail" run deny 'rm -v ~/tmp/definitely-unref
 # under it, so its slack-deliver reference is out of scope here.
 DELREF_SYSTEMD_ANALYZE="$DR/stub/sa-outside" run allow 'rm -v ~/.local/bin/slack'
 export DELREF_UNIT_DIRS="$delref_saved_units"
+
+echo "=== DELETE-REF: an unreadable unit, desktop or bin dir denies, naming it ==="
+DELREF_UNIT_DIRS="$DR/units
+$DR/units-locked" run deny 'rm -v ~/.local/bin/slack.unrelated'
+DELREF_UNIT_DIRS="$DR/units-locked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/units-locked"
+DELREF_UNIT_DIRS="$DR/units-sublocked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/units-sublocked/sub"
+DELREF_UNIT_DIRS="$DR/units-filelocked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/units-filelocked/locked.service"
+DELREF_DESKTOP_DIRS="$DR/apps-locked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/apps-locked"
+DELREF_BIN_DIR="$DR/bin-locked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/bin-locked"
+# A dir that does not exist is an empty source, not an unknown.
+DELREF_UNIT_DIRS="$DR/no-such-units" DELREF_DESKTOP_DIRS="$DR/no-such-apps" DELREF_BIN_DIR="$DR/no-such-bin" run allow 'rm -v ~/tmp/definitely-unreferenced-file'
+# Unreadable sources are only read for a delete: a non-delete stays zero-I/O.
+DELREF_UNIT_DIRS="$DR/units-locked" run allow 'ls -la ~/repos'
+
+echo "=== DELETE-REF: a --flag=/path in an Exec line is a reference ==="
+run deny  'rm ~/.config/tool.yml'
+runsays   'rm ~/.config/tool.yml' 'tool.service:2'
+run deny  'rm ~/bin/tool'
+
+echo "=== DELETE-REF: a quoted Exec path keeps its spaces ==="
+run deny  'rm "~/My Tools/slack"'
+run deny  'rm "$HOME/My Tools/slack"'
+runsays   'rm "$HOME/My Tools/slack"' 'spaced.service:2'
+run deny  'rm -rf ~/"My Tools"'
+# The old split cut the path at the space, so `~/My` itself read as referenced.
+run allow 'rm -rf ~/My'
+
+echo "=== DELETE-REF: brace operands expand before matching ==="
+run deny  'rm -v ~/.local/bin/sl{ack,ack.old}'
+runsays   'rm -v ~/.local/bin/sl{ack,ack.old}' 'slack-deliver.service:5'
+run deny  'rm ~/.local/bin/{drtest-x,s{l,m}ack}'
+run deny  'rm ~/.local/{bin,lib}/slack'
+run deny  'rm ~/.local/bin/{x,}slack'
+run deny  'mv ~/.local/bin/{slack,slack.old}'
+run deny  'rm ${HOME}/.local/bin/sl{ack,}'
+run allow 'rm ~/tmp/{a,b}'
+run allow 'rm ~/.local/bin/{slack-old,slack.bak}'
+# Not a brace expansion in bash: one word, no comma.
+run allow 'rm ~/.local/bin/{slack}'
+# A sequence is not expanded: unresolvable, skipped like `$x`.
+run allow 'rm ~/.local/bin/slack{1..3}'
 
 echo
 echo "pass=$pass fail=$fail"

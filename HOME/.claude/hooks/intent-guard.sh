@@ -976,13 +976,30 @@ delref_fail=""
 
 # delref_extract <unit|desktop|cron> <label> [file...] -- one line per path a
 # reference line names: `<abs path>\t<file>:<line>`. Reads stdin when no file
-# is given (the crontab). A token is a path when it starts with `/` after the
-# systemd exec prefixes (`-@:+!|`) and a `--flag=` are stripped; a redirect
-# target is not a reference (cron's `>> ~/.cache/x.log` is a log, not a tool).
+# is given (the crontab). Words split the way systemd and the shell quote
+# them, so `"%h/My Tools/x"` is one path. A word is a path when it starts with
+# `/` after a `--flag=` and then the systemd exec prefixes (`-@:+!|`) are
+# stripped, in that order: the prefix strip first ate both dashes of
+# `--config=` and the flag was never seen. A redirect target is not a
+# reference (cron's `>> ~/.cache/x.log` is a log, not a tool).
 delref_extract() {
   local mode="$1" label="$2"
   shift 2
   LC_ALL=C awk -v mode="$mode" -v home="$HOME" -v label="$label" '
+  function words(s, w,    i, len, c, q, cur, inw, n) {
+    n = 0; cur = ""; inw = 0; q = ""; len = length(s)
+    for (i = 1; i <= len; i++) {
+      c = substr(s, i, 1)
+      if (q == "\047") { if (c == "\047") q = ""; else cur = cur c; continue }
+      if (c == "\\" && i < len) { i++; cur = cur substr(s, i, 1); inw = 1; continue }
+      if (q == "\"") { if (c == "\"") q = ""; else cur = cur c; continue }
+      if (c == "\"" || c == "\047") { q = c; inw = 1; continue }
+      if (c ~ /[ \t;|()`]/) { if (inw) w[++n] = cur; cur = ""; inw = 0; continue }
+      cur = cur c; inw = 1
+    }
+    if (inw) w[++n] = cur
+    return n
+  }
   {
     line = $0
     if (mode == "unit") {
@@ -999,7 +1016,8 @@ delref_extract() {
       gsub(/\$\{HOME\}|\$HOME/, home, v)
     }
     where = (label != "" ? label : FILENAME) ":" FNR
-    n = split(v, f, /[ \t"\047;|()`]+/)
+    split("", f)
+    n = words(v, f)
     redir = 0
     for (i = 1; i <= n; i++) {
       t = f[i]
@@ -1007,8 +1025,8 @@ delref_extract() {
       if (t ~ /^[0-9]*>>?&?$/ || t ~ /^[0-9]*<$/) { redir = 1; continue }
       if (t ~ /^[0-9]*[<>]/) continue
       if (redir) { redir = 0; continue }
-      sub(/^[-@:+!|]+/, "", t)
       sub(/^-[-A-Za-z0-9_.]*=/, "", t)
+      sub(/^[-@:+!|]+/, "", t)
       if (t ~ /^~\//) t = home substr(t, 2)
       if (t !~ /^\//) continue
       if (t != "/") sub(/\/+$/, "", t)
@@ -1019,7 +1037,9 @@ delref_extract() {
 
 # delref_load -- fills delref_refs once per command. Non-zero with delref_fail
 # set when a source exists but cannot be read: an unreadable source is an
-# unknown, and an unknown is never "no references" (fail closed).
+# unknown, and an unknown is never "no references" (fail closed). That covers
+# every dir and file under the unit dirs, the desktop dirs and their entries,
+# and the bin dir; a dir that does not exist is an empty source.
 delref_load() {
   [ "$delref_loaded" -eq 1 ] && { [ -z "$delref_fail" ]; return; }
   delref_loaded=1
@@ -1041,8 +1061,18 @@ delref_load() {
     fi
   fi
   # -L because dotfiles-owned units are symlinks, which `grep -r` skips.
+  # find reports an unreadable dir or file as U, never silently skips it.
   if [ "${#dirs[@]}" -gt 0 ]; then
-    mapfile -d '' -t files < <(find -L "${dirs[@]}" -type f ! -name '*.bak' ! -name '*.orig' ! -name '*~' -print0 2>/dev/null)
+    while IFS= read -r -d '' f; do
+      case "$f" in
+        U*) delref_fail="${f#U} is unreadable, so the unit references under it are unknown"
+            return 1 ;;
+        F*) files+=("${f#F}") ;;
+      esac
+    done < <(find -L "${dirs[@]}" \
+      \( -type d \( ! -readable -o ! -executable \) -printf 'U%p\0' -prune \) -o \
+      \( -type f ! -name '*.bak' ! -name '*.orig' ! -name '*~' \
+         \( -readable -printf 'F%p\0' -o -printf 'U%p\0' \) \) 2>/dev/null)
     [ "${#files[@]}" -gt 0 ] && delref_refs+=$(delref_extract unit "" "${files[@]}")$'\n'
   fi
 
@@ -1051,7 +1081,15 @@ delref_load() {
 $HOME/.config/autostart}"
   while IFS= read -r d; do
     [ -n "$d" ] && [ -d "$d" ] || continue
-    for f in "$d"/*.desktop; do [ -f "$f" ] && files+=("$f"); done
+    if ! [ -r "$d" ] || ! [ -x "$d" ]; then
+      delref_fail="$d is unreadable, so the desktop entries in it are unknown"
+      return 1
+    fi
+    for f in "$d"/*.desktop; do
+      [ -f "$f" ] || continue
+      [ -r "$f" ] || { delref_fail="$f is unreadable, so its references are unknown"; return 1; }
+      files+=("$f")
+    done
   done <<<"$out"
   [ "${#files[@]}" -gt 0 ] && delref_refs+=$(delref_extract desktop "" "${files[@]}")$'\n'
 
@@ -1072,6 +1110,10 @@ $HOME/.config/autostart}"
 
   bdir="${DELREF_BIN_DIR:-$HOME/bin}"
   if [ -d "$bdir" ]; then
+    if ! [ -r "$bdir" ] || ! [ -x "$bdir" ]; then
+      delref_fail="$bdir is unreadable, so its symlink targets are unknown"
+      return 1
+    fi
     while IFS=$'\t' read -r d f; do
       [ -n "$d" ] || continue
       case "$d" in /*) ;; *) d=$(norm_path "$bdir/$d") ;; esac
@@ -1083,7 +1125,8 @@ $HOME/.config/autostart}"
 
 # delref_resolve <operand> <cwd> -- `abs<TAB>path` for an absolute path,
 # `rel<TAB>path` when the operand is relative and the cwd is unknown. Non-zero
-# when the operand is not knowable from here (`"$x"`, `~user`, `$(...)`).
+# when the operand is not knowable from here (`"$x"`, `~user`, `$(...)`, a
+# brace sequence or a brace list delref_brace_expand left unexpanded).
 delref_resolve() {
   local p="$1" base="$2"
   case "$p" in
@@ -1093,7 +1136,7 @@ delref_resolve() {
     '~')               p="$HOME" ;;
     '~/'*)             p="$HOME/${p#\~/}" ;;
   esac
-  case "$p" in ''|*'$'*|*'`'*|'~'*) return 1 ;; esac
+  case "$p" in ''|*'$'*|*'`'*|'~'*|*'{'*','*'}'*|*'{'*'..'*'}'*) return 1 ;; esac
   case "$p" in
     /*) printf 'abs\t%s' "$(norm_path "$p")" ;;
     *)
@@ -1107,6 +1150,43 @@ delref_resolve() {
       fi
       ;;
   esac
+}
+
+# delref_brace_expand <word> [from] -- appends bash's brace expansion of the
+# word to delref_expanded: comma lists, nested, left to right. A group with no
+# top-level comma stays literal (`{x}`, and a `{1..3}` sequence, which
+# delref_resolve then refuses). `${` is a parameter, not a group. Non-zero past
+# DELREF_BRACE_MAX words, leaving partial output for the caller to discard.
+DELREF_BRACE_MAX=256
+delref_expanded=()
+delref_brace_expand() {
+  local w="$1" i="${2:-0}" n="${#1}" j c depth cur a
+  local -a alts=()
+  for (( ; i < n; i++ )); do
+    c="${w:i:1}"
+    [ "$c" = '\' ] && { i=$((i + 1)); continue; }
+    [ "$c" = '{' ] || continue
+    [ "$i" -gt 0 ] && [ "${w:i-1:1}" = '$' ] && continue
+    depth=0; cur=""; alts=()
+    for (( j = i + 1; j < n; j++ )); do
+      c="${w:j:1}"
+      case "$c" in
+        '\') cur+="$c${w:j+1:1}"; j=$((j + 1)) ;;
+        '{') depth=$((depth + 1)); cur+="$c" ;;
+        '}') [ "$depth" -eq 0 ] && break; depth=$((depth - 1)); cur+="$c" ;;
+        ',') if [ "$depth" -eq 0 ]; then alts+=("$cur"); cur=""; else cur+="$c"; fi ;;
+        *) cur+="$c" ;;
+      esac
+    done
+    [ "$j" -lt "$n" ] && [ "${#alts[@]}" -gt 0 ] || continue
+    alts+=("$cur")
+    for a in "${alts[@]}"; do
+      [ "${#delref_expanded[@]}" -lt "$DELREF_BRACE_MAX" ] || return 1
+      delref_brace_expand "${w:0:i}$a${w:j+1}" "$i" || return 1
+    done
+    return 0
+  done
+  delref_expanded+=("$w")
 }
 
 # delref_hit <kind> <path> -- the first reference the operand removes, as
@@ -1150,7 +1230,7 @@ delref_cargo_bins() {
 # deny's exit ends the hook and delref_load's cache survives across statements.
 delref_check() {
   local st="$1" base="$2" verb="" v w t i n endopts=0 skip="" tdir="" root="" r kind path hit
-  local -a toks=() ops=() specs=() cbins=() resolved=()
+  local -a toks=() ops=() raw=() specs=() cbins=() resolved=()
   for v in rm mv rkvr cargo; do
     printf '%s' "$st" | cmdword_is "$v" >/dev/null 2>&1 && { verb="$v"; break; }
   done
@@ -1230,6 +1310,17 @@ delref_check() {
     esac
   done
 
+  # Braces expand before mv's destination is dropped: `mv a{,.old}` is two words.
+  raw=("${ops[@]}")
+  ops=()
+  for t in "${raw[@]}"; do
+    case "$t" in
+      *'{'*)
+        delref_expanded=()
+        if delref_brace_expand "$t"; then ops+=("${delref_expanded[@]}"); else ops+=("$t"); fi ;;
+      *) ops+=("$t") ;;
+    esac
+  done
   if [ "$verb" = "mv" ] && [ -z "$tdir" ] && [ "${#ops[@]}" -ge 2 ]; then
     unset 'ops[-1]'
   fi
