@@ -61,6 +61,8 @@ tasks:
         HOME/.claude/hooks/rewrite-cd-read-test.sh
         HOME/.claude/hooks/hooks-preflight.sh
         HOME/.claude/hooks/hooks-preflight-test.sh
+        HOME/.claude/hooks/user-units-check.sh
+        HOME/.claude/hooks/user-units-check-test.sh
         HOME/.claude/hooks/hooks-resolve-lib.sh
         HOME/.claude/hooks/shapes.sh
         bin/hooks-resolve

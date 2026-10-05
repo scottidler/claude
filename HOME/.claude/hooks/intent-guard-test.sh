@@ -16,6 +16,47 @@ HOOK="$HOOKS/intent-guard.sh"
 pass=0
 fail=0
 
+# DELETE-REF fixtures. Every reference source is pointed at $DR, for EVERY row
+# in this file, so no row reads the live units, crontab, ~/bin or cargo state.
+# Operands under $HOME are only ever fed to the hook as text; nothing deletes.
+DR=$(mktemp -d "${TMPDIR:-/tmp}/intent-guard-delref.XXXXXX") || exit 1
+delref_cleanup() { [ -d "$DR" ] && chmod -R u+rwx "$DR" && rm -rf "$DR"; return 0; }
+trap delref_cleanup EXIT
+mkdir -p "$DR/units/sub" "$DR/dotfiles" "$DR/apps" "$DR/bin" "$DR/stub"
+printf '[Unit]\nDescription=fixture\n\n[Service]\nExecStart=%%h/.local/bin/slack scheduled deliver\n' > "$DR/units/slack-deliver.service"
+printf '[Service]\nExecStart=%%h/.local/bin/drtest-linked\n' > "$DR/dotfiles/linked.service"
+ln -s "$DR/dotfiles/linked.service" "$DR/units/linked.service"
+printf '[Service]\nExecStart=%%h/.local/bin/drtest-bak-only\n' > "$DR/units/old.service.bak"
+printf '[Service]\nExecStart=%%h/.local/bin/drtest-bak-only\n' > "$DR/units/old.service.orig"
+printf '[Service]\nExecStart=%%h/.local/bin/drtest-bak-only\n' > "$DR/units/old.service~"
+printf '[Unit]\nConditionPathExists=!%%h/.config/drtest/cond\n[Service]\nEnvironmentFile=-%%h/.config/drtest/env\nExecStartPre=+/usr/bin/true\n' > "$DR/units/sub/env.service"
+printf '[Desktop Entry]\nName=fixture\nExec="%s/.local/bin/drtest-desk" --handle-uri %%u\n' "$HOME" > "$DR/apps/tool.desktop"
+ln -s "$HOME/repos/drtest/mytool" "$DR/bin/mytool"
+printf '[Service]\nExecStart=%%h/bin/tool --config=%%h/.config/tool.yml\n' > "$DR/units/tool.service"
+printf '[Service]\nExecStart="%%h/My Tools/slack" deliver\n' > "$DR/units/spaced.service"
+printf '[Service]\nExecStartPre=/bin/sh -c '"'"'%%h/.cargo/bin/drtest-manifest -C x > /run/drtest.env && %%h/bin/drtest-shtool --config=%%h/drtest-c.yml'"'"'\nExecStart=/usr/bin/env bash -ec "%%h/bin/drtest-bash-a; [ -x %%h/bin/drtest-bash-b ] || exit 1"\nExecStartPost=sh -lc '"'"'v=$(%%h/bin/drtest-subst --q) | %%h/bin/drtest-piped'"'"'\nExecStopPost=/bin/sh -c "bash -c '"'"'%%h/bin/drtest-nested'"'"'"\n' > "$DR/units/shc.service"
+printf '[Desktop Entry]\nName=shc\nExec=sh -c "%s/bin/drtest-desk-sh --flag"\n' "$HOME" > "$DR/apps/shc.desktop"
+printf '#!/bin/sh\necho "0 * * * * /bin/sh -c '"'"'\\$HOME/bin/drtest-cron-sh || true'"'"'"\n' > "$DR/stub/crontab-shc"
+printf '[Service]\nExecStart=%%h/.local/bin/slack2\nExecStartPost=%%h/.local/bin/drtest-seq07\nExecStopPost=%%h/.local/bin/drtest-seq-c\n' > "$DR/units/seq.service"
+mkdir -p "$DR/units-locked" "$DR/units-sublocked/sub" "$DR/apps-locked" "$DR/bin-locked"
+printf '[Service]\nExecStart=%%h/.local/bin/drtest-locked\n' > "$DR/units-unreadable.service"
+mkdir -p "$DR/units-filelocked" && mv "$DR/units-unreadable.service" "$DR/units-filelocked/locked.service"
+chmod 000 "$DR/units-locked" "$DR/units-sublocked/sub" "$DR/apps-locked" "$DR/bin-locked" "$DR/units-filelocked/locked.service"
+echo '{"installs":{"slack-cli 0.14.7 (path+file:///x)":{"bins":["slack"]},"other 1.0.0 (registry+x)":{"bins":["other"]}}}' > "$DR/crates2.json"
+echo '{"installs":' > "$DR/crates2-bad.json"
+printf '#!/bin/sh\necho "no crontab for $USER" >&2\nexit 1\n' > "$DR/stub/crontab-none"
+printf '#!/bin/sh\necho "# m h dom mon dow command"\necho "*/5 * * * * $HOME/bin/drtest-cronjob >> $HOME/.cache/drtest-cronjob.log 2>&1"\n' > "$DR/stub/crontab-jobs"
+printf '#!/bin/sh\necho "crontab: cannot open your crontab: Permission denied" >&2\nexit 1\n' > "$DR/stub/crontab-broken"
+printf '#!/bin/sh\nexit 1\n' > "$DR/stub/sa-fail"
+printf '#!/bin/sh\necho /etc/systemd/user\necho %s\n' "$DR/units" > "$DR/stub/sa-outside"
+chmod +x "$DR/stub/"*
+export DELREF_UNIT_DIRS="$DR/units"
+export DELREF_DESKTOP_DIRS="$DR/apps"
+export DELREF_CRONTAB="$DR/stub/crontab-none"
+export DELREF_BIN_DIR="$DR/bin"
+export DELREF_CARGO_ROOT="$HOME/.local"
+export DELREF_CRATES2="$DR/crates2.json"
+
 # The payload carries run_in_background on every fixture, because it is a field
 # of the real one and SLEEP's unconditional allow reads it. It had zero hits in
 # this file, in intent-guard.sh and in lib.sh before this phase, so the wiring
@@ -258,7 +299,7 @@ pr_cleanup() {
   [ -n "$PR_KEY" ] && rm -f "$PR_VIS/$PR_KEY" 2>/dev/null
   return 0
 }
-trap pr_cleanup EXIT
+trap 'pr_cleanup; delref_cleanup' EXIT
 
 runrepo() { # runrepo <expect> <label> <command>
   local expect="$1" label="$2" cmd="$3" out decision
@@ -647,6 +688,203 @@ run deny  'git config --global url.https://github.com/.pushInsteadOf git@github.
 run deny  'git remote set-url origin https://github.com/tatari-tv/drata-cli.git'
 run deny  'git push --no-follow-tags https://github.com/tatari-tv/drata-cli.git fix-cursor-page-size'
 runsays   'GIT_SSH_COMMAND=x git push' 'persona key is automatic'
+
+echo "=== DELETE-REF: a referenced path denies, naming the referencing file and line ==="
+run deny  'rm -v ~/.local/bin/slack'
+runsays   'rm -v ~/.local/bin/slack' 'slack-deliver.service:5'
+runwrapped 'rm -v ~/.local/bin/slack'
+run deny  'rm -rf -- ~/.local/bin/slack'
+run deny  'rm "$HOME/.local/bin/slack"'
+run deny  'rm ${HOME}/.local/bin/slack 2>/dev/null'
+run deny  'sudo rm -f '"$HOME"'/.local/./bin/../bin/slack'
+run deny  'rm ~/.local/bin/sl*'
+run deny  'echo ok; rm ~/.local/bin/slack'
+run deny  'rkvr rmrf ~/.local/bin/slack'
+run deny  '\rm ~/.local/bin/slack'
+
+echo "=== DELETE-REF: a directory operand containing a referenced path ==="
+run deny  'rm -rf ~/.local/bin'
+runsays   'rkvr rmrf ~/.local' "$HOME/.local contains $HOME/.local/"
+runsays   'rm -rf ~/.local/bin' "$HOME/.local/bin contains $HOME/.local/bin/"
+
+echo "=== DELETE-REF: mv sources, never the destination ==="
+run deny  'mv ~/.local/bin/slack ~/.local/bin/slack.old'
+run deny  'mv ~/tmp/a ~/.local/bin/slack /tmp/attic'
+run deny  'mv -t /tmp/attic ~/tmp/a ~/.local/bin/slack'
+run deny  'mv -vt /tmp/attic ~/.local/bin/slack'
+run deny  'mv --target-directory=/tmp/attic ~/.local/bin/slack'
+run deny  'mv -S .old ~/.local/bin/slack /tmp/attic'
+# Installing a new binary over the referenced path is the reinstall, not a delete.
+run allow 'mv ~/tmp/new-slack ~/.local/bin/slack'
+run allow 'mv -t ~/.local/bin ~/tmp/new-slack'
+
+echo "=== DELETE-REF: cargo uninstall resolves package -> binaries via .crates2.json ==="
+run deny  'cargo uninstall slack-cli'
+runsays   'cargo uninstall slack-cli' 'slack-deliver.service:5'
+run deny  'cargo uninstall -p slack-cli@0.14.7'
+run deny  'cargo uninstall --package=slack-cli'
+run deny  'cargo uninstall --bin slack other'
+run allow 'cargo uninstall other'
+run allow 'cargo uninstall ripgrep'
+run allow 'cargo uninstall --root /opt/elsewhere slack-cli'
+run allow 'cargo install slack-cli'
+DELREF_CRATES2="$DR/crates2-bad.json" run deny 'cargo uninstall other'
+
+echo "=== DELETE-REF: every reference source ==="
+run deny  'rm ~/.local/bin/drtest-linked'
+runsays   'rm ~/.local/bin/drtest-linked' 'linked.service:2'
+run deny  'rm ~/.local/bin/drtest-desk'
+runsays   'rm ~/.local/bin/drtest-desk' 'tool.desktop:3'
+run deny  'rm ~/.config/drtest/env'
+run deny  'rm ~/.config/drtest/cond'
+run deny  'rm -rf ~/repos/drtest/mytool'
+runsays   'rkvr rmrf ~/repos/drtest' 'mytool (symlink)'
+DELREF_CRONTAB="$DR/stub/crontab-jobs" run deny  'rm ~/bin/drtest-cronjob'
+# A cron redirect target is a log the job recreates, not something it runs.
+DELREF_CRONTAB="$DR/stub/crontab-jobs" run allow 'rm ~/.cache/drtest-cronjob.log'
+
+echo "=== DELETE-REF: what is not a reference, and what is not a delete ==="
+run allow 'rm ~/.local/bin/drtest-bak-only'
+run allow 'rm -v ~/tmp/definitely-unreferenced-file'
+run allow 'rm "$x"'
+run allow 'echo rm ~/.local/bin/slack'
+run allow 'grep -rn rm ~/.local/bin/slack'
+run allow 'ls ~/.local/bin/slack'
+run allow 'rkvr bkup ~/.local/bin/slack'
+run allow "echo 'rm -rf ~/.local/bin'"
+
+echo "=== DELETE-REF: relative operands resolve against the tracked cwd ==="
+runcwd deny  "$HOME/.local" 'rm bin/slack'
+runcwd deny  "$HOME" 'cd .local && rm -f ./bin/slack'
+runcwd allow "$HOME" 'cd /tmp && rm .local/bin/slack'
+# Unknown cwd: the relative path is matched as a suffix, over-matching not missing.
+runcwd deny  '' 'rm .local/bin/slack'
+
+echo "=== DELETE-REF: an unreadable source denies, an absent one is empty ==="
+run allow 'rm -v ~/tmp/definitely-unreferenced-file'
+DELREF_CRONTAB="$DR/stub/crontab-broken" run deny 'rm -v ~/tmp/definitely-unreferenced-file'
+DELREF_CRONTAB="$DR/stub/crontab-broken" runsays 'rm -v ~/tmp/definitely-unreferenced-file' 'crontab'
+DELREF_CRONTAB="$DR/stub/no-such-crontab" run allow 'rm -v ~/tmp/definitely-unreferenced-file'
+delref_saved_units="$DELREF_UNIT_DIRS"
+unset DELREF_UNIT_DIRS
+DELREF_SYSTEMD_ANALYZE="$DR/stub/sa-fail" run deny 'rm -v ~/tmp/definitely-unreferenced-file'
+# Unit dirs from systemd-analyze are limited to $HOME: the fixture dir is not
+# under it, so its slack-deliver reference is out of scope here.
+DELREF_SYSTEMD_ANALYZE="$DR/stub/sa-outside" run allow 'rm -v ~/.local/bin/slack'
+export DELREF_UNIT_DIRS="$delref_saved_units"
+
+echo "=== DELETE-REF: an unreadable unit, desktop or bin dir denies, naming it ==="
+DELREF_UNIT_DIRS="$DR/units
+$DR/units-locked" run deny 'rm -v ~/.local/bin/slack.unrelated'
+DELREF_UNIT_DIRS="$DR/units-locked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/units-locked"
+DELREF_UNIT_DIRS="$DR/units-sublocked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/units-sublocked/sub"
+DELREF_UNIT_DIRS="$DR/units-filelocked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/units-filelocked/locked.service"
+DELREF_DESKTOP_DIRS="$DR/apps-locked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/apps-locked"
+DELREF_BIN_DIR="$DR/bin-locked" runsays 'rm -v ~/tmp/definitely-unreferenced-file' "$DR/bin-locked"
+# A dir that does not exist is an empty source, not an unknown.
+DELREF_UNIT_DIRS="$DR/no-such-units" DELREF_DESKTOP_DIRS="$DR/no-such-apps" DELREF_BIN_DIR="$DR/no-such-bin" run allow 'rm -v ~/tmp/definitely-unreferenced-file'
+# Unreadable sources are only read for a delete: a non-delete stays zero-I/O.
+DELREF_UNIT_DIRS="$DR/units-locked" run allow 'ls -la ~/repos'
+
+echo "=== DELETE-REF: a --flag=/path in an Exec line is a reference ==="
+run deny  'rm ~/.config/tool.yml'
+runsays   'rm ~/.config/tool.yml' 'tool.service:2'
+run deny  'rm ~/bin/tool'
+
+echo "=== DELETE-REF: a quoted Exec path keeps its spaces ==="
+run deny  'rm "~/My Tools/slack"'
+run deny  'rm "$HOME/My Tools/slack"'
+runsays   'rm "$HOME/My Tools/slack"' 'spaced.service:2'
+run deny  'rm -rf ~/"My Tools"'
+# The old split cut the path at the space, so `~/My` itself read as referenced.
+run allow 'rm -rf ~/My'
+
+echo "=== DELETE-REF: brace operands expand before matching ==="
+run deny  'rm -v ~/.local/bin/sl{ack,ack.old}'
+runsays   'rm -v ~/.local/bin/sl{ack,ack.old}' 'slack-deliver.service:5'
+run deny  'rm ~/.local/bin/{drtest-x,s{l,m}ack}'
+run deny  'rm ~/.local/{bin,lib}/slack'
+run deny  'rm ~/.local/bin/{x,}slack'
+run deny  'mv ~/.local/bin/{slack,slack.old}'
+run deny  'rm ${HOME}/.local/bin/sl{ack,}'
+run allow 'rm ~/tmp/{a,b}'
+run allow 'rm ~/.local/bin/{slack-old,slack.bak}'
+# Not a brace expansion in bash: one word, no comma.
+run allow 'rm ~/.local/bin/{slack}'
+# A sequence expands the way bash does: this row was an allow when sequences
+# were left unexpanded and skipped as unresolvable, which hid slack2.
+run deny  'rm ~/.local/bin/slack{1..3}'
+runsays   'rm ~/.local/bin/slack{1..3}' 'seq.service:2'
+run deny  'rm -v ~/.local/bin/slack{,1..3}'
+run deny  'rm ~/.local/bin/{x,slack{1..3}}'
+run allow 'rm ~/.local/bin/slack{4..6}'
+run deny  'rm ~/.local/bin/slack{3..1}'
+run deny  'rm ~/.local/bin/drtest-seq{05..09}'
+run allow 'rm ~/.local/bin/drtest-seq{5..9}'
+run deny  'rm ~/.local/bin/drtest-seq{01..10..2}'
+run allow 'rm ~/.local/bin/drtest-seq{02..10..2}'
+run deny  'rm ~/.local/bin/drtest-seq-{a..e}'
+run allow 'rm ~/.local/bin/drtest-seq-{d..f}'
+run deny  'rm ~/.local/bin/drtest-seq-{a..e..2}'
+run allow 'rm ~/.local/bin/drtest-seq-{b..f..2}'
+
+echo "=== DELETE-REF: a brace expansion past DELREF_BRACE_MAX denies ==="
+run deny  'rm ~/tmp/x{1..300}'
+runsays   'rm ~/tmp/x{1..300}' 'DELREF_BRACE_MAX'
+run deny  'rm ~/tmp/{a,b}{1..200}'
+run deny  'rm ~/tmp/x{1..99999999999999999999}'
+run allow 'rm ~/tmp/x{1..16}{1..16}'
+
+echo "=== DELETE-REF: a partly resolvable operand matches as a pattern ==="
+run deny  'rm ~/.local/bin/$x'
+runsays   'rm ~/.local/bin/$x' "as the pattern $HOME/.local/bin/* it can remove $HOME/.local/bin/"
+run deny  'rm -rf ~/.config/drtest/$x'
+runsays   'rm -rf ~/.config/drtest/$x' 'env.service:'
+run allow 'rm ~/tmp/$x'
+run deny  'rm "${HOME}/.local/bin/${name}"'
+run deny  'rm $HOME/.local/$(echo bin)/slack'
+run deny  'rm ~/.local/bin/`echo slack`'
+run deny  'rm ~/.local/b?n/slack'
+run deny  'rm ~/.local/bin/{$x,y}'
+run deny  'rm ~/.local/bin/slack{1..$n}'
+run allow 'rm ~/tmp/x{1..$n}'
+run deny  'rm $x/.local/bin/slack'
+run allow 'rm $x/definitely-unreferenced-file'
+run deny  'rm ~/.local/$x/../bin/slack'
+run deny  'rm ~nobody/.local/bin/slack'
+run deny  'rm -rf "$HOME/$x"'
+runcwd deny  "$HOME/.local" 'rm bin/$x'
+runcwd allow "$HOME" 'rm tmp/$x'
+runcwd deny  '' 'rm bin/$x'
+# Fully dynamic: no literal path text, so nothing to match. Layers 1-2 backstop.
+run allow 'rm "$tmp"'
+run allow 'rm -rf "$(mktemp -d)"'
+run allow 'rm -rf "$tmp"/*'
+runcwd allow "$HOME/.local/bin" 'rm $x'
+
+echo "=== DELETE-REF: references inside a shell -c payload ==="
+run deny  'rm ~/.cargo/bin/drtest-manifest'
+runsays   'rm ~/.cargo/bin/drtest-manifest' 'shc.service:2'
+run deny  'rm ~/bin/drtest-shtool'
+run deny  'rm ~/drtest-c.yml'
+run deny  'rm ~/bin/drtest-bash-a'
+run deny  'rm ~/bin/drtest-bash-b'
+run deny  'rm ~/bin/drtest-subst'
+run deny  'rm ~/bin/drtest-piped'
+run deny  'rm ~/bin/drtest-nested'
+run deny  'rm ~/bin/drtest-desk-sh'
+runsays   'rm ~/bin/drtest-desk-sh' 'shc.desktop:3'
+DELREF_CRONTAB="$DR/stub/crontab-shc" run deny 'rm ~/bin/drtest-cron-sh'
+DELREF_CRONTAB="$DR/stub/crontab-shc" runsays 'rm ~/bin/drtest-cron-sh' 'crontab -l:1'
+# A redirect target inside the payload is still a log, not a reference.
+run allow 'rm /run/drtest.env'
+run allow 'rm ~/bin/drtest-unlisted'
+
+echo "=== DELETE-REF: a backslash-escaped space stays in the word ==="
+run deny  'rm ~/My\ Tools/slack'
+runsays   'rm ~/My\ Tools/slack' 'spaced.service:2'
+run deny  'rm -rf ~/My\ Tools'
+run allow 'rm ~/My\ Toolsx'
 
 echo
 echo "pass=$pass fail=$fail"

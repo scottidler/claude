@@ -350,6 +350,27 @@ case_args 'a mask byte survives as its own argument' \
   "git checkout -b ${SQ}$(printf '\001\001')${SQ}" \
   'git|checkout|-b|@@'
 case_args 'an empty command yields nothing' '' ''
+case_args 'an escaped space joins the word, and the backslash drops out' \
+  'rm ~/My\ Tools/slack' \
+  'rm|~/My Tools/slack'
+case_args 'an unquoted backslash escapes any character and is removed' \
+  'rm a\b \\x \"q\" \$HOME' \
+  'rm|ab|\x|"q"|$HOME'
+case_args 'an escaped separator is part of the word, not a statement break' \
+  'find . -exec rm {} \;' \
+  'find|.|-exec|rm|{}|;'
+case_args 'in double quotes only \\ \" \$ and \` lose the backslash' \
+  'echo "a\\b \"c\" \$d \`e\` \n"' \
+  'echo|a\b "c" $d `e` \n'
+case_args 'a backslash in single quotes is literal' \
+  "echo ${SQ}a\\ b${SQ}" \
+  'echo|a\ b'
+case_args 'a command or process substitution stays inside its word' \
+  'rm $HOME/.local/$(echo bin)/slack x"$(a b)"y <(c d)' \
+  'rm|$HOME/.local/$(echo bin)/slack|x$(a b)y|<(c d)'
+case_args 'a backslash-newline continues the word' \
+  "$(printf 'rm ab\\\ncd')" \
+  'rm|abcd'
 
 echo
 echo "pass=$pass fail=$fail"
