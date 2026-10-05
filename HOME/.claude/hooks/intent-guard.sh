@@ -976,6 +976,7 @@ ingest_heredocs=$(printf '%s' "$command" | awk '
 #                           `cargo uninstall` deletes)
 #   DELREF_CRATES2          the .crates2.json mapping packages to binaries
 DELREF_TAB=$'\t'
+DELREF_SHC_DEPTH=4
 DELREF_TAIL='Deleting it breaks what runs from that reference: a unit whose ExecStart binary is gone fails 203/EXEC on every tick, which is how slack-deliver died silently. Repoint or remove the reference first, or ask Scott.'
 delref_loaded=0
 delref_refs=""
@@ -989,10 +990,16 @@ delref_fail=""
 # stripped, in that order: the prefix strip first ate both dashes of
 # `--config=` and the flag was never seen. A redirect target is not a
 # reference (cron's `>> ~/.cache/x.log` is a log, not a tool).
+#
+# A shell's -c payload (`sh -c '...'`, `/usr/bin/env bash -ec "..."`) is one
+# quoted word to the outer split, so the paths in it were never seen: desk's
+# sb-harvest.service runs ~/.cargo/bin/manifest that way, and deleting it was
+# allowed. The payload is split again the same way, recursively up to
+# DELREF_SHC_DEPTH, with $HOME expanded as that shell would.
 delref_extract() {
   local mode="$1" label="$2"
   shift 2
-  LC_ALL=C awk -v mode="$mode" -v home="$HOME" -v label="$label" '
+  LC_ALL=C awk -v mode="$mode" -v home="$HOME" -v label="$label" -v shcmax="$DELREF_SHC_DEPTH" '
   function words(s, w,    i, len, c, q, cur, inw, n) {
     n = 0; cur = ""; inw = 0; q = ""; len = length(s)
     for (i = 1; i <= len; i++) {
@@ -1006,6 +1013,46 @@ delref_extract() {
     }
     if (inw) w[++n] = cur
     return n
+  }
+  # A word that names a shell: bare or by path, after the systemd exec prefixes.
+  function is_shell(t) {
+    sub(/^[-@:+!|]+/, "", t)
+    sub(/^.*\//, "", t)
+    return (t ~ /^(sh|bash|dash|zsh|ksh|mksh|ash)$/)
+  }
+  function emit(v, depth,    f, n, i, j, t, redir, sawc) {
+    split("", f)
+    n = words(v, f)
+    redir = 0
+    for (i = 1; i <= n; i++) {
+      t = f[i]
+      if (t == "") continue
+      if (depth < shcmax && is_shell(t)) {
+        # bash reads the first non-option word after a -c cluster as the script.
+        sawc = 0
+        for (j = i + 1; j <= n; j++) {
+          if (f[j] == "--") continue
+          if (f[j] ~ /^[-+]o$/ || f[j] == "-O" || f[j] == "+O") { j++; continue }
+          if (f[j] ~ /^[-+][A-Za-z]+$/) { if (f[j] ~ /^-[A-Za-z]*c/) sawc = 1; continue }
+          break
+        }
+        if (sawc && j <= n) {
+          t = f[j]
+          gsub(/\$\{HOME\}|\$HOME/, home, t)
+          emit(t, depth + 1)
+        }
+        t = f[i]
+      }
+      if (t ~ /^[0-9]*>>?&?$/ || t ~ /^[0-9]*<$/) { redir = 1; continue }
+      if (t ~ /^[0-9]*[<>]/) continue
+      if (redir) { redir = 0; continue }
+      sub(/^-[-A-Za-z0-9_.]*=/, "", t)
+      sub(/^[-@:+!|]+/, "", t)
+      if (t ~ /^~\//) t = home substr(t, 2)
+      if (t !~ /^\//) continue
+      if (t != "/") sub(/\/+$/, "", t)
+      printf "%s\t%s\n", t, where
+    }
   }
   {
     line = $0
@@ -1023,22 +1070,7 @@ delref_extract() {
       gsub(/\$\{HOME\}|\$HOME/, home, v)
     }
     where = (label != "" ? label : FILENAME) ":" FNR
-    split("", f)
-    n = words(v, f)
-    redir = 0
-    for (i = 1; i <= n; i++) {
-      t = f[i]
-      if (t == "") continue
-      if (t ~ /^[0-9]*>>?&?$/ || t ~ /^[0-9]*<$/) { redir = 1; continue }
-      if (t ~ /^[0-9]*[<>]/) continue
-      if (redir) { redir = 0; continue }
-      sub(/^-[-A-Za-z0-9_.]*=/, "", t)
-      sub(/^[-@:+!|]+/, "", t)
-      if (t ~ /^~\//) t = home substr(t, 2)
-      if (t !~ /^\//) continue
-      if (t != "/") sub(/\/+$/, "", t)
-      printf "%s\t%s\n", t, where
-    }
+    emit(v, 0)
   }' "$@"
 }
 

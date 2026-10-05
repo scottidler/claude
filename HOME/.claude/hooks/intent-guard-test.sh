@@ -34,6 +34,9 @@ printf '[Desktop Entry]\nName=fixture\nExec="%s/.local/bin/drtest-desk" --handle
 ln -s "$HOME/repos/drtest/mytool" "$DR/bin/mytool"
 printf '[Service]\nExecStart=%%h/bin/tool --config=%%h/.config/tool.yml\n' > "$DR/units/tool.service"
 printf '[Service]\nExecStart="%%h/My Tools/slack" deliver\n' > "$DR/units/spaced.service"
+printf '[Service]\nExecStartPre=/bin/sh -c '"'"'%%h/.cargo/bin/drtest-manifest -C x > /run/drtest.env && %%h/bin/drtest-shtool --config=%%h/drtest-c.yml'"'"'\nExecStart=/usr/bin/env bash -ec "%%h/bin/drtest-bash-a; [ -x %%h/bin/drtest-bash-b ] || exit 1"\nExecStartPost=sh -lc '"'"'v=$(%%h/bin/drtest-subst --q) | %%h/bin/drtest-piped'"'"'\nExecStopPost=/bin/sh -c "bash -c '"'"'%%h/bin/drtest-nested'"'"'"\n' > "$DR/units/shc.service"
+printf '[Desktop Entry]\nName=shc\nExec=sh -c "%s/bin/drtest-desk-sh --flag"\n' "$HOME" > "$DR/apps/shc.desktop"
+printf '#!/bin/sh\necho "0 * * * * /bin/sh -c '"'"'\\$HOME/bin/drtest-cron-sh || true'"'"'"\n' > "$DR/stub/crontab-shc"
 printf '[Service]\nExecStart=%%h/.local/bin/slack2\nExecStartPost=%%h/.local/bin/drtest-seq07\nExecStopPost=%%h/.local/bin/drtest-seq-c\n' > "$DR/units/seq.service"
 mkdir -p "$DR/units-locked" "$DR/units-sublocked/sub" "$DR/apps-locked" "$DR/bin-locked"
 printf '[Service]\nExecStart=%%h/.local/bin/drtest-locked\n' > "$DR/units-unreadable.service"
@@ -858,6 +861,24 @@ run allow 'rm "$tmp"'
 run allow 'rm -rf "$(mktemp -d)"'
 run allow 'rm -rf "$tmp"/*'
 runcwd allow "$HOME/.local/bin" 'rm $x'
+
+echo "=== DELETE-REF: references inside a shell -c payload ==="
+run deny  'rm ~/.cargo/bin/drtest-manifest'
+runsays   'rm ~/.cargo/bin/drtest-manifest' 'shc.service:2'
+run deny  'rm ~/bin/drtest-shtool'
+run deny  'rm ~/drtest-c.yml'
+run deny  'rm ~/bin/drtest-bash-a'
+run deny  'rm ~/bin/drtest-bash-b'
+run deny  'rm ~/bin/drtest-subst'
+run deny  'rm ~/bin/drtest-piped'
+run deny  'rm ~/bin/drtest-nested'
+run deny  'rm ~/bin/drtest-desk-sh'
+runsays   'rm ~/bin/drtest-desk-sh' 'shc.desktop:3'
+DELREF_CRONTAB="$DR/stub/crontab-shc" run deny 'rm ~/bin/drtest-cron-sh'
+DELREF_CRONTAB="$DR/stub/crontab-shc" runsays 'rm ~/bin/drtest-cron-sh' 'crontab -l:1'
+# A redirect target inside the payload is still a log, not a reference.
+run allow 'rm /run/drtest.env'
+run allow 'rm ~/bin/drtest-unlisted'
 
 echo "=== DELETE-REF: a backslash-escaped space stays in the word ==="
 run deny  'rm ~/My\ Tools/slack'
