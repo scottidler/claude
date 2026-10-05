@@ -34,6 +34,9 @@
 #   GIT-NET     git network ops that cannot authenticate as the right persona:
 #               hand-rolled keys/URL rewrites/HTTPS swaps always, and, when the
 #               sandbox is on, any shape sandbox.excludedCommands will not match.
+#   DELETE-REF  `rm`, `rkvr rmrf`, `mv` (sources) and `cargo uninstall` of a path
+#               a user unit, a .desktop entry, the crontab or a ~/bin symlink
+#               still runs or reads (slack-deliver failed 203/EXEC for weeks).
 #
 # GH-WRITE PARSES THE METHOD ITSELF and does not use `flag_value`. Two reasons,
 # both measured, both in the design doc: `flag_value` cannot see the attached
@@ -945,6 +948,321 @@ ingest_heredocs=$(printf '%s' "$command" | awk '
   emit { print }
 ')
 
+# DELETE-REF. A delete of a path something on this machine still runs or reads
+# is denied, naming the referencing file and line. Founding incident: desk's
+# slack-deliver.service kept `ExecStart=%h/.local/bin/slack` after that binary
+# was deleted and failed 203/EXEC on every tick, silently, for weeks.
+#
+# ZERO reference I/O unless a statement's command word is a delete head: this
+# hook runs on every Bash call, so the sources are read lazily, once per
+# command, and only for a statement that has a resolvable operand.
+#
+# Every source root is overridable by env so the matrix runs on fixtures and
+# never reads the live system:
+#   DELREF_UNIT_DIRS        newline-separated unit dirs; set (even empty)
+#                           bypasses `systemd-analyze --user unit-paths`
+#   DELREF_SYSTEMD_ANALYZE  the systemd-analyze binary
+#   DELREF_DESKTOP_DIRS     newline-separated .desktop dirs
+#   DELREF_CRONTAB          the crontab binary (run as `<it> -l`)
+#   DELREF_BIN_DIR          the dir whose symlink targets are references
+#   DELREF_CARGO_ROOT       cargo's default install root (its bin/ is where
+#                           `cargo uninstall` deletes)
+#   DELREF_CRATES2          the .crates2.json mapping packages to binaries
+DELREF_TAB=$'\t'
+DELREF_TAIL='Deleting it breaks what runs from that reference: a unit whose ExecStart binary is gone fails 203/EXEC on every tick, which is how slack-deliver died silently. Repoint or remove the reference first, or ask Scott.'
+delref_loaded=0
+delref_refs=""
+delref_fail=""
+
+# delref_extract <unit|desktop|cron> <label> [file...] -- one line per path a
+# reference line names: `<abs path>\t<file>:<line>`. Reads stdin when no file
+# is given (the crontab). A token is a path when it starts with `/` after the
+# systemd exec prefixes (`-@:+!|`) and a `--flag=` are stripped; a redirect
+# target is not a reference (cron's `>> ~/.cache/x.log` is a log, not a tool).
+delref_extract() {
+  local mode="$1" label="$2"
+  shift 2
+  LC_ALL=C awk -v mode="$mode" -v home="$HOME" -v label="$label" '
+  {
+    line = $0
+    if (mode == "unit") {
+      if (line !~ /^[ \t]*(Exec[A-Za-z]*|EnvironmentFile|(Condition|Assert)[A-Za-z]*(Path|File|Directory)[A-Za-z]*)[ \t]*=/) next
+      v = line; sub(/^[^=]*=/, "", v)
+      gsub(/%h/, home, v)
+    } else if (mode == "desktop") {
+      if (line !~ /^(Exec|TryExec)[ \t]*=/) next
+      v = line; sub(/^[^=]*=/, "", v)
+    } else {
+      if (line ~ /^[ \t]*(#|$)/) next
+      if (line ~ /^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*=/) next
+      v = line
+      gsub(/\$\{HOME\}|\$HOME/, home, v)
+    }
+    where = (label != "" ? label : FILENAME) ":" FNR
+    n = split(v, f, /[ \t"\047;|()`]+/)
+    redir = 0
+    for (i = 1; i <= n; i++) {
+      t = f[i]
+      if (t == "") continue
+      if (t ~ /^[0-9]*>>?&?$/ || t ~ /^[0-9]*<$/) { redir = 1; continue }
+      if (t ~ /^[0-9]*[<>]/) continue
+      if (redir) { redir = 0; continue }
+      sub(/^[-@:+!|]+/, "", t)
+      sub(/^-[-A-Za-z0-9_.]*=/, "", t)
+      if (t ~ /^~\//) t = home substr(t, 2)
+      if (t !~ /^\//) continue
+      if (t != "/") sub(/\/+$/, "", t)
+      printf "%s\t%s\n", t, where
+    }
+  }' "$@"
+}
+
+# delref_load -- fills delref_refs once per command. Non-zero with delref_fail
+# set when a source exists but cannot be read: an unreadable source is an
+# unknown, and an unknown is never "no references" (fail closed).
+delref_load() {
+  [ "$delref_loaded" -eq 1 ] && { [ -z "$delref_fail" ]; return; }
+  delref_loaded=1
+  local -a dirs=() files=()
+  local d f out rc sa ct bdir
+  if [ -n "${DELREF_UNIT_DIRS+x}" ]; then
+    while IFS= read -r d; do [ -n "$d" ] && [ -d "$d" ] && dirs+=("$d"); done <<<"$DELREF_UNIT_DIRS"
+  else
+    sa="${DELREF_SYSTEMD_ANALYZE:-systemd-analyze}"
+    # No systemd-analyze means no systemd user manager, so nothing to break.
+    if command -v "$sa" >/dev/null 2>&1; then
+      if ! out=$("$sa" --user unit-paths 2>/dev/null); then
+        delref_fail="\`$sa --user unit-paths\` failed, so the user unit directories are unknown"
+        return 1
+      fi
+      while IFS= read -r d; do
+        case "$d" in "$HOME"/*) [ -d "$d" ] && dirs+=("$d") ;; esac
+      done <<<"$out"
+    fi
+  fi
+  # -L because dotfiles-owned units are symlinks, which `grep -r` skips.
+  if [ "${#dirs[@]}" -gt 0 ]; then
+    mapfile -d '' -t files < <(find -L "${dirs[@]}" -type f ! -name '*.bak' ! -name '*.orig' ! -name '*~' -print0 2>/dev/null)
+    [ "${#files[@]}" -gt 0 ] && delref_refs+=$(delref_extract unit "" "${files[@]}")$'\n'
+  fi
+
+  files=()
+  out="${DELREF_DESKTOP_DIRS-$HOME/.local/share/applications
+$HOME/.config/autostart}"
+  while IFS= read -r d; do
+    [ -n "$d" ] && [ -d "$d" ] || continue
+    for f in "$d"/*.desktop; do [ -f "$f" ] && files+=("$f"); done
+  done <<<"$out"
+  [ "${#files[@]}" -gt 0 ] && delref_refs+=$(delref_extract desktop "" "${files[@]}")$'\n'
+
+  ct="${DELREF_CRONTAB:-crontab}"
+  if command -v "$ct" >/dev/null 2>&1; then
+    out=$("$ct" -l 2>&1)
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      delref_refs+=$(printf '%s\n' "$out" | delref_extract cron "crontab -l")$'\n'
+    else
+      case "$out" in
+        *"no crontab for"*) : ;;
+        *) delref_fail="\`$ct -l\` failed (rc=$rc: $(printf '%s' "$out" | head -1)), so the crontab's references are unknown"
+           return 1 ;;
+      esac
+    fi
+  fi
+
+  bdir="${DELREF_BIN_DIR:-$HOME/bin}"
+  if [ -d "$bdir" ]; then
+    while IFS=$'\t' read -r d f; do
+      [ -n "$d" ] || continue
+      case "$d" in /*) ;; *) d=$(norm_path "$bdir/$d") ;; esac
+      delref_refs+="$d${DELREF_TAB}$f (symlink)"$'\n'
+    done < <(find "$bdir" -mindepth 1 -maxdepth 1 -type l -printf '%l\t%p\n' 2>/dev/null)
+  fi
+  return 0
+}
+
+# delref_resolve <operand> <cwd> -- `abs<TAB>path` for an absolute path,
+# `rel<TAB>path` when the operand is relative and the cwd is unknown. Non-zero
+# when the operand is not knowable from here (`"$x"`, `~user`, `$(...)`).
+delref_resolve() {
+  local p="$1" base="$2"
+  case "$p" in
+    '$HOME'|'${HOME}') p="$HOME" ;;
+    '$HOME/'*)         p="$HOME/${p#\$HOME/}" ;;
+    '${HOME}/'*)       p="$HOME/${p#\$\{HOME\}/}" ;;
+    '~')               p="$HOME" ;;
+    '~/'*)             p="$HOME/${p#\~/}" ;;
+  esac
+  case "$p" in ''|*'$'*|*'`'*|'~'*) return 1 ;; esac
+  case "$p" in
+    /*) printf 'abs\t%s' "$(norm_path "$p")" ;;
+    *)
+      if [ -n "$base" ]; then
+        printf 'abs\t%s' "$(norm_path "$base/$p")"
+      else
+        while [ "${p#./}" != "$p" ]; do p="${p#./}"; done
+        while [ "${p%/}" != "$p" ]; do p="${p%/}"; done
+        case "$p" in ''|.|..|../*|*/..|*/../*) return 1 ;; esac
+        printf 'rel\t%s' "$p"
+      fi
+      ;;
+  esac
+}
+
+# delref_hit <kind> <path> -- the first reference the operand removes, as
+# `<referenced path>\t<file>:<line>`. A hit is the operand itself or anything
+# under it. A glob operand matches as a pattern; a relative operand with an
+# unknown cwd matches as a path suffix, which over-matches rather than misses.
+delref_hit() {
+  local kind="$1" p="$2" ref where
+  while IFS=$'\t' read -r ref where; do
+    [ -n "$ref" ] || continue
+    if [ "$p" = "/" ]; then printf '%s\t%s' "$ref" "$where"; return 0; fi
+    case "$kind:$p" in
+      abs:*[*?[]*) case "$ref" in $p|$p/*) printf '%s\t%s' "$ref" "$where"; return 0 ;; esac ;;
+      abs:*)       case "$ref" in "$p"|"$p"/*) printf '%s\t%s' "$ref" "$where"; return 0 ;; esac ;;
+      rel:*[*?[]*) case "$ref" in */$p|*/$p/*) printf '%s\t%s' "$ref" "$where"; return 0 ;; esac ;;
+      rel:*)       case "$ref" in */"$p"|*/"$p"/*) printf '%s\t%s' "$ref" "$where"; return 0 ;; esac ;;
+    esac
+  done <<<"$delref_refs"
+  return 1
+}
+
+# delref_cargo_bins <root> <spec> -- the installed binaries of one package, from
+# .crates2.json, because the package name is not the binary name: slack-cli
+# installs `slack`. A package the file does not list maps to its own name.
+# On failure prints the reason instead, because it runs in a $( ).
+delref_cargo_bins() {
+  local root="$1" spec="$2" name bins c2
+  name="${spec%%@*}"
+  name="${name%%:*}"
+  c2="${DELREF_CRATES2:-$root/.crates2.json}"
+  if [ -f "$c2" ]; then
+    bins=$(jq -r --arg n "$name" '.installs | to_entries[] | select((.key | split(" ")[0]) == $n) | .value.bins[]' "$c2" 2>/dev/null) \
+      || { printf '%s' "$c2 is unreadable, so the binaries \`cargo uninstall $name\` removes are unknown"; return 1; }
+    [ -n "$bins" ] && { printf '%s\n' "$bins"; return 0; }
+  fi
+  printf '%s\n' "$name"
+}
+
+# delref_check <statement text> <cwd> -- denies on the first referenced path a
+# delete statement would remove. Called in the main shell, never in $( ), so
+# deny's exit ends the hook and delref_load's cache survives across statements.
+delref_check() {
+  local st="$1" base="$2" verb="" v w t i n endopts=0 skip="" tdir="" root="" r kind path hit
+  local -a toks=() ops=() specs=() cbins=() resolved=()
+  for v in rm mv rkvr cargo; do
+    printf '%s' "$st" | cmdword_is "$v" >/dev/null 2>&1 && { verb="$v"; break; }
+  done
+  [ -n "$verb" ] || return 0
+  # Redirect operators and their operands are not operands of the delete.
+  mapfile -t toks < <(printf '%s' "$st" | sed -E 's/[0-9]*>>?&?[[:space:]]*[^[:space:]]*//g' | args)
+  n=${#toks[@]}
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    w="${toks[$i]}"; w="${w#\\}"; w="${w##*/}"
+    i=$((i + 1))
+    [ "$w" = "$verb" ] && break
+  done
+  case "$verb" in
+    rkvr)
+      [ "$i" -lt "$n" ] && [ "${toks[$i]}" = "rmrf" ] || return 0
+      i=$((i + 1)) ;;
+    cargo)
+      while [ "$i" -lt "$n" ]; do
+        t="${toks[$i]}"
+        i=$((i + 1))
+        case "$t" in
+          --color|--config|-Z|-C|--manifest-path) i=$((i + 1)) ;;
+          -*|+*) : ;;
+          uninstall) break ;;
+          *) return 0 ;;
+        esac
+      done
+      [ "${toks[$((i - 1))]}" = "uninstall" ] || return 0 ;;
+  esac
+
+  while [ "$i" -lt "$n" ]; do
+    t="${toks[$i]}"
+    i=$((i + 1))
+    if [ -n "$skip" ]; then
+      case "$skip" in
+        tdir)    tdir="$t" ;;
+        root)    root="$t" ;;
+        bin)     cbins+=("$t") ;;
+        package) specs+=("$t") ;;
+      esac
+      skip=""
+      continue
+    fi
+    if [ "$endopts" -eq 1 ] || [ "$t" = "-" ]; then
+      [ "$verb" = "cargo" ] && specs+=("$t") || ops+=("$t")
+      continue
+    fi
+    case "$verb:$t" in
+      *:--) endopts=1 ;;
+      mv:--target-directory=*) tdir="${t#*=}" ;;
+      mv:--target-directory)   skip=tdir ;;
+      mv:--suffix)             skip=ignore ;;
+      mv:--*)                  : ;;
+      mv:-*)
+        # A short cluster: `t` or `S` takes the rest of the cluster, or the next
+        # token when it ends the cluster (`-vt DIR`, `-tDIR`).
+        w="${t#-}"
+        while [ -n "$w" ]; do
+          case "$w" in
+            t*) [ -n "${w#t}" ] && tdir="${w#t}" || skip=tdir; break ;;
+            S*) [ -n "${w#S}" ] || skip=ignore; break ;;
+          esac
+          w="${w#?}"
+        done ;;
+      cargo:--root=*)    root="${t#*=}" ;;
+      cargo:--root)      skip=root ;;
+      cargo:--bin=*)     cbins+=("${t#*=}") ;;
+      cargo:--bin)       skip=bin ;;
+      cargo:--package=*) specs+=("${t#*=}") ;;
+      cargo:--package|cargo:-p) skip=package ;;
+      cargo:-p?*)        specs+=("${t#-p}") ;;
+      cargo:--color|cargo:--config|cargo:-Z|cargo:--index|cargo:--registry) skip=ignore ;;
+      *:-*) : ;;
+      cargo:*) specs+=("$t") ;;
+      *) ops+=("$t") ;;
+    esac
+  done
+
+  if [ "$verb" = "mv" ] && [ -z "$tdir" ] && [ "${#ops[@]}" -ge 2 ]; then
+    unset 'ops[-1]'
+  fi
+  if [ "$verb" = "cargo" ]; then
+    root="${root:-${DELREF_CARGO_ROOT:-${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}}}"
+    r=$(delref_resolve "$root" "$base") || return 0
+    root="${r#*${DELREF_TAB}}"
+    if [ "${#cbins[@]}" -eq 0 ]; then
+      for t in "${specs[@]}"; do
+        w=$(delref_cargo_bins "$root" "$t") || deny "DELETE-REF: $w. Denied rather than assumed unreferenced."
+        while IFS= read -r v; do [ -n "$v" ] && cbins+=("$v"); done <<<"$w"
+      done
+    fi
+    for t in "${cbins[@]}"; do ops+=("$root/bin/$t"); done
+  fi
+
+  for t in "${ops[@]}"; do
+    r=$(delref_resolve "$t" "$base") || continue
+    resolved+=("$r")
+  done
+  [ "${#resolved[@]}" -gt 0 ] || return 0
+  delref_load || deny "DELETE-REF: $delref_fail. Denied rather than assumed unreferenced."
+  for r in "${resolved[@]}"; do
+    kind="${r%%${DELREF_TAB}*}"
+    path="${r#*${DELREF_TAB}}"
+    hit=$(delref_hit "$kind" "$path") || continue
+    if [ "${hit%%${DELREF_TAB}*}" = "$path" ]; then
+      deny "DELETE-REF: $path is referenced by ${hit#*${DELREF_TAB}}. $DELREF_TAIL"
+    fi
+    deny "DELETE-REF: $path contains ${hit%%${DELREF_TAB}*}, referenced by ${hit#*${DELREF_TAB}}. $DELREF_TAIL"
+  done
+}
+
 while IFS= read -r -d '' stmt; do
   verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
   # Quote-masked, and kept for INGEST. `stmts` already emits an eval / `bash -c`
@@ -1222,6 +1540,12 @@ $ingest_stmt"
       done
     fi
   fi
+
+  # A substring gate first, so a Bash call with no delete verb in it pays no
+  # cmdword_is spawn, let alone any reference read.
+  case "$verbscan" in
+    *rm*|*mv*|*uninstall*) delref_check "$verbscan" "$cur_cwd" ;;
+  esac
 done < <(printf '%s' "$command" | stmts)
 
 # INGEST's deny clauses are COMMAND scope, which is a deliberate exception to
