@@ -1,0 +1,23 @@
+{
+  "skill_name": "scour",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "scour for what people think of Hindsight (the vectorize-io agent memory thing) vs mem0 vs zep. i've been running hindsight home and work banks for a while, want to know if i picked right",
+      "expected_output": "12+ parallel sonnet lanes incl. docs for all three products, GitHub issues, HN/Reddit sentiment, plus oracle/clyde/hindsight recall of Scott's own setup; report leads with what Scott already decided and why, then cited comparison, conflicts, coverage line.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "/scour sccache failing inside bubblewrap sandboxes with Operation not permitted on the unix socket",
+      "expected_output": "Lanes include GitHub issues (mozilla/sccache, anthropics/claude-code), blogs, HN; clyde lane surfaces Scott's prior sessions and refs/sccache-sandbox.md-era fix (allowAllUnixSockets); docs lane likely dropped or scoped to sccache docs; report says Scott already solved this and cites the session.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "dig up everything on Okta's device authorization grant flow for headless CLIs, gotchas, token refresh, what other companies do. thinking about it for a new tatari cli",
+      "expected_output": "Docs lane hits Okta developer docs (device grant, refresh tokens, limits); GitHub lane finds CLIs implementing it; blogs/HN/reddit for gotchas; clyde/oracle surface marquee CLI's existing --device login; report cites each claim and flags conflicts between vendor docs and practitioner reports.",
+      "files": []
+    }
+  ]
+}
