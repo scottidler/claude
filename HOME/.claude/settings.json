@@ -6,7 +6,8 @@
     "MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES": "3",
     "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1",
     "TMPDIR": "/tmp/claude-1000",
-    "RUSTC_WRAPPER": ""
+    "RUSTC_WRAPPER": "",
+    "SG_AGENTIC_COMMIT_REVIEW": "0"
   },
   "attribution": {
     "commit": "",
@@ -1108,6 +1109,7 @@
         "*.datadoghq.com",
         "marquee.internal.tatari.dev",
         "marquee.test.tatari.dev",
+        "tatari.okta.com",
         "raw.githubusercontent.com",
         "www.youtube.com"
       ],
