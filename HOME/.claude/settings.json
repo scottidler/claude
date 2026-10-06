@@ -1071,7 +1071,10 @@
     "understand-anything@understand-anything": true,
     "slack@tatari-skills": true,
     "spec@tatari-skills": true,
-    "ttv@tatari-skills": true
+    "ttv@tatari-skills": true,
+    "squad@tatari-skills": true,
+    "spec-lab@tatari-skills": true,
+    "marquee@tatari-skills": true
   },
   "extraKnownMarketplaces": {
     "understand-anything": {
@@ -1093,11 +1096,18 @@
     "network": {
       "allowedDomains": [
         "api.anthropic.com",
+        "code.claude.com",
+        "crates.io",
+        "*.crates.io",
+        "docs.github.com",
+        "github.com",
         "oauth2.googleapis.com",
         "public-api.drata.com",
         "tatari-tv.github.io",
         "slack.com",
-        "*.datadoghq.com"
+        "*.datadoghq.com",
+        "raw.githubusercontent.com",
+        "www.youtube.com"
       ],
       "allowAllUnixSockets": true
     },
