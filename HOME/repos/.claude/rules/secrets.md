@@ -53,6 +53,34 @@ Confirm identity without leaking the token: append `api user --jq .login` (print
 just `scottidler` or `escote-tatari`). `github-pat-service` is a third,
 service-account PAT; use it only when a task explicitly calls for the bot identity.
 
+## ssh to a host (ripr.lan etc.): the remote string's shape decides sandboxing
+
+`sandbox.excludedCommands` lists `ssh *`, but it only runs the command
+unsandboxed when the harness reads the whole line as a simple command. A line
+it reads as compound runs sandboxed, where there is no DNS and no route, and
+fails with `Could not resolve hostname ripr.lan: Temporary failure in name
+resolution` (`Network is unreachable` when given the IP). That error means the
+shape is wrong, not that the host is down.
+
+Measured 2026-10-06, desk to `ripr.lan`, same flags, only the remote string changed:
+
+- Works: a plain command, quoted `;`, quoted `|`, quoted `&&`, quoted `||`,
+  quoted `for ... do ... done`, a remote glob, a trailing `2>&1`
+- Fails: `$(...)` or backticks inside the remote string, a `<` stdin redirect,
+  a heredoc on stdin
+- Untested: other shapes; do not assume they work
+
+After a resolve or unreachable error from `ssh`, fix the shape, never the
+sandbox:
+
+- Rewrite the remote string with no `$(`, backticks, `<` or heredoc: use remote
+  globs, `grep -H`, or a script already on the host, called bare
+- Never set `dangerouslyDisableSandbox` on an `ssh` command; `ssh` is in
+  `sandbox.excludedCommands`, so the override is the wrong fix
+
+Also, the `rails` hook rejects any Bash call that puts another command on the
+same line as an `ssh` call (`run them as separate Bash calls`).
+
 ## git over SSH: the persona is automatic, but ONLY outside the sandbox
 
 `core.sshCommand = ~/.gitconfig-ssh` picks the key per call: any ssh argument

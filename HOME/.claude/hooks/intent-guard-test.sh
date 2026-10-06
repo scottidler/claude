@@ -676,6 +676,24 @@ runsb allow 'git -C ~/repos/x push origin main 2>&1 | tail -2'
 runsb deny  'GIT_SSH_COMMAND="ssh -i ~/.ssh/identities/work/id_ed25519" git push origin x'
 runsb deny  'git push https://github.com/tatari-tv/drata-cli.git x'
 
+echo "=== SSH-SHAPE: shapes measured to run unsandboxed (2026-10-06, desk -> ripr.lan) ==="
+run allow 'ssh -o BatchMode=yes -o ConnectTimeout=8 ripr.lan hostname'
+run allow "ssh ripr.lan 'hostname; hostname'"
+run allow "ssh ripr.lan 'lsblk -d -o NAME,MODEL | grep -v loop'"
+run allow "ssh ripr.lan 'hostname && hostname'"
+run allow "ssh ripr.lan 'false || hostname'"
+run allow "ssh ripr.lan 'for n in a b; do echo \$n; done'"
+run allow "ssh ripr.lan 'grep -H . /sys/class/nvme/nvme*/device/current_link_speed' 2>&1"
+run allow 'echo "ssh ripr.lan with $(hostname) is what not to do"'
+
+echo "=== SSH-SHAPE: shapes measured to run sandboxed and fail to resolve ==="
+run deny  "ssh -o BatchMode=yes ripr.lan 'echo \$(hostname)'"
+run deny  "ssh ripr.lan 'echo \`hostname\`'"
+run deny  "ssh ripr.lan 'bash -s' < script.sh"
+run deny  $'ssh ripr.lan \'bash -s\' <<\'EOF\'\nhostname\nEOF'
+runsays   "ssh ripr.lan 'echo \$(hostname)'" 'Never set dangerouslyDisableSandbox on ssh'
+runsb allow "ssh ripr.lan 'echo \$(hostname)'"
+
 echo "=== GIT-NET: hand-rolled key, config and URL overrides ==="
 run deny  'GIT_SSH_COMMAND="ssh -i ~/.ssh/identities/work/id_ed25519 -o IdentitiesOnly=yes" git push origin x'
 run deny  'export GIT_SSH_COMMAND="ssh -i k"; git push origin x'

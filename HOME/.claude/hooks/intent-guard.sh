@@ -34,6 +34,8 @@
 #   GIT-NET     git network ops that cannot authenticate as the right persona:
 #               hand-rolled keys/URL rewrites/HTTPS swaps always, and, when the
 #               sandbox is on, any shape sandbox.excludedCommands will not match.
+#   SSH-SHAPE   `ssh` with `$(`/backticks in the remote string or a `<` redirect or
+#               heredoc, which runs sandboxed with no DNS (sandbox off allows it).
 #   DELETE-REF  `rm`, `rkvr rmrf`, `mv` (sources) and `cargo uninstall` of a path
 #               a user unit, a .desktop entry, the crontab or a ~/bin symlink
 #               still runs or reads (slack-deliver failed 203/EXEC for weeks).
@@ -456,6 +458,12 @@ GITNET_VERBS=" push fetch pull ls-remote clone "
 GITNET_HOW='The persona key is automatic (~/.gitconfig-ssh; rules/secrets.md "git over SSH").'
 GITNET_OVERRIDE_DENY="do not hand-roll git's SSH key, config or remote URL. $GITNET_HOW Run the plain command, e.g. \`git push origin <branch>\`. Denied for"
 GITNET_SHAPE_DENY="this git network command would run INSIDE the sandbox, where it cannot authenticate as either persona. sandbox.excludedCommands only lifts the sandbox for a bare simple command. $GITNET_HOW Make it a separate Bash call: first \`cd <repo>\` alone, then the plain \`git <verb> ...\` alone (a trailing \`2>&1\` is fine; no pipe, no &&, no -C, no wrapper). Denied for"
+# SSH-SHAPE. Measured 2026-10-06 (desk -> ripr.lan): `ssh *` in excludedCommands
+# lifts the sandbox only when the harness reads the line as simple. `$(...)` or
+# backticks inside the quoted remote string, and a `<` redirect or heredoc, make
+# it compound, so it runs sandboxed with no DNS: `Could not resolve hostname`.
+# Quoted `;` `|` `&&` `||` and remote globs stay simple. Unmeasured shapes allow.
+SSHSHAPE_DENY="this ssh command would run INSIDE the sandbox, where there is no DNS or route (the resolve error is the shape, not the host). sandbox.excludedCommands only lifts the sandbox for a simple command. Rewrite the remote string with no \`\$(\`, backticks, \`<\` or heredoc: use remote globs, \`grep -H\`, or a script already on the host, called bare. Never set dangerouslyDisableSandbox on ssh (rules/secrets.md \"ssh to a host\"). Denied for"
 sandbox_off=0
 case "$(printf '%s' "$input" | jq -r '.tool_input.dangerouslyDisableSandbox // false' 2>/dev/null)" in
   true|1) sandbox_off=1 ;;
@@ -1707,6 +1715,15 @@ while IFS= read -r -d '' stmt; do
           deny "$GITNET_SHAPE_DENY \`git $g_sub\` in a compound, -C/-c, or wrapped command"
         fi
         ;;
+    esac
+  fi
+
+  if [ "$sandbox_off" -eq 0 ] && printf '%s' "$verbscan" | cmdword_is ssh >/dev/null 2>&1; then
+    case "$verbscan" in
+      *'$('*|*'`'*) deny "$SSHSHAPE_DENY \`ssh\` with command substitution in the remote string" ;;
+    esac
+    case "$ingest_stmt" in
+      *'<'*) deny "$SSHSHAPE_DENY \`ssh\` with a stdin redirect or heredoc" ;;
     esac
   fi
 
