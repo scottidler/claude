@@ -9,7 +9,10 @@ alwaysApply: true
 
 ## Sandbox
 
-- The `marquee` CLI writes its token cache (`~/.config/marquee/tokens.json`), so it FAILS inside the command sandbox with `Read-only file system (os error 30)`. Always run `marquee` commands with sandbox disabled. Do not burn an attempt in-sandbox first.
+- Run `marquee` inside the sandbox. Measured 2026-10-06: `marquee list --tags` succeeds there, and `~/.config/marquee/` is writable (a `touch` probe worked), because `~/.config` is in the sandbox write allowlist.
+- The network half is the allowlist: `marquee.internal.tatari.dev` (prod) and `marquee.test.tatari.dev` (test) are in `sandbox.network.allowedDomains`. Before they were added, the same call died with `client error (Connect): tunnel error: unsuccessful`. A tunnel error means the host is missing from the allowlist, not that the sandbox bars the CLI.
+- The old claim here (`Read-only file system (os error 30)` on the token-cache write, so always disable the sandbox) did not reproduce. Only if that exact error recurs, retry once with the sandbox off and record the failing command here.
+- Not measured: a token refresh or `marquee login --device` write from inside the sandbox.
 
 ## Auth (headless sessions)
 

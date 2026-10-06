@@ -1106,6 +1106,8 @@
         "tatari-tv.github.io",
         "slack.com",
         "*.datadoghq.com",
+        "marquee.internal.tatari.dev",
+        "marquee.test.tatari.dev",
         "raw.githubusercontent.com",
         "www.youtube.com"
       ],
