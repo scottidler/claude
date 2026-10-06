@@ -10,6 +10,9 @@ Durable, load-bearing facts about me. Read at session start (included from
   Pixel unless I say otherwise.
 - **Desktop:** `desk.lan` (primary workstation, where daemons run).
 - **Laptop:** `ltl-7007.lan` (`lappy`/`laptop`), used over Tailscale.
+- **ripr:** `ripr.lan` (10.10.10.76), reached over ssh. Has a `second-brain`
+  clone and `sb` installed; runs no borg/cortex daemons; no `otto`
+  (deploy there is pull + `cargo build --release` + install by hand).
 
 ## Identity
 
@@ -36,6 +39,7 @@ Scott's own shorthand, so an agent stops guessing what these mean.
 - **bkup**: `rkvr bkup`, the archive-without-deleting subcommand of the same `rkvr` CLI. `filter-ref` stages candidates for either `rmrf` or `bkup`.
 - **lappy**: the laptop, `ltl-7007.lan`, reached over Tailscale (see Devices above).
 - **desk**: the desktop, `desk.lan`, the primary workstation where daemons run (see Devices above).
+- **ripr**: the host `ripr.lan` (see Devices above).
 - **shipit**: the `/shipit` skill, commit, bump the version, push, and install in one go, handed to the `release-driver` agent.
 - **bump**: the `bump` CLI, bumps semantic versions, commits, and tags a git repo; `bump --gates` reports branch-protection status; `bump --no-tag` / `bump --tag-only` split the bump for gated repos.
 - **sdv**: the `sdv` CLI, reports a Tatari-hosted site's standard endpoints (`/status`, `/deployed`, `/version`) via `sdv probe`.
