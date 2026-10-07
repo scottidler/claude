@@ -40,7 +40,7 @@ Scott's own shorthand, so an agent stops guessing what these mean.
 - **lappy**: the laptop, `ltl-7007.lan`, reached over Tailscale (see Devices above).
 - **desk**: the desktop, `desk.lan`, the primary workstation where daemons run (see Devices above).
 - **ripr**: the host `ripr.lan` (see Devices above).
-- **shipit**: the `/shipit` skill, commit, bump the version, push, and install in one go, handed to the `release-driver` agent.
+- **shipit**: the ungated release path (`bump --gates` says none): commit locally on main, then run `bump release` inline, which pushes, waits for green CI, tags, and installs. Never handed to the `release-driver` agent; a branch-protected repo goes to release-driver instead. Protected -> release-driver, not protected -> shipit (`~/HALL-OF-SHAME.md`, 2026-10-03).
 - **bump**: the `bump` CLI, bumps semantic versions, commits, and tags a git repo; `bump --gates` reports branch-protection status; `bump --no-tag` / `bump --tag-only` split the bump for gated repos.
 - **sdv**: the `sdv` CLI, reports a Tatari-hosted site's standard endpoints (`/status`, `/deployed`, `/version`) via `sdv probe`.
 - **handoff**: the `handoff` skill (`HOME/.claude/skills/handoff/SKILL.md`), which writes a session handoff and resumes from one. Handoffs live at `docs/handoff/<branch>.md` in the repo being worked, one per branch, committed with the work. `handoff-guard.sh` stats that path and points a new session at it; there is no trigger that can fire a skill, so the hook grounds and the model invokes.
