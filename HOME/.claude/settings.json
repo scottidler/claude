@@ -7,7 +7,7 @@
     "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1",
     "TMPDIR": "/tmp/claude-1000",
     "RUSTC_WRAPPER": "",
-    "SG_AGENTIC_COMMIT_REVIEW": "0"
+    "ENABLE_COMMIT_REVIEW": "0"
   },
   "attribution": {
     "commit": "",
