@@ -1108,6 +1108,7 @@
         "*.datadoghq.com",
         "marquee.internal.tatari.dev",
         "marquee.test.tatari.dev",
+        "tatari.okta.com",
         "raw.githubusercontent.com",
         "www.youtube.com"
       ],
