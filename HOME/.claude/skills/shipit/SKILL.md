@@ -77,11 +77,14 @@ hand, but follow the `bump` skill exactly:
 ```bash
 # commit the real files by explicit path (NEVER git add -A, it sweeps scratch assets)
 git add <files> && git commit -m "<message>"
-cd <repo>                                          # its own Bash call
-bump release [-m|-M] [--install "<cmd>"|--no-install]   # bare, run_in_background
+bump release [-m|-M] [--install "<cmd>"|--no-install] <repo>   # bare, run_in_background
 # gated repos stop after opening the PR; after the merge:
-bump finish                                        # bare, run_in_background
+bump finish <repo>                                 # bare, run_in_background
 ```
+
+The `<repo>` positional ships in the bump release that carries scottidler/bump
+commit eba0468; until `bump release --help` shows `[DIR]`, `cd <repo>` in its own
+Bash call and run the verb bare without it.
 
 ## Rules that never bend
 

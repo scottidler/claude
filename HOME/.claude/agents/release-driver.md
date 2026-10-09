@@ -59,8 +59,15 @@ anything is running:
 
 ## What the two verbs do (so you trust them)
 
-Both are bare `bump` subcommands (bump v0.4.0+). Run each as its own Bash call
-after a separate `cd <REPO>`, with `run_in_background`: the CI wait runs up to
+Both are bare `bump` subcommands (bump v0.4.0+). Run each as a bare
+`bump release <REPO>` / `bump finish <REPO>`, which works from any cwd: a
+subagent's `cd` outside its working directories is reset by the harness, so a
+separate `cd <REPO>` call cannot be trusted to stick. The `<REPO>` positional
+ships in the bump release that carries scottidler/bump commit eba0468; until
+`bump release --help` shows `[DIR]`, the installed bump rejects it, so `cd <REPO>`
+in its own call and confirm `pwd` before the bare verb. Never set
+`dangerouslyDisableSandbox` on `bump`: it already runs unsandboxed and
+`intent-guard.sh` denies the flag. Run with `run_in_background`: the CI wait runs up to
 `--ci-timeout` (default 1800s), past the 600s foreground cap. Read the result when
 the harness reports the exit. No `&&`, no env prefix, no wrapper: a bare `bump ...`
 matches the allow rule, anything else is what the auto-mode classifier denied.
@@ -113,13 +120,13 @@ gate verdict or re-implement their steps by hand.
    - `state` is not `MERGED` → STOP. Nothing to finish; report the actual state.
    - Body carries `Release: rides this PR (vX.Y.Z)` → that vX.Y.Z is
      EXPECTED-VERSION unless the caller passed one that agrees.
-   - Run `bump finish [--install "<cmd>"|--no-install]`, then step 5, then step 6.
+   - Run `bump finish [--install "<cmd>"|--no-install] <REPO>`, then step 5, then step 6.
      If the bump did not ride, `bump finish` refuses: **STOP and report.** Do not
      bump, tag, or open a PR, and NEVER create a bump-only release branch.
 
 3. **Release.** Run `bump release` with the level and install command:
    ```
-   bump release [-m|-M] [--install "<cmd>"|--no-install]
+   bump release [-m|-M] [--install "<cmd>"|--no-install] <REPO>
    ```
    - Prints **"Released vX.Y.Z on <default>"** → ungated release shipped. Go to step 5.
    - Prints the PR url and **"merge the PR, then run: bump finish"** → gated, PR
@@ -138,7 +145,7 @@ gate verdict or re-implement their steps by hand.
      waiting on review; do **not** admin-merge unless the invoking prompt explicitly
      authorized it (admin-merging your own gated PR is a logged process deviation,
      HALL-OF-SHAME §VIII).
-   - Once merged: run `bump finish [--install …]`. It fast-forwards the default
+   - Once merged: run `bump finish [--install …] <REPO>`. It fast-forwards the default
      branch, waits for CI on the merged sha, tags it, and pushes the tag by name.
    - **Wait mechanically, not by spinning.** Run the poll as a single `run_in_background`
      Bash call that blocks until the checks reach a terminal state, so the harness

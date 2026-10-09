@@ -464,6 +464,13 @@ GITNET_SHAPE_DENY="this git network command would run INSIDE the sandbox, where 
 # it compound, so it runs sandboxed with no DNS: `Could not resolve hostname`.
 # Quoted `;` `|` `&&` `||` and remote globs stay simple. Unmeasured shapes allow.
 SSHSHAPE_DENY="this ssh command would run INSIDE the sandbox, where there is no DNS or route (the resolve error is the shape, not the host). sandbox.excludedCommands only lifts the sandbox for a simple command. Rewrite the remote string with no \`\$(\`, backticks, \`<\` or heredoc: use remote globs, \`grep -H\`, or a script already on the host, called bare. Never set dangerouslyDisableSandbox on ssh (rules/secrets.md \"ssh to a host\"). Denied for"
+# SANDBOX-OFF (2026-10-08 retro, fix 3). Every head below is in
+# sandbox.excludedCommands, so its legal shape already runs unsandboxed and the
+# flag can only ever widen a compound or wrapped form past the shape rules.
+# The flag used to turn GIT-NET and SSH-SHAPE into allows; it now denies.
+sandboxoff_deny() { # sandboxoff_deny <verb>
+  deny "\`$1\` already runs unsandboxed via excludedCommands; \`dangerouslyDisableSandbox\` is only a bypass here. Run the bare command (from a subagent: \`bump <verb> <repo>\`)."
+}
 sandbox_off=0
 case "$(printf '%s' "$input" | jq -r '.tool_input.dangerouslyDisableSandbox // false' 2>/dev/null)" in
   true|1) sandbox_off=1 ;;
@@ -1711,14 +1718,21 @@ while IFS= read -r -d '' stmt; do
         case " $g_rest_lc " in
           *" https://github.com/"*|*" http://github.com/"*) deny "$GITNET_OVERRIDE_DENY (an HTTPS GitHub URL; remotes stay git@github.com)" ;;
         esac
-        if [ "$sandbox_off" -eq 0 ] && ! gitnet_bare_simple; then
+        [ "$sandbox_off" -eq 1 ] && sandboxoff_deny "git $g_sub"
+        if ! gitnet_bare_simple; then
           deny "$GITNET_SHAPE_DENY \`git $g_sub\` in a compound, -C/-c, or wrapped command"
         fi
         ;;
     esac
   fi
 
-  if [ "$sandbox_off" -eq 0 ] && printf '%s' "$verbscan" | cmdword_is ssh >/dev/null 2>&1; then
+  if [ "$sandbox_off" -eq 1 ] && printf '%s' "$verbscan" | cmdword_is bump >/dev/null 2>&1; then
+    b_sub=$(printf '%s' "$verbscan" | args | awk 'seen && !/^-/ {print; exit} $0 == "bump" {seen = 1}')
+    sandboxoff_deny "bump${b_sub:+ $b_sub}"
+  fi
+
+  if printf '%s' "$verbscan" | cmdword_is ssh >/dev/null 2>&1; then
+    [ "$sandbox_off" -eq 1 ] && sandboxoff_deny ssh
     case "$verbscan" in
       *'$('*|*'`'*) deny "$SSHSHAPE_DENY \`ssh\` with command substitution in the remote string" ;;
     esac

@@ -455,9 +455,9 @@ echo "=== PUBLIC-REPO push: redirects are not refspecs ==="
 # sensitive path, they exercise the refspec walk and must not deny on a
 # redirect token. The repo-state cases live in the scratch-repo probe.
 run allow 'git push origin main 2>&1'
-# Piped, so sandboxed it is a GIT-NET deny; the refspec walk is asserted
-# with the sandbox off (runsb, defined in the GIT-NET section below).
-runsb_pending='git push origin main 2>&1 | tail -5'
+# The piped form `git push origin main 2>&1 | tail -5` is a GIT-NET deny
+# sandboxed and a SANDBOX-OFF deny unsandboxed (2026-10-08 retro, fix 3), so
+# no payload reaches the refspec walk with it; the redirect forms here carry it.
 run allow 'git push origin HEAD:main > /dev/null 2>&1'
 run allow 'git push origin main >/dev/null'
 
@@ -657,7 +657,10 @@ run deny  "bash -c 'git push origin x'"
 run deny  'git ls-remote origin HEAD | cat'
 runsays   'git -C /r push origin x' 'cd <repo>'
 
-echo "=== GIT-NET: the same shapes are fine with the sandbox off ==="
+echo "=== SANDBOX-OFF: excluded heads deny with the flag set (2026-10-08 retro, fix 3) ==="
+# These three were allows until fix 3: the flag turned GIT-NET's shape rule into
+# an allow. Every head here already runs unsandboxed in its legal shape, so the
+# flag is only ever a bypass.
 runsb() { # runsb <expect> <command>: payload with dangerouslyDisableSandbox true
   local expect="$1" cmd="$2" out decision
   out=$(jq -n --arg c "$cmd" --arg d "$PWD" \
@@ -669,9 +672,34 @@ runsb() { # runsb <expect> <command>: payload with dangerouslyDisableSandbox tru
     fail=$((fail + 1)); printf 'FAIL  [want %s got %s, sandbox off] %s\n' "$expect" "$decision" "$cmd"
   fi
 }
-runsb allow 'cd ~/repos/tatari-tv/drata-cli && git push origin x'
-runsb allow "$runsb_pending"
-runsb allow 'git -C ~/repos/x push origin main 2>&1 | tail -2'
+runsb deny  'cd ~/repos/tatari-tv/drata-cli && git push origin x'
+runsb deny  'git push origin main 2>&1 | tail -5'
+runsb deny  'git -C ~/repos/x push origin main 2>&1 | tail -2'
+runsb deny  'git push origin main'
+runsb deny  'git pull'
+runsb deny  'git fetch'
+runsb deny  'git ls-remote origin'
+runsb deny  'git clone x'
+runsb deny  'ssh host ls'
+runsb deny  'bump release'
+runsb deny  'bump finish ~/repos/scottidler/bump'
+runsb deny  'cd ~/repos/x && git push origin main'
+runsb allow 'ls'
+runsb allow 'git status'
+runsb allow 'echo "bump release and git push are prose here"'
+runsbsays() { # runsbsays <command> <substring>: sandbox-off deny reason must contain it
+  local cmd="$1" want="$2" reason
+  reason=$(jq -n --arg c "$cmd" --arg d "$PWD" \
+    '{tool_name:"Bash",tool_input:{command:$c,run_in_background:false,dangerouslyDisableSandbox:true},cwd:$d}' | bash "$HOOK" |
+    jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+  case "$reason" in
+    *"$want"*) pass=$((pass + 1)); printf 'PASS  [says, sandbox off] %s\n' "$cmd" ;;
+    *) fail=$((fail + 1)); printf 'FAIL  [want reason containing %s, sandbox off] %s\n' "$want" "$cmd" ;;
+  esac
+}
+runsbsays 'bump -m release /x' '`bump release` already runs unsandboxed via excludedCommands'
+runsbsays 'git -C /r fetch' '`git fetch` already runs unsandboxed'
+runsbsays 'ssh host ls' 'from a subagent: `bump <verb> <repo>`'
 # Overrides deny even unsandboxed: they are never needed.
 runsb deny  'GIT_SSH_COMMAND="ssh -i ~/.ssh/identities/work/id_ed25519" git push origin x'
 runsb deny  'git push https://github.com/tatari-tv/drata-cli.git x'
@@ -692,7 +720,7 @@ run deny  "ssh ripr.lan 'echo \`hostname\`'"
 run deny  "ssh ripr.lan 'bash -s' < script.sh"
 run deny  $'ssh ripr.lan \'bash -s\' <<\'EOF\'\nhostname\nEOF'
 runsays   "ssh ripr.lan 'echo \$(hostname)'" 'Never set dangerouslyDisableSandbox on ssh'
-runsb allow "ssh ripr.lan 'echo \$(hostname)'"
+runsb deny  "ssh ripr.lan 'echo \$(hostname)'"
 
 echo "=== GIT-NET: hand-rolled key, config and URL overrides ==="
 run deny  'GIT_SSH_COMMAND="ssh -i ~/.ssh/identities/work/id_ed25519 -o IdentitiesOnly=yes" git push origin x'

@@ -16,14 +16,16 @@ protection AND repo/org rulesets) and picks the flow. Never infer gates yourself
 ## The contract
 
 ```
-cd <repo>                                  # its own Bash call
-bump release [-m|-M]                       # bare: no &&, no env prefix, no wrapper
+bump release [-m|-M] <repo>                # bare: no &&, no env prefix, no wrapper
 # gated: the PR merges, then
-bump finish                                # bare, from any worktree
+bump finish <repo>                         # bare, <repo> is any worktree
 # Scott ordered a version-only release:
 bump release --standalone "<his exact words>"
 ```
 
+- The `<repo>` positional ships in the bump release that carries scottidler/bump
+  commit eba0468; until `bump release --help` shows `[DIR]`, `cd <repo>` in its
+  own Bash call and run the verb bare without it.
 - Run `bump release` and `bump finish` with `run_in_background`: the CI wait runs
   up to `--ci-timeout` (default 1800s), past the Bash tool's 600s foreground cap.
   Read the result when the harness reports the exit.
@@ -91,8 +93,8 @@ Every refusal names its one exact next command. The ones that matter:
 ## `bump` reference
 
 ```bash
-bump release [-m|-M] [-n] [--install "<cmd>"|--no-install] [--standalone "<words>"] [--ci-timeout SECS]
-bump finish  [-n] [--install "<cmd>"|--no-install] [--ci-timeout SECS]
+bump release [-m|-M] [-n] [--install "<cmd>"|--no-install] [--standalone "<words>"] [--ci-timeout SECS] [<repo>]
+bump finish  [-n] [--install "<cmd>"|--no-install] [--ci-timeout SECS] [<repo>]
 bump --gates       # which flow applies (classic protection AND repo/org rulesets)
 bump -n            # dry run of a plain bump
 ```

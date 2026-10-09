@@ -569,12 +569,16 @@ approved, in the order below.
 ### 4-5. Release: `bump release`, then `bump finish` (only if approved)
 
 One command does the bump, the push, the CI wait, the tag, and the install. Run
-it bare, as its own Bash call after a separate `cd <repo>`, with
+it bare, as its own Bash call naming the repo, with
 `run_in_background` (the CI wait runs up to 1800s, past the 600s foreground cap):
 
 ```bash
-bump release [-m|-M]     # patch by default; -m/-M only for what the design doc calls breaking
+bump release [-m|-M] <repo>     # patch by default; -m/-M only for what the design doc calls breaking
 ```
+
+The `<repo>` positional ships in the bump release that carries scottidler/bump
+commit eba0468; until `bump release --help` shows `[DIR]`, `cd <repo>` in its own
+Bash call and run the verb bare without it.
 
 - **Ungated** (main accepts direct pushes): on main, it commits the version,
   pushes, waits for green CI on that exact sha, tags the sha, pushes the tag by
