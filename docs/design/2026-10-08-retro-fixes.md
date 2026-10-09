@@ -171,6 +171,118 @@ Each row names what each result changes.
 | rails -> shell hook order | a rails `updatedInput` on a command `git-release-guard.sh` would deny; which one the shell hook sees (`guard-precision-review-log.md:32`) | Phases 13/14 rewrite freely | rewrites must stay deny-equivalent |
 | fresh-session rule loading | in a session started after a scratch commit that moves `cli.md` to `refs/`, `/context` or the system prompt shows it absent | Phase 6 as designed | find what loads it |
 
+**Phase 0 results, run 2026-10-09 on Claude Code 2.1.295.** One block per remaining row: how it ran, the exact stdout, the branch taken.
+
+*Cold `cargo fetch`.* `cd ~/repos/scottidler/bump` in its own call, then `CARGO_HOME=$TMPDIR/ch cargo fetch; echo "rc=$?"; echo "SANDBOX_RUNTIME=${SANDBOX_RUNTIME:-unset}"` (a compound, so sandboxed). Output opened with `Updating crates.io index`, three `Updating git repository` lines (`https://github.com/tatari-tv/mcp-io-rs`, `.../okta-auth-rs.git`, `.../renew`), then `Downloading crates ...` and every `Downloaded` line, and closed:
+```
+  Downloaded aws-lc-sys v0.45.0
+rc=0
+SANDBOX_RUNTIME=1
+```
+Branch: **if yes**, the network path is proven from an empty `CARGO_HOME` (crates.io index, crate downloads, and git deps on github.com), no `allowedDomains` change.
+
+*otto in clyde.* `bash -c 'cd ~/repos/tatari-tv/clyde && otto ci > $TMPDIR/otto-clyde.log 2>&1; echo "rc=$?"; echo "SANDBOX_RUNTIME=${SANDBOX_RUNTIME:-unset}"'` printed:
+```
+rc=0
+SANDBOX_RUNTIME=1
+```
+The log (2,313 lines) ends `[ci] ✅ All CI checks passed!`; the tasks that ran were `lint`, `bloat`, `check`, `test`, `ci`. The row's premise was off: clyde's `mutants` task (the one that runs `cargo install cargo-mutants`) is NOT a `before:` of `ci` (`clyde/.otto.yml:146-153`, "NOT part of ci"), so `otto ci` never installs anything. A `cargo install` reaches the same crates.io hosts the cold-fetch row just proved. Branch: **if yes**, nothing new; `otto *` can leave the list.
+
+*marquee protected.* Orchestrator run at 00:08, re-run by the Phase 0 implementer in `~/repos/tatari-tv/marquee`, bare `bump --gates`:
+```
+Repo:   tatari-tv/marquee
+Branch: main
+Gates:  none (ungated)
+
+Ungated flow:
+  bump release [-m|-M]       # on main: version commit, push, CI wait, tag, push tag
+```
+Scott has not applied the ruleset yet. Branch: **if no**. Gates E/F would deny the marquee PR and allow a marquee push; Phase 12 waits on Scott's operator step, and the ruleset settings get recorded here when it lands.
+
+*`bump --gates` from a hook.* Live hooks and `settings.json` were not touched. A PreToolUse hook is a child of the Claude process, unsandboxed, with the Claude process env, so the probe ran from a scratch script under the Bash tool (which inherits that env) twice: once sandboxed, once with the sandbox off as a hook runs. Both runs gave the same verdict for every case. Modes: `env` (as inherited), `nopersona` (`env -u GITHUB_PAT_HOME -u GITHUB_PAT_WORK`), `timeout` (`timeout 2`), `nopath` (`PATH=/usr/local/bin:/usr/bin:/bin`, no `~/.cargo/bin`). `~/repos/scottidler/bump` turned out to be PUBLIC (`gh api repos/scottidler/bump --jq .visibility` -> `public`), so `~/repos/scottidler/obsidian` (`private`) is the home-private case. Unsandboxed run, filtered to the `===`, `Gates:`, `rc=`, `stderr` lines (the scratchpad path in `stderr` shortened to `...`):
+```
+=== /home/saidler/repos/scottidler/bump [env]
+Gates:  none (ungated)
+rc=0 elapsed=.623880549s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/scottidler/bump [nopersona]
+Gates:  none (ungated)
+rc=0 elapsed=.656478484s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/scottidler/bump [timeout]
+Gates:  none (ungated)
+rc=0 elapsed=.654104859s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/scottidler/bump [nopath]
+rc=127 elapsed=.005473318s SANDBOX_RUNTIME=unset
+stderr: .../hook-sim.sh: line 17: bump: command not found
+=== /home/saidler/repos/scottidler/obsidian [env]
+Gates:  UNKNOWN (could not verify: classic-protection probe failed: gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403))
+rc=0 elapsed=.422944900s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/scottidler/obsidian [nopersona]
+Gates:  UNKNOWN (could not verify: ruleset probe failed: gh: Not Found (HTTP 404))
+rc=0 elapsed=.777825812s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/scottidler/obsidian [timeout]
+Gates:  UNKNOWN (could not verify: classic-protection probe failed: gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403))
+rc=0 elapsed=.409218354s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/scottidler/obsidian [nopath]
+rc=127 elapsed=.006192373s SANDBOX_RUNTIME=unset
+stderr: .../hook-sim.sh: line 17: bump: command not found
+=== /home/saidler/repos/tatari-tv/marquee [env]
+Gates:  none (ungated)
+rc=0 elapsed=.769105154s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/tatari-tv/marquee [nopersona]
+Gates:  none (ungated)
+rc=0 elapsed=.898622779s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/tatari-tv/marquee [timeout]
+Gates:  none (ungated)
+rc=0 elapsed=.748479066s SANDBOX_RUNTIME=unset
+=== /home/saidler/repos/tatari-tv/marquee [nopath]
+rc=127 elapsed=.006260397s SANDBOX_RUNTIME=unset
+stderr: .../hook-sim.sh: line 17: bump: command not found
+```
+A forced expiry, `timeout 0.05 bump --gates` in marquee, printed nothing on stdout and exited `rc=124`. Every real probe finished in under 0.9s, inside a 2s deadline.
+
+Branch: **if no, and for a different reason than the row anticipated.** The home-private repo reads `UNKNOWN` WITH the right token: GitHub's classic-protection endpoint answers HTTP 403 "Upgrade to GitHub Pro or make this repository public" for a private repo on a free personal plan, whoever asks. The rulesets endpoint gives the same answer with the home token (`gh api repos/scottidler/obsidian/rules/branches/main` -> `gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)`), so on this plan GitHub can enforce neither layer and the repo is ungated in fact. The by-slug token pick cannot fix that, because the token is already right (bump's chain at `github.rs:291-350` finds `GITHUB_PAT_HOME` in the inherited env). Four things Phase 12 now has to handle, each with evidence above:
+- `UNKNOWN` exits `rc=0`. A non-zero exit cannot be the failure signal; the `Gates:` line is the only verdict, so parse it, and treat a missing line as failure.
+- `bump` off PATH is `rc=127` with empty stdout; a timeout is `rc=124` with empty stdout. Both fall into "no `Gates:` line", each needs its own reason text.
+- With the persona vars absent (`nopersona`), bump falls back to the ambient work `GH_TOKEN`, the classic probe on the private home repo reads 404 as clear, and the ruleset probe 404s to `UNKNOWN`. Still `UNKNOWN`, never a false `ungated`, so it fails closed.
+- Every private `scottidler/*` repo (obsidian, keep) reads `UNKNOWN` permanently, so Gates E/F as designed would deny every `gh pr create` and every `git push ... main` there. That needs a decision before Phase 12 (Open questions in the implementation notes).
+
+*`BUMP_GATES_PROBE=gated bump --gates`.* Bare, in `~/repos/tatari-tv/marquee`:
+```
+Repo:   tatari-tv/marquee
+Branch: main
+Gates:  pull_request (gated)
+
+Gated flow:
+  bump release [-m|-M]       # on the feature branch: version commit, push, PR
+  <merge the PR>
+  bump finish                # CI wait on the merged main, tag, push tag
+```
+Branch: **if yes**, Phase 12 fixtures use it. The other accepted forms, from `parse_probe_override` (`bump/src/github.rs:102-122`): `ungated`, `gated:type1,type2`, `unknown:<reason>`; anything else becomes `UNKNOWN (invalid BUMP_GATES_PROBE: ...)`.
+
+*rails -> shell hook order.* No scratch hook was registered. Measured with the live pair instead: rails's `tool.call` injects `GH_PERSONA` via `updatedInput` on every `gh` call, and `rewrite-cd-read.py` (a PreToolUse shell hook on the same Bash event as `git-release-guard.sh`) logs the command text it receives on every invocation that has a `cd`. Call: `cd /home/saidler/repos/scottidler/claude && gh api user --jq .login`. Rails reported `rails: GH_PERSONA injected (work, cwd under /repos/tatari-tv)`; the shell hook's log line (`~/.cache/claude/rewrite-cd-read.log:39411`):
+```
+2026-10-09T00:15:01	BAIL	GH_PERSONA=work	cd /home/saidler/repos/scottidler/claude && GH_PERSONA=work gh api user --jq .login
+```
+The shell hook saw `GH_PERSONA=work`, a token only rails adds. Rails runs first and the shell hooks receive its rewritten `tool_input`. Branch: **if yes**, Phases 13/14 rewrite freely, because `git-release-guard.sh` judges the command rails produced, not the one the model typed. (Separate from rails, shell hooks still do not compose with each other: 2026-09-14 spike 0e, `2026-09-13-guard-precision.md:425`.) Side observation, not in scope here: rails picks the persona from the hook's `cwd`, not from a `cd` inside the command, which is why a `cd` into `scottidler/claude` still got `work`.
+
+*Fresh-session rule loading.* The live tree was not touched (`~/repos/.claude/rules/` is per-file symlinks into this repo, laid by the manifest's recursive `link:`, `manifest.yml:1-3`; moving the real file changes every session). Instead, three scratch project dirs outside `~/repos` (so the live rules do not load), each with a copy of `otto.md` in `.claude/rules/` as the positive control: `rl-yes` (`cli.md` in `rules/`), `rl-no` (`cli.md` in `refs/` only), `rl-dangle` (`cli.md` in `refs/` plus a dangling `rules/cli.md` symlink, the state a `git mv` leaves behind). Each ran `claude -p --no-session-persistence --tools "" --model haiku` asking whether the headings `List-valued flags: no comma separation` and `Never touch otto's files` are in its loaded instructions:
+Stdout per run, verbatim (the label lines are added here):
+```
+# rl-yes
+CLI=yes
+OTTO=yes
+rc=0
+# rl-no
+CLI=no
+OTTO=yes
+rc=0
+# rl-dangle
+CLI=no
+OTTO=yes
+rc=0
+```
+Branch: **if yes**, Phase 6 as designed: a file under `.claude/refs/` does not load, and nothing else loads it. One step the phase does not list yet: after `git mv`, the live `~/repos/.claude/rules/cli.md` and `logging.md` symlinks dangle (harmless per `rl-dangle`, but dead), and `refs/cli.md` / `refs/logging.md` get no live link until a scoped manifest apply. Phase 6's operator step should name both.
+
 - **Success criteria:** every row has an exact stdout in this doc and the chosen branch named (five rows done above, six remain: cold fetch, otto in clyde, marquee protected, hook token chain, `BUMP_GATES_PROBE`, rails order, fresh-session loading).
 
 #### Phase 1: Release rulings ref (fix 5)
