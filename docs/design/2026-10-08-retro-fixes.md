@@ -385,7 +385,7 @@ Branch: **if yes**, Phase 6 as designed: a file under `.claude/refs/` does not l
 - [ ] AC4: from `/tmp`, `bump release -n ~/repos/scottidler/bump` acts on that repo.
   Observed on main: cannot run; `dispatch_command` reads `env::current_dir()` (`main.rs:866`) and the verbs take no directory.
 - [ ] AC5: rails "would run unsandboxed" deny events in the 14 days after Phase 4 and Phase 13 land number < 60% of the 14 days before, counted as deduplicated `is_error` tool results by event timestamp:
-  `fd -e jsonl . ~/.claude/projects -x jq -r --arg a <start> --arg b <end> 'select(.type=="user" and .timestamp>=$a and .timestamp<$b) | .message.content[]? | select(.type=="tool_result" and .is_error==true) | select((.content|tostring)|test("would run unsandboxed because")) | .tool_use_id' | sort -u | wc -l`
+  `fd -e jsonl . ~/.claude/projects -x jq -r --arg a <start> --arg b <end> 'select(.type=="user" and .timestamp>=$a and .timestamp<$b) | .message.content[]? | select(.type=="tool_result" and .is_error==true) | select((.content|tostring)|test("would run unsandboxed because|would run INSIDE the sandbox here")) | .tool_use_id' | sort -u | wc -l`
   Observed on main: cannot run until the phases land; baseline 534 results / 30 days, 181 sessions (the retro's text-shape count, which this instrument replaces).
 
 ## Resolved Decisions

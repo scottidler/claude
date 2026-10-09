@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "rails",
   "version": "0.1.0",
-  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA, and rm of anything that cannot be regenerated becomes rkvr rmrf",
+  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA, rm of anything that cannot be regenerated becomes rkvr rmrf, and a pkill -f pattern is bracketed so it cannot kill its own shell",
   "author": {
     "name": "Scott A. Idler",
     "email": "scott.a.idler@gmail.com"
@@ -25,6 +25,12 @@
       "default": true,
       "title": "excluded-compound deny",
       "description": "Deny a command that mixes a sandbox.excludedCommands stage with a stage that is not excluded, which would otherwise carry the whole compound out of the sandbox with no prompt. Underscore because the plugin schema rejects hyphens in these keys."
+    },
+    "pkill_bracket": {
+      "type": "boolean",
+      "default": true,
+      "title": "pkill -f bracket",
+      "description": "Bracket the first character of a pkill -f pattern (quartz.*4173 -> [q]uartz.*4173) so it cannot match the Bash tool's own shell, and deny a pattern outside the rewritable subset (an alternation, a leading metacharacter) with the bracketed form named. Underscore because the plugin schema rejects hyphens in these keys."
     },
     "debug": {
       "type": "boolean",

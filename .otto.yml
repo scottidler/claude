@@ -166,6 +166,9 @@ tasks:
       echo "=== bin/relocate-targets-test.sh ==="
       bash bin/relocate-targets-test.sh
       (cd HOME/.claude/skills/rails/hooks && bun test)
+      # The engine's own loader rules (imports, manifest schema); bun cannot see them.
+      echo "=== claude plugin validate --strict rails ==="
+      claude plugin validate --strict HOME/.claude/skills/rails
 
   ci:
     help: "Full CI pipeline (lint + test)"

@@ -1,4 +1,3 @@
-import { homedir } from 'node:os'
 import type { EngineInterface, Register, Settings, ToolCallResult } from 'claude-code'
 
 /**
@@ -280,7 +279,15 @@ const REGENERABLE: ReadonlyArray<{ name: string; anchors: readonly string[] }> =
 const WRAPPERS = new Set(['sudo', 'xargs', 'find', 'sh', 'bash', 'ssh', 'docker', 'kubectl'])
 /** The only prefixes a wrapper delete may target without a deny. */
 const REVIEW_RUNS = '.cache/review-panel/runs'
-const SCRATCH = ['$TMPDIR', '/tmp/claude', '~/' + REVIEW_RUNS, homedir() + '/' + REVIEW_RUNS]
+const SCRATCH = ['$TMPDIR', '/tmp/claude', '~/' + REVIEW_RUNS]
+/**
+ * The absolute form of the runs/ prefix under any home directory. A hooks
+ * module may import nothing but its own files and `claude-code`, so
+ * `node:os`'s `homedir()` is unavailable: importing it made the engine refuse
+ * the whole module and every rails rule went dark in fresh sessions
+ * (36f02a4 -> fixed 2026-10-09, retro Phase 14).
+ */
+const SCRATCH_ABS = /^\/(?:home\/[^/]+|root|Users\/[^/]+)\/\.cache\/review-panel\/runs(?:\/|$)/
 /** Words a wrapper carries that are verbs, not paths. */
 const WRAPPER_VERBS = new Set(['rm', 'exec'])
 /**
@@ -431,7 +438,7 @@ function deletes(words: readonly Word[]): boolean {
 function wrapperDenied(words: readonly Word[]): boolean {
     const paths = words.slice(1).filter((w) => !w.value.startsWith('-') && !WRAPPER_VERBS.has(w.value))
     if (paths.length === 0) { return true }
-    return !paths.every((p) => SCRATCH.some((s) => p.value.startsWith(s)))
+    return !paths.every((p) => SCRATCH.some((s) => p.value.startsWith(s)) || SCRATCH_ABS.test(p.value))
 }
 
 /** One rewrite to splice back into the command. */
@@ -504,6 +511,203 @@ async function rmRewrite(command: string, env: Env): Promise<RmResult> {
  * noting it cost a context line on every one.
  */
 const RM_INTEREST = /(?:^|[\s;&|(])(?:rm|sudo|xargs|find|sh|bash|ssh|docker|kubectl)(?=\s|$)/
+
+/**
+ * rails: pkill -f bracket
+ *
+ * `pkill -f <pat>` matches <pat> against every process's full command line, and
+ * the shell the Bash tool spawns carries the command text in its own argv.
+ * pkill spares itself, not its parent, so the shell is killed and the call
+ * comes back exit 144 (18 sessions, retro 2026-10-08) or 143 (SIGTERM,
+ * measured 2026-10-09 in a fresh `claude -p` with this rule off). Bracketing the first
+ * character keeps the regex identical (`[q]uartz` still matches `quartz`)
+ * while the shell's copy of the text (`[q]uartz`) no longer contains the
+ * literal the regex needs.
+ *
+ * That rewrite is exact only in a subset: the first character is a literal,
+ * there is no `|` (every alternative would need its own bracket), and it is
+ * not already bracketed. Outside the subset the call is denied with the
+ * bracketed form of each alternative named, never rewritten half-right. `-x`
+ * anchors the match to the whole command line, which the shell's never equals,
+ * and without `-f` pkill matches the process name, so both pass untouched.
+ */
+const PKILL_INTEREST = /(?:^|[\s;&|(])(?:\S*\/)?pkill(?=\s|$)/
+/** Short options whose value is the next character run or the next word. */
+const PKILL_VALUE_SHORT = new Set([...'qgGOPstuUFr'])
+/** Long options that take a value, `--name value` or `--name=value`. */
+const PKILL_VALUE_LONG = new Set([
+    'queue', 'pgroup', 'group', 'older', 'parent', 'session', 'terminal', 'euid', 'uid',
+    'pidfile', 'runstates', 'signal', 'cgroup', 'ns', 'nslist',
+])
+/** `-<sig>` by name: `-KILL`, `-SIGTERM`, `-kill`, `-RTMIN+1`. Numbers are matched separately. */
+const PKILL_SIGNALS = new Set([
+    'HUP', 'INT', 'QUIT', 'ILL', 'TRAP', 'ABRT', 'IOT', 'BUS', 'FPE', 'KILL', 'USR1', 'SEGV', 'USR2',
+    'PIPE', 'ALRM', 'TERM', 'STKFLT', 'CHLD', 'CLD', 'CONT', 'STOP', 'TSTP', 'TTIN', 'TTOU', 'URG',
+    'XCPU', 'XFSZ', 'VTALRM', 'PROF', 'WINCH', 'IO', 'POLL', 'PWR', 'SYS',
+])
+/** ERE metacharacters; a pattern whose first character is one of these has no literal to bracket. */
+const REGEX_META = new Set([...'.[](){}*+?^$\\|'])
+/** A redirect word (`2>/dev/null`, `>out`) is never the pattern. */
+const REDIRECT_WORD = /^[0-9]*[<>]/
+/** A `$` that starts an expansion, or a backtick: the shell, not the text, decides the pattern. */
+const EXPANSION = /\$[A-Za-z_{(0-9@*#?!$-]|`/
+const PKILL_WHY = 'would match the Bash tool\'s own shell (its command line carries the pattern) and kill it (exit 143 or 144)'
+
+function isPkillSignal(flag: string): boolean {
+    const name = flag.slice(1)
+    if (/^[0-9]+$/.test(name)) { return true }
+    const upper = name.toUpperCase()
+    const bare = upper.startsWith('SIG') ? upper.slice(3) : upper
+    return PKILL_SIGNALS.has(bare) || /^RT(?:MIN|MAX)(?:[+-][0-9]+)?$/.test(bare)
+}
+
+/** What one pkill stage asks for: `-f`, `-x`, and which word is the pattern (-1 for none). */
+function pkillArgs(words: readonly Word[]): { full: boolean; exact: boolean; pattern: number } {
+    let full = false
+    let exact = false
+    let i = 1
+    while (i < words.length) {
+        const w = words[i]
+        if (w === undefined) { break }
+        const v = w.value
+        if (REDIRECT_WORD.test(w.raw)) { i += 1; continue }
+        if (v === '--') { return { full, exact, pattern: i + 1 < words.length ? i + 1 : -1 } }
+        if (v.startsWith('--')) {
+            const name = v.slice(2).split('=')[0] ?? ''
+            if (name === 'full') { full = true }
+            if (name === 'exact') { exact = true }
+            i += PKILL_VALUE_LONG.has(name) && !v.includes('=') ? 2 : 1
+            continue
+        }
+        if (v.startsWith('-') && v.length > 1) {
+            if (isPkillSignal(v)) { i += 1; continue }
+            let step = 1
+            for (let k = 1; k < v.length; k += 1) {
+                const f = v.charAt(k)
+                if (f === 'f') { full = true }
+                if (f === 'x') { exact = true }
+                if (PKILL_VALUE_SHORT.has(f)) {
+                    if (k === v.length - 1) { step = 2 }
+                    break
+                }
+            }
+            i += step
+            continue
+        }
+        return { full, exact, pattern: i }
+    }
+    return { full, exact, pattern: -1 }
+}
+
+/** Does the raw word expand anything outside single quotes? */
+function pkillExpands(raw: string): boolean {
+    let quote = ''
+    let plain = ''
+    for (let i = 0; i < raw.length; i += 1) {
+        const c = raw.charAt(i)
+        if (quote === "'") { if (c === "'") { quote = '' } continue }
+        if (c === "'" && quote === '') { quote = "'"; plain += ' '; continue }
+        plain += c
+    }
+    return EXPANSION.test(plain)
+}
+
+/** The first code point of `s`, so an astral character is bracketed whole. */
+function firstChar(s: string): string {
+    return Array.from(s)[0] ?? ''
+}
+
+/** One alternative with its first character bracketed, itself if already bracketed, or null. */
+function bracketAlt(alt: string): string | null {
+    if (alt.startsWith('[')) { return alt }
+    const c = firstChar(alt)
+    if (c === '' || REGEX_META.has(c)) { return null }
+    return '[' + c + ']' + alt.slice(c.length)
+}
+
+/**
+ * The raw word rewritten with its first character bracketed, keeping the
+ * user's quoting, or null when the quoting is past what this splices safely.
+ * A bare word is single-quoted whole so the new `[q]` cannot glob; a bare word
+ * that also carries a redirect or other shell syntax gets only `'[q]'` quoted.
+ */
+function bracketRaw(raw: string, value: string): string | null {
+    const want = firstChar(value)
+    const open = raw.charAt(0)
+    if (open === "'" || open === '"') {
+        const c = firstChar(raw.slice(1))
+        if (c !== want || c === open || (open === '"' && '\\$`'.includes(c))) { return null }
+        return open + '[' + c + ']' + raw.slice(1 + c.length)
+    }
+    const c = firstChar(raw)
+    if (c !== want || '\\$`'.includes(c)) { return null }
+    if (/^[^\s'"\\$`<>;&|()]+$/.test(raw)) { return "'[" + c + ']' + raw.slice(c.length) + "'" }
+    return "'[" + c + "]'" + raw.slice(c.length)
+}
+
+/** The deny for a pattern outside the subset, naming the bracketed form of each alternative. */
+function pkillDeny(value: string, alts: readonly string[]): string {
+    const head = 'rails: pkill -f \'' + value + '\' ' + PKILL_WHY + '. rails brackets only a pattern with a literal first '
+        + 'character and no `|`. '
+    const metas = alts.filter((a) => bracketAlt(a) === null)
+    if (metas.length > 0) {
+        return head + metas.map((a) => '"' + a + '"').join(', ') + ' starts with a regex metacharacter, so no bracket '
+            + 'keeps it off the shell: lead each alternative with a literal and bracket it '
+            + '(quartz.*4173 -> [q]uartz.*4173)'
+    }
+    return head + 'Re-issue with every alternative bracketed: pkill -f \'' + alts.map(bracketAlt).join('|') + '\''
+}
+
+/** What the pkill rule decided: a (possibly unchanged) command, or a deny reason. */
+type PkillResult = { command: string; note: string } | { deny: string }
+
+/** Classify and rewrite every `pkill -f` stage in `command`. Pure. */
+function pkillRewrite(command: string): PkillResult {
+    const edits: Edit[] = []
+    const notes: string[] = []
+    for (const head of heads(command)) {
+        if (head.word.split('/').pop() !== 'pkill') { continue }
+        const seg = segment(command, head.at)
+        const comment = stageComment(seg)
+        const body = comment === null ? seg : seg.slice(0, comment.at)
+        const words = splitWords(body)
+        const args = pkillArgs(words)
+        if (!args.full || args.exact || args.pattern === -1) { continue }
+        const word = words[args.pattern]
+        if (word === undefined || word.value === '') { continue }
+        if (pkillExpands(word.raw)) {
+            notes.push('rails: pkill -f pattern not bracketed (it carries a shell expansion rails cannot see)')
+            continue
+        }
+        const alts = word.value.split('|')
+        if (alts.every((a) => a.startsWith('['))) { continue }
+        if (alts.length > 1 || bracketAlt(word.value) === null) { return { deny: pkillDeny(word.value, alts) } }
+
+        const bracketed = bracketAlt(word.value) ?? word.value
+        const text = bracketRaw(word.raw, word.value)
+        if (text === null) {
+            return {
+                deny: 'rails: pkill -f ' + word.raw + ' ' + PKILL_WHY + ', and its quoting is past what rails rewrites. '
+                    + 'Re-issue as: pkill -f \'' + bracketed + '\'',
+            }
+        }
+        let at = 0
+        for (let k = 0; k < args.pattern; k += 1) {
+            while (at < body.length && ' \t\r'.includes(body.charAt(at))) { at += 1 }
+            at += words[k]?.raw.length ?? 0
+        }
+        while (at < body.length && ' \t\r'.includes(body.charAt(at))) { at += 1 }
+        const start = head.at + at
+        edits.push({ at: start, end: start + word.raw.length, text })
+        notes.push('rails: pkill -f pattern bracketed (' + word.value + ' -> ' + bracketed
+            + ') so it cannot match the Bash tool\'s own shell')
+    }
+    let out = command
+    for (const edit of [...edits].sort((a, b) => b.at - a.at)) {
+        out = out.slice(0, edit.at) + edit.text + out.slice(edit.end)
+    }
+    return { command: out, note: notes.join(' | ') }
+}
 
 /**
  * rails: excluded-compound deny
@@ -753,6 +957,7 @@ export const register: Register = (on, options) => {
     const persona = options['gh_persona'] !== false
     const rkvr = options['rm_rkvr'] !== false
     const compound = options['excluded_compound'] !== false
+    const pkill = options['pkill_bracket'] !== false
     const verbose = options['debug'] === true
     let excluded: Promise<string[]> | null = null
 
@@ -812,6 +1017,22 @@ export const register: Register = (on, options) => {
 
     on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
         const command = e.command
+        if (!pkill || typeof command !== 'string') { return next(e) }
+        if (!PKILL_INTEREST.test(command)) { return next(e) }
+
+        const r = pkillRewrite(command)
+        if ('deny' in r) {
+            debug($, verbose, 'pkill-bracket', 'deny: ' + command)
+            return { deny: r.deny }
+        }
+        if (r.note === '') { return next(e) }
+        debug($, verbose, 'pkill-bracket', r.note + ' | ' + r.command)
+        if (r.command === command) { return withContext(await next(e), r.note) }
+        return withContext(await next({ ...e, command: r.command }), r.note)
+    })
+
+    on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+        const command = e.command
         if (!compound || typeof command !== 'string') { return next(e) }
         if (excluded === null) { excluded = readExcluded($) }
         const deny = excludedDeny(command, await excluded)
@@ -839,4 +1060,6 @@ export const internals = {
     classifyStages,
     readsOnlyStdin,
     skipRedirect,
+    pkillRewrite,
+    pkillArgs,
 }

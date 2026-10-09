@@ -5,6 +5,21 @@ import { internals } from './index.ts'
 const { ghSpots, headSpots, segment, personaFor, inject, inWorkTree } = internals
 const { splitWords, stageComment, resolvePath, rmRewrite } = internals
 const { excludedHeads, excludedDeny, classifyStages, readsOnlyStdin } = internals
+const { pkillRewrite, pkillArgs } = internals
+
+/** The rewritten command, failing the test if the rule denied instead. */
+function pkillOut(command: string): string {
+    const r = pkillRewrite(command)
+    if ('deny' in r) { throw new Error('unexpected deny: ' + r.deny) }
+    return r.command
+}
+
+/** The deny reason, failing the test if the rule did not deny. */
+function pkillDenied(command: string): string {
+    const r = pkillRewrite(command)
+    if (!('deny' in r)) { throw new Error('expected a deny, got: ' + r.command) }
+    return r.deny
+}
 
 const WORK_CWD = '/home/saidler/repos/tatari-tv/philo'
 const HOME_CWD = '/home/saidler/repos/scottidler/claude'
@@ -644,5 +659,122 @@ describe('rmRewrite: the regenerable anchor is resolved against the tool cwd (D2
     test('a cd-prefixed target does not see the anchor beside it', async () => {
         const out = await rmRewrite('cd /some/crate && rm -rf target', env())
         expect(out.command).toContain('rkvr rmrf')
+    })
+})
+
+describe('pkillRewrite: the phase 14 criteria (retro 2026-10-08, fix 10)', () => {
+    test('a double-quoted pattern with a literal first char is bracketed', () => {
+        expect(pkillOut('pkill -f "quartz.*4173"')).toBe('pkill -f "[q]uartz.*4173"')
+    })
+    test('an already bracketed pattern is untouched', () => {
+        const r = pkillRewrite("pkill -f '[b]ump'")
+        expect(r).toEqual({ command: "pkill -f '[b]ump'", note: '' })
+    })
+    test('-x is untouched', () => {
+        expect(pkillRewrite('pkill -x foo')).toEqual({ command: 'pkill -x foo', note: '' })
+    })
+    test('no -f is untouched', () => {
+        expect(pkillRewrite('pkill foo')).toEqual({ command: 'pkill foo', note: '' })
+    })
+    test('an alternation is denied, naming the bracketed form of each alternative', () => {
+        const why = pkillDenied("pkill -f 'foo|bar'")
+        expect(why).toContain('[f]oo|[b]ar')
+        expect(why).toContain('own shell')
+    })
+    test('a leading metacharacter is denied', () => {
+        const why = pkillDenied("pkill -f '.*x'")
+        expect(why).toContain('".*x" starts with a regex metacharacter')
+    })
+})
+
+describe('pkillRewrite: quoting is kept faithfully', () => {
+    test('single quotes stay single', () => {
+        expect(pkillOut("pkill -f 'quartz.*4173'")).toBe("pkill -f '[q]uartz.*4173'")
+    })
+    test('a bare word is single-quoted so the new bracket cannot glob', () => {
+        expect(pkillOut('pkill -f quartz.*4173')).toBe("pkill -f '[q]uartz.*4173'")
+    })
+    test('a bare word glued to a redirect keeps the redirect live', () => {
+        expect(pkillOut('pkill -f vite>/dev/null')).toBe("pkill -f '[v]'ite>/dev/null")
+    })
+    test('the rest of a double-quoted word is left byte for byte', () => {
+        expect(pkillOut('pkill -f "node\\.js serve"')).toBe('pkill -f "[n]ode\\.js serve"')
+    })
+    test('the note names both forms', () => {
+        const r = pkillRewrite('pkill -f vite')
+        expect('note' in r && r.note).toContain('vite -> [v]ite')
+    })
+})
+
+describe('pkillRewrite: where the stage sits and what flags it carries', () => {
+    test('inside a compound, only the pkill stage changes', () => {
+        expect(pkillOut('sleep 1; pkill -f vite && echo done')).toBe("sleep 1; pkill -f '[v]ite' && echo done")
+    })
+    test('two stages are both bracketed', () => {
+        expect(pkillOut('pkill -f vite; pkill -f "next dev"')).toBe("pkill -f '[v]ite'; pkill -f \"[n]ext dev\"")
+    })
+    test('a signal, a cluster and a valued flag before the pattern', () => {
+        expect(pkillOut('pkill -9 -fe -u saidler vite')).toBe("pkill -9 -fe -u saidler '[v]ite'")
+        expect(pkillOut('pkill -KILL --full vite')).toBe("pkill -KILL --full '[v]ite'")
+        expect(pkillOut('pkill --signal TERM -f vite')).toBe("pkill --signal TERM -f '[v]ite'")
+    })
+    test('-fx and --exact are untouched', () => {
+        expect(pkillOut('pkill -fx vite')).toBe('pkill -fx vite')
+        expect(pkillOut('pkill -f --exact vite')).toBe('pkill -f --exact vite')
+    })
+    test('an absolute pkill path is still pkill', () => {
+        expect(pkillOut('/usr/bin/pkill -f vite')).toBe("/usr/bin/pkill -f '[v]ite'")
+    })
+    test('a pkill named inside quotes is not a stage', () => {
+        expect(pkillOut('echo "pkill -f vite"')).toBe('echo "pkill -f vite"')
+    })
+    test('a shell expansion is passed with a note, never guessed at', () => {
+        const r = pkillRewrite('pkill -f "$PAT"')
+        expect(r).toEqual({ command: 'pkill -f "$PAT"', note: expect.stringContaining('shell expansion') })
+    })
+    test('a pidfile with no pattern is untouched', () => {
+        expect(pkillOut('pkill -f -F /run/x.pid')).toBe('pkill -f -F /run/x.pid')
+    })
+})
+
+describe('pkillRewrite: outside the subset is denied, never half-right', () => {
+    test('an alternation with one bracketed side still names both', () => {
+        expect(pkillDenied("pkill -f '[f]oo|bar'")).toContain('[f]oo|[b]ar')
+    })
+    test('every alternative bracketed passes untouched', () => {
+        expect(pkillOut("pkill -f '[f]oo|[b]ar'")).toBe("pkill -f '[f]oo|[b]ar'")
+    })
+    test('a leading anchor or escape is denied', () => {
+        expect(pkillDenied("pkill -f '^vite'")).toContain('"^vite" starts with a regex metacharacter')
+        expect(pkillDenied("pkill -f '\\.venv'")).toContain('regex metacharacter')
+    })
+    test('a deny in any stage denies the whole call', () => {
+        expect(pkillDenied("pkill -f vite; pkill -f 'a|b'")).toContain('[a]|[b]')
+    })
+})
+
+describe('module loads in the engine', () => {
+    // The engine refuses a hooks module that imports anything but its own files
+    // and `claude-code`; bun does not, so a `node:os` import passed every test
+    // here while rails was dark in every fresh session (36f02a4).
+    test('index.ts imports only claude-code and relative files', async () => {
+        const src = await Bun.file(new URL('./index.ts', import.meta.url)).text()
+        const specs = [...src.matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1])
+        expect(specs.length).toBeGreaterThan(0)
+        expect(specs.filter((s) => s !== 'claude-code' && !s?.startsWith('./'))).toEqual([])
+    })
+    test('an absolute runs/ path under any home is scratch, rounds/ is not', async () => {
+        expect((await rmRewrite('sudo rm -rf /home/someone/.cache/review-panel/runs/x', env())).deny).toBeUndefined()
+        expect((await rmRewrite('sudo rm -rf /root/.cache/review-panel/runs/x', env())).deny).toBeUndefined()
+        expect((await rmRewrite('sudo rm -rf /home/someone/.cache/review-panel/rounds/x', env())).deny).toBeDefined()
+        expect((await rmRewrite('sudo rm -rf /srv/.cache/review-panel/runs/x', env())).deny).toBeDefined()
+    })
+})
+
+describe('pkillArgs', () => {
+    test('finds the pattern past -- and reports the flags', () => {
+        expect(pkillArgs(splitWords('pkill -f -- -vite'))).toEqual({ full: true, exact: false, pattern: 3 })
+        expect(pkillArgs(splitWords('pkill -u1000 -f vite'))).toEqual({ full: true, exact: false, pattern: 3 })
+        expect(pkillArgs(splitWords('pkill -f'))).toEqual({ full: true, exact: false, pattern: -1 })
     })
 })
