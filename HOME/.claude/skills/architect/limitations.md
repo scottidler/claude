@@ -32,8 +32,9 @@ All four causes are now fixed structurally. The three worth knowing:
 - Root cause: the scripts hardcoded bare `/tmp` for their pidfile and trace
   files. The Claude Code Bash sandbox mounts `/tmp` READ-ONLY; only `$TMPDIR`
   and the paths in `settings.json` `sandbox.filesystem.allowWrite` are writable.
-  Commit `3405d3d` (2026-07-02) allowlisted `/tmp/review-panel` for the panel's
-  own run dir but not the scripts' scratch one directory up.
+  Commit `3405d3d` (2026-07-02) allowlisted a panel run dir under `/tmp` but
+  not the scripts' scratch one directory up. The run dir has since moved to
+  `~/.cache/review-panel/runs/`, so no `/tmp` entry remains.
 - Why it read as random: when the panel subagent happened to run with the
   sandbox off (or retried with `dangerouslyDisableSandbox`), it worked. Same
   doc, same command, different outcome.

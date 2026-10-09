@@ -95,7 +95,6 @@ places, in this order:
   "enabled": true,
   "filesystem": {
     "allowWrite": [
-      "/tmp/review-panel",
       "/home/saidler/.ssh/agent",
       "/home/saidler/.local/share",
       "/home/saidler/.cache",
@@ -103,13 +102,24 @@ places, in this order:
       "/home/saidler/.gemini"
     ],
     "allowRead": [
-      "/tmp/review-panel",
       "/home/saidler/.codex",
       "/home/saidler/.gemini"
     ]
   }
 }
 ```
+
+### Round 3 (2026-10-08): the run dir left /tmp
+
+The sections above describe the original `/tmp` run dir and its allowlist
+entries; they are history. `/tmp` is tmpfs, and the `.mcp.json` deny-mount leaves
+a `nobody`-owned stub in the parent, which broke bwrap on every Bash call after a
+reboot. The run dir is now `~/.cache/review-panel/runs/`, covered by the existing
+`/home/saidler/.cache` `allowWrite`, so `settings.json` names no review-panel path
+at all (the `additionalDirectories`, `allowWrite` and `allowRead` entries were
+deleted). `review-panel.md` Step 0 prunes run dirs older than 14 days. The
+sibling `~/.cache/review-panel/rounds/` holds the round-cap counters and is not
+scratch for rails.
 
 ### Optional belt-and-braces: excludedCommands
 

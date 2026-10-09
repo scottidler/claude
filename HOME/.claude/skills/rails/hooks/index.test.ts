@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { homedir } from 'node:os'
 import { internals } from './index.ts'
 
 const { ghSpots, headSpots, segment, personaFor, inject, inWorkTree } = internals
@@ -342,6 +343,16 @@ describe('rmRewrite: wrapper forms are denied', () => {
         expect(r.deny).toBeUndefined()
         expect(r.command).toBe('find $TMPDIR -delete')
         expect(r.note).toContain('scratch')
+    })
+    test('review-panel runs/ is scratch in tilde and absolute form; rounds/ is not', async () => {
+        const runs = await rmRewrite('sudo rm -rf ~/.cache/review-panel/runs/x', env())
+        expect(runs.deny).toBeUndefined()
+        const abs = await rmRewrite('sudo rm -rf ' + homedir() + '/.cache/review-panel/runs/x', env())
+        expect(abs.deny).toBeUndefined()
+        const rounds = await rmRewrite('sudo rm -rf ~/.cache/review-panel/rounds/x', env())
+        expect(rounds.deny).toBeDefined()
+        const roundsAbs = await rmRewrite('sudo rm -rf ' + homedir() + '/.cache/review-panel/rounds/x', env())
+        expect(roundsAbs.deny).toBeDefined()
     })
     test('a wrapper that deletes nothing is not this rule s business', async () => {
         const r = await rmRewrite('sudo systemctl restart sccache', env())

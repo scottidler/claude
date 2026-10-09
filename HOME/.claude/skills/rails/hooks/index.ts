@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import type { EngineInterface, Register, Settings, ToolCallResult } from 'claude-code'
 
 /**
@@ -278,7 +279,8 @@ const REGENERABLE: ReadonlyArray<{ name: string; anchors: readonly string[] }> =
 /** Heads that delete through another command; rails cannot rewrite these. */
 const WRAPPERS = new Set(['sudo', 'xargs', 'find', 'sh', 'bash', 'ssh', 'docker', 'kubectl'])
 /** The only prefixes a wrapper delete may target without a deny. */
-const SCRATCH = ['$TMPDIR', '/tmp/claude', '/tmp/review-panel']
+const REVIEW_RUNS = '.cache/review-panel/runs'
+const SCRATCH = ['$TMPDIR', '/tmp/claude', '~/' + REVIEW_RUNS, homedir() + '/' + REVIEW_RUNS]
 /** Words a wrapper carries that are verbs, not paths. */
 const WRAPPER_VERBS = new Set(['rm', 'exec'])
 /**
@@ -300,7 +302,7 @@ const MARKER = '# regenerable'
 const RM_REWRITE_NOTE = 'rails: rm -> rkvr rmrf (rules/safety.md); archive at /var/tmp/rmrf; if this was regenerable build output, re-issue with a trailing `# regenerable`'
 const RM_SET_NOTE = 'rails: rm kept, regenerable build output (rules/safety.md)'
 const RM_MARKER_NOTE = 'rails: rm kept, model asserted regenerable'
-const RM_DENY = 'rails: this form deletes through another command, which rails cannot rewrite. Run `rkvr rmrf <paths>` yourself (rules/safety.md), or confine the command to $TMPDIR, /tmp/claude or /tmp/review-panel.'
+const RM_DENY = 'rails: this form deletes through another command, which rails cannot rewrite. Run `rkvr rmrf <paths>` yourself (rules/safety.md), or confine the command to $TMPDIR, /tmp/claude or ~/.cache/review-panel/runs.'
 
 function rmMiss(why: string): string {
     return 'rails: rm form not rewritten (' + why + ')'

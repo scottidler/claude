@@ -84,12 +84,14 @@ Resolve these a single time and reuse for both reviewers:
 
 0. **Make `$RUN_DIR` first**, before anything else (everything below needs it):
    ```bash
-   mkdir -p /tmp/review-panel
-   RUN_DIR=$(mktemp -d /tmp/review-panel/XXXXXXXX)
+   mkdir -p ~/.cache/review-panel/runs
+   find ~/.cache/review-panel/runs -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} +
+   RUN_DIR=$(mktemp -d ~/.cache/review-panel/runs/XXXXXXXX)
    ```
-   The `/tmp/review-panel/` parent is load-bearing: `settings.json` scopes both the
-   permission allowlist (`Read(/tmp/review-panel/**)`) and the sandbox FS allowlist
-   (`sandbox.filesystem.allowRead`/`allowWrite`) to it. Change this path, update both.
+   The `find` line prunes run dirs older than 14 days (scratch, regenerable) before
+   minting a new one. The run dir lives under `~/.cache`, already in the sandbox
+   `allowWrite`, so no `settings.json` entry names it. The sibling `rounds/` dir holds
+   `panel-round-guard.sh`'s counters: never touch it here.
 1. **DOC_PATH**: use the path given to you. If none, pick the newest under
    `docs/design/`: `find docs/design -name "*.md" -printf "%T@ %p\n" | sort -rn | head -1 | awk '{print $2}'`. Tell the caller which doc you chose.
    **Snapshot it immediately**: `cp "$DOC_PATH" "$RUN_DIR/doc-snapshot-r$ROUND.md"` and record `SNAP_HASH=$(sha256sum "$RUN_DIR/doc-snapshot-r$ROUND.md" | cut -d' ' -f1)`. Pass **the snapshot path**, never `$DOC_PATH`, to both reviewer scripts in Step 3: this pins both reviewers to the exact same immutable content, immune to edits landing mid-review (incident: `review-panel-notes.md`). Before writing the synthesis file (Step 4), diff the snapshot against the live file (`diff "$RUN_DIR/doc-snapshot-r$ROUND.md" "$DOC_PATH"`); if they differ, say so explicitly and name what changed, never silently reconcile findings against a file version the reviewers never saw.

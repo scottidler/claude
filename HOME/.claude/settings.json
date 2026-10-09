@@ -738,8 +738,7 @@
     "defaultMode": "auto",
     "additionalDirectories": [
       "/home/saidler/repos",
-      "/home/saidler/.config",
-      "/tmp/review-panel"
+      "/home/saidler/.config"
     ]
   },
   "model": "opus",
@@ -1120,7 +1119,6 @@
       "allowWrite": [
         "/tmp",
         "/home/saidler/.otto",
-        "/tmp/review-panel",
         "/home/saidler/.ssh/agent",
         "/home/saidler/.local",
         "/home/saidler/.cache",
@@ -1137,7 +1135,6 @@
         "/home/saidler/.cargo/bin"
       ],
       "allowRead": [
-        "/tmp/review-panel",
         "/home/saidler/.codex",
         "/home/saidler/.gemini",
         "/home/saidler/.ssh/identities/home/signing",

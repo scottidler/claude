@@ -96,3 +96,18 @@ Method: `claude -p --no-session-persistence --model haiku --allowedTools=Bash` f
 - bare `cargo run -q` in the probe: `append-open: Read-only file system (os error 30)`, `SANDBOX_RUNTIME=1` (sandboxed, built and ran).
 - bare `otto ci` in the probe: `[ci] append-open: Read-only file system (os error 30)`, `[ci] SANDBOX_RUNTIME=1`, `[ci] finished successfully  0s`.
 - bare `otto ci` in `~/repos/scottidler/bump`: `rc=0` (first fresh run, in-session echo), last lines `[ci] ✅ All CI checks passed!` / `[ci] finished successfully  0s`. A second run's rc echo came back empty (the subagent used bash `PIPESTATUS` under zsh), but it printed the same pass lines.
+
+## Phase 5: Review-panel run dir (fix 9)
+### Design decisions
+- Run dir is `~/.cache/review-panel/runs/`; the three `/tmp/review-panel` settings entries (`additionalDirectories`, `allowWrite`, `allowRead`) are deleted, found by content since lines shifted — HOME/.claude/settings.json — `~/.cache` is already in `allowWrite`.
+- Step 0 prunes with `find ~/.cache/review-panel/runs -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} +` before `mktemp -d` — HOME/.claude/agents/review-panel.md — the rails wrapper rule passes it because the literal path sits under the `runs/` scratch prefix.
+- `SCRATCH` gains `~/.cache/review-panel/runs` and `homedir() + '/.cache/review-panel/runs'`; `rounds/` stays outside — HOME/.claude/skills/rails/hooks/index.ts — rails compares literal prefixes, and a wrapper `rm` must not reset the round cap.
+- `docs/sandbox-filesystem-allowlist.md` keeps its history and gains a "Round 3" section; only the "Current entries" block was corrected.
+- New test asserts `sudo rm -rf` on `runs/x` (tilde and absolute) is not denied and on `rounds/x` (both forms) is — HOME/.claude/skills/rails/hooks/index.test.ts.
+### Deviations
+- The criterion's `rm -rf ~/.cache/review-panel/...` is tested through the wrapper form (`sudo rm -rf ...`): `SCRATCH` is consulted only by `wrapperDenied`, and a bare `rm -rf` takes the rkvr rewrite path instead. Same effect, correct seam.
+- Test bite proven against the old `index.ts` (from `HEAD`): the new case fails there.
+### Tradeoffs
+- `homedir()` for the absolute form vs a hardcoded `/home/saidler`: portable across hosts (ripr), evaluated once at load.
+### Open questions
+- None.

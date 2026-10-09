@@ -17,7 +17,7 @@ set -euo pipefail
 #      an 82-byte output. That was 37% of ALL panel dispatches over
 #      2026-07-13..08-03 (55 of 149), by a wide margin the single biggest cause
 #      of "the review panel doesn't respond". The sandbox FS allowlist covers
-#      $TMPDIR and /tmp/review-panel, never bare /tmp.
+#      $TMPDIR, never bare /tmp.
 #
 #   2. WALL_CLOCK + `timeout` (2026-07-04). gemini can NEVER hang forever. On
 #      overrun it is killed and the script exits 124. This cap is PER ATTEMPT.
@@ -63,7 +63,7 @@ SCRIPT_DIR="$(dirname "$0")"
 
 # --- Scratch discipline ------------------------------------------------------
 # NEVER hardcode /tmp. Under the Claude Code Bash sandbox /tmp is a read-only
-# mount and only $TMPDIR (plus /tmp/review-panel) are writable. Preflight it and
+# mount and only $TMPDIR is writable. Preflight it and
 # fail with an actionable message instead of a cryptic mktemp error.
 SCRATCH="${TMPDIR:-/tmp}"
 if [ ! -d "$SCRATCH" ] || [ ! -w "$SCRATCH" ]; then

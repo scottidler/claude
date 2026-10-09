@@ -18,7 +18,7 @@ set -euo pipefail
 #      2026-07-13..08-03, by a wide margin the single biggest cause of "the
 #      review panel doesn't respond". codex itself trips the same mount at
 #      startup ("could not create PATH aliases: Read-only file system"). The
-#      sandbox FS allowlist covers $TMPDIR and /tmp/review-panel, never bare /tmp.
+#      sandbox FS allowlist covers $TMPDIR, never bare /tmp.
 #
 #   2. WALL_CLOCK + `timeout` (2026-06-19). When these review skills are
 #      dispatched via subagents, a backend that grinds with its output buffered
@@ -63,7 +63,7 @@ SCRIPT_DIR="$(dirname "$0")"
 
 # --- Scratch discipline ------------------------------------------------------
 # NEVER hardcode /tmp. Under the Claude Code Bash sandbox /tmp is a read-only
-# mount and only $TMPDIR (plus /tmp/review-panel) are writable. Preflight it and
+# mount and only $TMPDIR is writable. Preflight it and
 # fail with an actionable message instead of a cryptic mktemp error.
 SCRATCH="${TMPDIR:-/tmp}"
 if [ ! -d "$SCRATCH" ] || [ ! -w "$SCRATCH" ]; then
