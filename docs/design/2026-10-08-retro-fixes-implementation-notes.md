@@ -140,3 +140,19 @@ Method: `claude -p --no-session-persistence --model haiku --allowedTools=Bash` f
 - A five-bullet section vs a fuller parameter table: the fix is a tool-budget guard, so only the parameters that move result size are listed.
 ### Open questions
 - Does the Atlassian server enforce the "50-100" in the description at call time? Not exercised in this phase (no live JQL call made).
+
+## Phase 7 addendum (orchestrator, 2026-10-09)
+
+### Open questions
+- Closed: the Phase 7 open question (does the server enforce the "Max (50-100)" description text). A live read-only call, `searchJiraIssuesUsingJql` with `jql: "project = AIF ORDER BY updated DESC"`, `fields: ["summary","status","assignee","updated"]`, `maxResults: 5`, `responseContentFormat: "markdown"`, returned exactly 5 issues, only the four requested fields, plus `nextPageToken` and `isLast: false`. Values under 50 are accepted; the at-most-25 line stands.
+
+## Phase 8: Title-guard fixture (fix 11)
+### Design decisions
+- One fixture added to the "slash branches" block of `HOME/.claude/hooks/branch-pr-title-guard-test.sh`: branch `chore/retire-general-plugin`, title `chore(marketplace): retire general plugin`, asserts the deny reason contains `git branch -m chore-retire-general-plugin`. Guard untouched (rename text already shipped in `0907a90`).
+- Bite proof in a scratch copy of the whole hooks dir (the guard sources `lib.sh`, so a lone copy allows everything): replacing the guard's `git branch -m $bslug` with `git branch -m x-$bslug` made the new fixture FAIL (`reason lacks "git branch -m chore-retire-general-plugin"`), pass=49 fail=2; the other failure is the existing `fix-markdown-dark-mode` slug fixture. The real hook: pass=51 fail=0.
+### Deviations
+- None.
+### Tradeoffs
+- Full-slug assertion on a second chore-prefixed branch vs relying on the generic `git branch -m` substring fixtures: the substring never pinned the computed slug, which is the model-facing instruction.
+### Open questions
+- None.

@@ -100,6 +100,9 @@ run deny main \
   "gh pr create --head fix/markdown-dark-mode --title ${SQ}fix(render): markdown dark mode${SQ}" "$MM"
 run deny 'chore/retire-general-plugin' \
   "gh pr create --title ${SQ}chore(marketplace): retire general plugin${SQ}" "$MM"
+run deny 'chore/retire-general-plugin' \
+  "gh pr create --title ${SQ}chore(marketplace): retire general plugin${SQ}" \
+  'git branch -m chore-retire-general-plugin'
 run deny main \
   "gh pr create --head chore/retire-general-plugin --title ${SQ}chore(x): retire general plugin${SQ}" "$MM"
 run deny main 'gh pr create --head scottidler:fix/markdown-dark-mode --title x' "$MM"
