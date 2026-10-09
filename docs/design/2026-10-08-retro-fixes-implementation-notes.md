@@ -248,3 +248,32 @@ Method: `claude -p --no-session-persistence --model haiku --allowedTools=Bash` f
 ### Open questions
 - procps-ng 4.0.4 ships `pkill -A` (`--ignore-ancestors`), which excludes every ancestor of pkill, including the Bash tool's shell, for any pattern. Should the rule add `-A` instead of (or alongside) bracketing, which would turn today's two denies (alternation, leading metacharacter) into rewrites? Needs the procps version on every host (desk, lappy, ripr) checked first.
 - Phases 5 through 13 that claim fresh-session rails behavior ran while rails was not loading (since 36f02a4). The orchestrator should re-check any such claim, notably Phase 13's (its criteria were bun-only, so they stand) and the doc's "Live: fresh session after Phases 4, 13, 14" step.
+
+## Phase 15: clyde `sessions_ls` slim rows
+### Design decisions
+- Default row drops `first-prompt`, `cwd`, `project-dir`, `transcript-path`; `verbose: true` restores. clyde `sessions/src/mcp/tools.rs:ls_row` + `LS_VERBOSE_ONLY_KEYS`, wired in `sessions/src/mcp.rs:sessions_ls`. One named key list applied at the response chokepoint, so `SessionRecord` (used by `session_open`, CLI, export) is untouched.
+- `ls_row` serializes the record then removes keys; it errors loudly if the record is not a JSON object (fail closed).
+- Tool description, `verbose` schema description, README MCP section, and `plugin/skills/sessions/SKILL.md` all state the new default.
+### Deviations
+- Doc cites `sessions/src/mcp.rs:244-275` and `model.rs:11-56`: verified (handler at mcp.rs:244, `SessionRecord` at model.rs:11). The request struct lives in `sessions/src/mcp/tools.rs`, so `verbose` was added there. Same effect, correct seam.
+- Doc says `cargo test -p clyde-sessions`; the package is named `sessions` (`cargo test -p sessions`).
+### Tradeoffs
+- Remove-keys-from-Value vs a separate slim row struct: a second struct would duplicate 15+ fields that must track `SessionRecord`; the key list is one line to maintain, and the tests bite if a key is renamed.
+- The size test bounds only the fixture (null summary); a real row with a long enrichment `summary` is not capped by this phase.
+### Open questions
+- Bite proof: with the `!verbose` branch disabled both new tests fail (default 200-row response 498,515 bytes; default row carried `first-prompt`). Release (`bump release`, pointer-refs pin) is not done here.
+
+## Phase 16: marquee `marquee_read` cap and the door rewrite
+### Design decisions
+- One shared helper `contract::cap_read_content(String, Option<usize>) -> (String, bool)` plus `READ_DEFAULT_MAX_BYTES = 60_000` -- tatari-tv/marquee `contract/src/lib.rs` -- `contract` is the only crate both `marquee-cli` (runtime dep) and `marquee-mcp` depend on (the CLI depends on `marquee-mcp` only as a dev-dependency), so the two surfaces cannot drift. It is a plain fn, not a wire type, so no snapshot change.
+- `max_bytes: Option<usize>` (`#[serde(default)]`, `None` = 60,000, `Some(0)` = no cap) on both `ReadInput`s; `truncated: bool` on both `ReadOutput`s -- `cli/src/mcp.rs`, `mcp/src/lib.rs`. Cut backs off to a UTF-8 char boundary.
+- CLI `marquee read` path (`client.rs`, read command) untouched; byte-identity proven by running a before binary (worktree at main) and an after binary against the same local fixture server (1.4 MB multibyte markdown, `--dev-email`): `cmp` identical, sha256 ab97d9d7...2688 for both.
+- AGENTS.md snapshot block rewritten to `bump release -m` -> `otto snapshot` -> commit + push to the same branch -> `otto ci` on head -> merge -> `bump finish`; `rg -c 'bump --no-tag' AGENTS.md` prints nothing. Historical design docs under `docs/design/` still mention `--no-tag`; left as point-in-time.
+- Tool descriptions, README and `plugin/skills/read/SKILL.md` note the field.
+### Deviations
+- Helper lives in `contract` rather than a new crate -- same effect, correct seam (no new crate for one fn).
+- Plugin note added to `plugin/skills/read/SKILL.md` as a new "Reading through the MCP tool" section; the plugin has no MCP-specific skill.
+### Tradeoffs
+- Byte cap on `content` only vs capping the whole serialized response -- JSON escaping can expand ASCII-heavy bodies (quotes, newlines) past 70,000 serialized; the criterion is stated for multibyte bodies and the cap is on `content` as the design says.
+### Open questions
+- Release-time, pending: `bump release -m` on `cap-marquee-read` (minor, so `otto snapshot` writes the next `contract/schema/<maj.min>.json`), snapshot as a second commit, merge on green head, `bump finish`. Requires Scott's marquee main ruleset (Phase 0 row) to be applied.
