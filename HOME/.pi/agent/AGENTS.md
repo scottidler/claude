@@ -12,7 +12,7 @@
 - pi has no `@file` include directive in context files. Anything that must always be
   in context is inlined by the `rules` extension at `before_agent_start`, not by an `@` line here.
 - pi has no MCP. Every capability that runs over MCP under Claude Code has a CLI here;
-  see the CLI section below and `~/repos/scottidler/claude/HOME/.claude/tools.md`.
+  see the CLI section below.
 - pi has no built-in subagents, plan mode, to-dos, or background bash. Subagents come
   from the `subagent` extension when it is installed; the rest are absent by design.
 
@@ -94,8 +94,8 @@ Safety:
 ## My CLIs
 
 Custom binaries in `~/.cargo/bin`, built from `~/repos`. Run `<tool> --help` for detail.
-The full roster is in `~/repos/scottidler/claude/HOME/.claude/tools.md`; read it when you
-need a tool you do not already know. The ones that carry most of the work:
+The full roster is `~/.cargo/bin`; run `<tool> --help` when you need a tool you do not
+already know. The ones that carry most of the work:
 
 - `otto` - CI pipeline. `otto ci` is the green gate on every phase.
 - `bump` - semantic version bump, commit, tag. Never hand-edit a version.

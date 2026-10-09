@@ -118,7 +118,7 @@ def matches(context: str, offset: int, token: str) -> bool:
     index of the `/` and `token` must equal `context[offset+1:offset+1+len(token)]`.
     This is never a whole-window scan (`find_matches` is, and calls this per
     candidate) -- decisions here log at TRACE rather than DEBUG for exactly
-    that reason, per `rules/logging.md`'s tight-loop demotion.
+    that reason, per `refs/logging.md`'s tight-loop demotion.
     """
     if offset == 0:
         # The slash is the first character handed in: `dSt`'s own

@@ -1,3 +1,7 @@
+---
+alwaysApply: true
+---
+
 # Voice
 
 Any prose that leaves this machine under Scott's name goes out in his voice.

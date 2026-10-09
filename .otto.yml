@@ -21,7 +21,8 @@ tasks:
         HOME/.claude/skills/rails/hooks/index.ts
         HOME/.claude/skills/rails/hooks/index.test.ts
         HOME/repos/.claude/rules/git.md
-        HOME/repos/.claude/rules/cli.md
+        HOME/repos/.claude/refs/cli.md
+        HOME/repos/.claude/refs/process-taste.md
         HOME/repos/.claude/rules/general.md
         HOME/repos/.claude/rules/taste.md
         HOME/repos/.claude/rules/pr.md
@@ -115,13 +116,13 @@ tasks:
         echo "Found an em dash in the lint list above."
         exit 1
       fi
-      # Every rules/*.md carries YAML frontmatter as its first line, except
-      # voice.md by design (it has no frontmatter block). A file that loses
-      # its leading `---` (e.g. a stray WORKAROUND comment reintroduced above
-      # it) silently drops out of Claude Code's always-on rule loading.
+      # Every rules/*.md carries YAML frontmatter as its first line, voice.md
+      # included (alwaysApply: true). A file that loses its leading `---` (e.g.
+      # a stray WORKAROUND comment reintroduced above it) still loads, but its
+      # always-on or path-scoped status becomes accidental instead of declared.
       BAD_FRONTMATTER=$(awk 'FNR==1 && $0 != "---" {print FILENAME}' HOME/repos/.claude/rules/*.md)
-      if [ "$BAD_FRONTMATTER" != "HOME/repos/.claude/rules/voice.md" ]; then
-        echo "Rules frontmatter check failed, expected only voice.md, got:"
+      if [ -n "$BAD_FRONTMATTER" ]; then
+        echo "Rules frontmatter check failed, every rule needs frontmatter, got:"
         echo "$BAD_FRONTMATTER"
         exit 1
       fi

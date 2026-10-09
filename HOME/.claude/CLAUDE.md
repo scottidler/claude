@@ -63,10 +63,8 @@ Auto-loaded from `~/repos/.claude/rules/`, grouped by purpose.
 
 Conventions (how I write code & config):
 - `general`: naming, files, config, deps, CI, version control (always-on)
-- `taste`: design/review judgment: pipeline discipline, quality bar, architecture & security instincts, phasing, evidence standards (always-on; mined from all sessions 2026-05..07)
+- `taste`: design/review judgment: quality bar, architecture & security instincts (always-on; pipeline, phasing, evidence standards moved to `refs/process-taste.md`; mined from all sessions 2026-05..07)
 - `voice`: outward-facing prose (Slack/email/Jira/Confluence/docs/PRs/marquee) goes out in Scott's voice via `~/Claude/writing/VOICE.md` (always-on)
-- `cli`: CLI flag behavior: space-separated, no commas (always-on)
-- `logging`: function-level debug logging (always-on)
 - `python` / `rust` / `js-ts` / `yaml`: language-specific (path-scoped)
 - `fleet-plugins`: the tatari-tv CLI fleet (marquee/persona/clyde/sdv/slack/
   shepherd/pagerduty) publishes a CLI, an MCP server, a `plugin/` pinned by tag
@@ -83,8 +81,6 @@ Tool rules (hard constraints on specific tools):
 Safety:
 - `safety`: file deletion; applies to all files (path-scoped `**/*`)
 - `secrets`: age-encrypted secrets via `manifest age`; gh token picked by repo org (home vs work persona) (always-on)
-
-@~/.claude/tools.md
 
 ## In-flight program: setup audit (2026-09-13)
 
@@ -114,6 +110,18 @@ On-demand docs in `~/repos/.claude/refs/`, read when the scenario calls for it.
 ### design-exemplars.md
 - Worked examples of my design/review judgment with verbatim quotes + session provenance
 - Read when: authoring or reviewing a design doc, running an implementation audit, or making a judgment call `rules/taste.md` doesn't settle
+
+### process-taste.md
+- The pipeline, design-doc-as-source-of-truth, phasing, and evidence standards (split out of `rules/taste.md`)
+- Read when: authoring or reviewing a design doc, executing a phased plan, or running a review panel
+
+### cli.md
+- CLI flag behavior: space-separated multi-value flags (no commas), case-insensitive enum flags, no `--dry-run` on opt-in destructive flags
+- Read when: adding or changing a CLI flag in any language
+
+### logging.md
+- Function-level debug logging: entry/exit DEBUG, what to demote to TRACE, the diagnosability test
+- Read when: writing or reviewing non-trivial functions
 
 ### dealing-with-large-files.md
 - Safe decomposition of large source files

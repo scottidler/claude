@@ -1,7 +1,3 @@
----
-alwaysApply: true
----
-
 # CLI Conventions
 
 - Cross-language conventions for command-line tool *behavior* (how values are passed, parsed, structured)

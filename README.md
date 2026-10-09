@@ -25,7 +25,7 @@ manifest -l '*' | bash   # just the link section
 
 | Path | Purpose |
 |------|---------|
-| `HOME/.claude/` | deployed Claude Code config: `CLAUDE.md`, `WHOAMI.md`, `tools.md`, `agents/`, `skills/`, `hooks/`, `output-styles/`, `statusline.sh` + `statusline.d/` |
+| `HOME/.claude/` | deployed Claude Code config: `CLAUDE.md`, `WHOAMI.md`, `agents/`, `skills/`, `hooks/`, `output-styles/`, `statusline.sh` + `statusline.d/` |
 | `HOME/repos/.claude/` | deployed to `~/repos/.claude/`: repo-root `CLAUDE.md`, `rules/` (always-on and path-scoped conventions: `general`, `taste`, `voice`, `cli`, `git`, `otto`, `safety`, `secrets`, language rules), `refs/` (on-demand docs: `environment`, `personas`, `slack`, `jira`, `design-exemplars`, etc.) |
 | `HOME/advisor/` | advisor-related config |
 | `bin/` | standalone scripts (e.g. `check-review-panel`) |

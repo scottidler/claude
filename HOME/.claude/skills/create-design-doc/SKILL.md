@@ -23,7 +23,8 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
 
 ## Process
 
-0. **Load the owner's judgment**: read `~/repos/.claude/rules/taste.md` and
+0. **Load the owner's judgment**: read `~/repos/.claude/rules/taste.md`,
+   `~/repos/.claude/refs/process-taste.md`, and
    `~/repos/.claude/refs/design-exemplars.md` before drafting. Designs are
    judged against those standards (copy in-house precedent, decompose along
    change frequency, config drives behavior, fail loudly/closed, phase-0

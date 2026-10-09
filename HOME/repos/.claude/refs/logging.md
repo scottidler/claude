@@ -1,7 +1,3 @@
----
-alwaysApply: true
----
-
 # Function-Level Debug Logging
 
 ## The rule

@@ -7,6 +7,9 @@ description: Execute a phased implementation plan from a design document. Implem
 
 A systematic workflow for implementing multi-phase design documents created with the Rule of Five methodology.
 
+Before executing, read `~/repos/.claude/refs/process-taste.md` (the owner's
+pipeline, phasing, and evidence standards: what "ready to build" and "done" mean).
+
 ## Execution Mode
 
 Pick one. Both produce the same result: per-phase commits, `otto ci` green,

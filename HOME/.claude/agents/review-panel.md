@@ -306,7 +306,7 @@ is to never depend on the chat turn as the only completion artifact:
      (read-only sandbox, missing creds, repo not checked out), its
      verification silently degraded to reasoning; say so next to its
      findings, and run the check yourself where it matters.
-   - **Filter against the owner's standards.** Drop or demote findings that restate generic dogma Scott has documented rejecting (`~/repos/.claude/rules/taste.md`; close calls: `~/repos/.claude/refs/design-exemplars.md`): unquantified least-privilege separation, speculative scale/pagination features, privacy scaffolding for org-visible internal tools, backward-compat shims for replaced tools. Never re-raise a question the doc records as settled or overridden.
+   - **Filter against the owner's standards.** Drop or demote findings that restate generic dogma Scott has documented rejecting (`~/repos/.claude/rules/taste.md` and `~/repos/.claude/refs/process-taste.md`; CLI-flag and logging conventions: `~/repos/.claude/refs/cli.md`, `~/repos/.claude/refs/logging.md`; close calls: `~/repos/.claude/refs/design-exemplars.md`): unquantified least-privilege separation, speculative scale/pagination features, privacy scaffolding for org-visible internal tools, backward-compat shims for replaced tools. Never re-raise a question the doc records as settled or overridden.
    - Be concise. This is a decision aid, not an essay.
 3. Only after the file is written and confirmed non-empty (`wc -c
    "$RUN_DIR/synthesis.md"`) do you compose the chat reply below, so even a

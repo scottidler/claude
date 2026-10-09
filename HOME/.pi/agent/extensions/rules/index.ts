@@ -7,9 +7,9 @@
  * shared rules directory so the two harnesses never drift.
  *
  * Always-on rules are inlined in full. Path-scoped rules are listed by name and glob so
- * the agent reads them when it touches a matching file. `~/.claude/WHOAMI.md` and
- * `~/.claude/tools.md` are inlined too, since CLAUDE.md pulls them in with `@` lines that
- * pi would otherwise render as literal text.
+ * the agent reads them when it touches a matching file. `~/.claude/WHOAMI.md` is
+ * inlined too, since CLAUDE.md pulls it in with an `@` line that pi would otherwise
+ * render as literal text.
  */
 
 import * as fs from "node:fs";
@@ -20,14 +20,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const RULES_DIR = path.join(os.homedir(), "repos", ".claude", "rules");
 const INLINE_FILES = [
 	path.join(os.homedir(), ".claude", "WHOAMI.md"),
-	path.join(os.homedir(), ".claude", "tools.md"),
 ];
-
-/**
- * voice.md ships empty frontmatter but CLAUDE.md declares it always-on, and the rules
- * directory is shared with Claude Code so its frontmatter is not ours to change.
- */
-const ALWAYS_ON_EXTRAS = new Set(["voice"]);
 
 /** interaction.md is already carried by APPEND_SYSTEM.md; inlining it again would duplicate it. */
 const SKIP = new Set(["interaction"]);
@@ -51,8 +44,7 @@ function parseRule(name: string, text: string): Rule {
 	const globs = [...fm.matchAll(/^\s*-\s*"?([^"\n]+?)"?\s*$/gm)].map((m) => m[1]);
 	const alwaysOn =
 		/^\s*alwaysApply:\s*true\s*$/m.test(fm) ||
-		globs.includes("**/*") ||
-		ALWAYS_ON_EXTRAS.has(name);
+		globs.includes("**/*");
 	return { name, body: body.trim(), alwaysOn, globs };
 }
 

@@ -48,7 +48,7 @@ def log(decision: str, detail: str, prompt: str, tokens: str = "") -> None:
       decision  INJECT (additionalContext emitted; `tokens` lists what it named)
                 BAIL   (nothing emitted; `detail` is the reason)
 
-    `rules/logging.md`'s sensitive-payload clause applies to the prompt: it is
+    `refs/logging.md`'s sensitive-payload clause applies to the prompt: it is
     previewed at 200 characters, never written whole. Best-effort and silent,
     for the same reason the caller swallows every other error here: a hook that
     failed on its own logging would break prompt submission.

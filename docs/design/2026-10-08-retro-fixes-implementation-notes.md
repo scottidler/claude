@@ -111,3 +111,20 @@ Method: `claude -p --no-session-persistence --model haiku --allowedTools=Bash` f
 - `homedir()` for the absolute form vs a hardcoded `/home/saidler`: portable across hosts (ripr), evaluated once at load.
 ### Open questions
 - None.
+
+## Phase 6: Steering trim (fix 14)
+### Design decisions
+- Deleted `HOME/.claude/tools.md` and its `@` include in `HOME/.claude/CLAUDE.md`; `git mv` of `cli.md` and `logging.md` to `HOME/repos/.claude/refs/` with frontmatter stripped; pointers added at `agents/phase-implementer.md` (Implement step) and `agents/review-panel.md` (standards-filter bullet).
+- Four `taste.md` sections (pipeline, design doc as source of truth, phasing, evidence standards) moved verbatim to `refs/process-taste.md`; `taste.md` keeps a three-line pointer where they were. Pointers added in `skills/create-design-doc/SKILL.md` (step 0), `skills/how-to-execute-a-plan/SKILL.md` (above Execution Mode), and `agents/review-panel.md`.
+- `voice.md` gained `alwaysApply: true`. `CLAUDE.md` Rules list drops `cli`/`logging`; References section gained `process-taste.md`, `cli.md`, `logging.md` entries.
+- Always-on byte total: for each `HOME/repos/.claude/rules/*.md`, include it if line 1 is not `---` or its frontmatter has `alwaysApply: true`; add `wc -c` of `HOME/.claude/CLAUDE.md`, `HOME/.claude/WHOAMI.md`, `HOME/repos/CLAUDE.md`. Result: 57,569 bytes (<= 60,150).
+- Fresh-session check (Phase 0 method, scratch dir under `$TMPDIR`, outside `~/repos`, `claude -p --no-session-persistence --tools "" --model haiku`): scratch project with `rules/otto.md` (positive control), `refs/cli.md`, and a dangling `rules/cli.md` symlink (the live post-phase state). Output: `CLI=no` / `OTTO=yes`, rc=0.
+### Deviations
+- Updated references the doc did not list, all live: `HOME/.pi/agent/extensions/rules/index.ts` (dropped `tools.md` from `INLINE_FILES` and the now-unneeded `ALWAYS_ON_EXTRAS` voice special case, since `voice.md` declares `alwaysApply`), `HOME/.pi/agent/AGENTS.md` (two `tools.md` pointers now say `~/.cargo/bin` / `--help`), `README.md` (tree row), comments in `hooks/inline-skill-tokens.py` and `hooks/inline/matcher.py` (`rules/logging.md` -> `refs/logging.md`). Same effect, correct seam: the references would otherwise dangle.
+- `.otto.yml` lint: em-dash list entry `rules/cli.md` retargeted to `refs/cli.md` (plus `refs/process-taste.md` added so moved taste text stays linted), and the frontmatter check changed from "only voice.md lacks frontmatter" to "every rule has frontmatter", since `voice.md` now declares it. Without both, `otto ci` lint failed.
+- `HOME/.claude/bin/gen-tools` left untouched: it still writes `~/.claude/tools.md`. It is now an orphan generator; not deleted because the doc did not say to.
+### Tradeoffs
+- `ALWAYS_ON_EXTRAS` removed from the pi extension rather than kept: it was a workaround for voice's missing frontmatter, which this phase fixes.
+### Open questions
+- Retire `HOME/.claude/bin/gen-tools` (its output file is gone and nothing includes it)?
+- Operator step (NOT run, no manifest apply). Live state after this phase, `ls -la`: dangling `~/repos/.claude/rules/cli.md` and `rules/logging.md` (-> repo `rules/` paths that no longer exist) and `~/.claude/tools.md`; missing `~/repos/.claude/refs/{cli,logging,process-taste,release-rulings}.md` (release-rulings is Phase 1's, also never linked). Pointers in agents/skills read `~/repos/.claude/refs/...` so they dead-end until linked. Danger: the pi `rules` extension `readdirSync`s `rules/` and `readFileSync`s each `.md`, so a dangling symlink throws at pi session start until fixed. Fix: scoped link apply, e.g. `manifest -l 'HOME/repos/.claude/*' -l 'HOME/.claude/*'` (confirm the glob form against `manifest.yml`'s `link:` keys first), then `rm` the three dead symlinks (use `rkvr rmrf`).

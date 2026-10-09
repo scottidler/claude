@@ -32,7 +32,9 @@ is yours before writing code. Never guess into the wrong phase.
    data not side effects, thin shell) and the owner's judgment standards in
    `~/repos/.claude/rules/taste.md` (config drives behavior, fail loudly/
    fail closed, names tell the truth, no backward-compat shims unless the doc
-   says so). Match the surrounding code's style.
+   says so). Match the surrounding code's style. For CLI flag behavior read
+   `~/repos/.claude/refs/cli.md`; for logging, `~/repos/.claude/refs/logging.md`
+   (no longer auto-loaded).
    Known spec-gap patterns — handle them, don't trip on them:
    - Exact signatures in design docs are chronically wrong. Implement at the
      *correct seam* for the doc's intent, and record the difference in the
