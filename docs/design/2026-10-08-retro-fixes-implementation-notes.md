@@ -44,3 +44,17 @@ Design doc: `docs/design/2026-10-08-retro-fixes.md`
 
 ### Open questions
 - The ref only resolves at `~/repos/.claude/refs/` after a scoped manifest apply, like the other refs (see Phase 6's open question on links). Not run here.
+
+## Phase 2: Bridge-socket line (fix 8)
+### Design decisions
+- One bullet appended to the phantom-files bullet list, after the `excludedCommands` bullet: `HOME/.claude/CLAUDE.md`: the doc says "beside the phantom-files bullets", and both are sandbox-failure behavior.
+- Bullet names the exact error string, says nothing recovers it, and says stop and tell Scott to restart: the doc's architecture paragraph, which also notes no hook can see it pre-call.
+
+### Deviations
+- None.
+
+### Tradeoffs
+- A prose bullet vs a hook: the doc states no hook can see the failure before the call, so a rule line is the only available mechanism.
+
+### Open questions
+- None.

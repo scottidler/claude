@@ -55,6 +55,7 @@ verify with a sandbox-OFF `git status`. Trackers:
 
 - A command that fails with `Operation not permitted` or `Read-only file system` is retried unsandboxed once, silently; the failure is never narrated or diagnosed as a system problem.
 - Never set `dangerouslyDisableSandbox` on a command whose head is in `sandbox.excludedCommands`.
+- `Linux sandbox HTTP bridge socket is missing` means the sandbox bridge is dead for the rest of the session; nothing recovers it and no hook sees it before the call. Stop, do not retry or work around it, and tell Scott to restart the session.
 
 ## Rules
 
