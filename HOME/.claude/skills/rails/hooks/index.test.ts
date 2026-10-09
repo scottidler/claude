@@ -425,9 +425,8 @@ describe('classifyStages', () => {
 describe('excludedDeny: compounds that smuggle a stage out of the sandbox', () => {
     test('an excluded stage trailing, which is what rules prefix matching out', () => {
         const deny = excludedDeny('$TMPDIR/marker.sh; ssh -V', EXCLUDED)
-        expect(deny).toContain('"$TMPDIR/marker.sh" would run unsandboxed')
-        expect(deny).toContain('"ssh" is in sandbox.excludedCommands')
-        expect(deny).toContain('separate Bash calls')
+        expect(deny).toContain('"ssh -V" would run INSIDE the sandbox here')
+        expect(deny).toContain('then "$TMPDIR/marker.sh" as a separate Bash call')
     })
     test('an excluded stage leading', () => {
         expect(excludedDeny('ssh -V; $TMPDIR/marker.sh', EXCLUDED)).not.toBeNull()
@@ -517,7 +516,7 @@ describe('excludedDeny: a pipe target that reads only stdin is transparent', () 
     })
     test('a semicolon-joined consumer is never transparent, whatever its name', () => {
         const deny = excludedDeny('cargo --version; tail ~/.ssh/identities/home/id_ed25519', EXCLUDED)
-        expect(deny).toContain('"tail" would run unsandboxed')
+        expect(deny).toContain('then "tail ~/.ssh/identities/home/id_ed25519" as a separate Bash call')
     })
     test('a bare consumer after a semicolon denies even with no operand', () => {
         expect(excludedDeny('cargo --version; tail -50', EXCLUDED)).not.toBeNull()
@@ -529,6 +528,30 @@ describe('excludedDeny: a pipe target that reads only stdin is transparent', () 
     })
     test('a chain of consumers is transparent all the way down', () => {
         expect(excludedDeny('cargo test | rg fail | wc -l', EXCLUDED)).toBeNull()
+    })
+})
+
+describe('excludedDeny: the text tells the 2.1.295 truth (retro fix 7, 2026-10-08)', () => {
+    // Classified against the shipped list, where `git fetch` stays excluded.
+    test('a git net verb chained to an acting stage names both stages and INSIDE the sandbox', () => {
+        const deny = excludedDeny('git fetch -q origin && git rev-list --count HEAD', SHIPPED_EXCLUDED)
+        expect(deny).toContain('"git fetch -q origin"')
+        expect(deny).toContain('"git rev-list --count HEAD"')
+        expect(deny).toContain('INSIDE the sandbox')
+        expect(deny).toContain('run "git fetch -q origin" alone, then "git rev-list --count HEAD"')
+        expect(deny).not.toContain('unsandboxed')
+    })
+    test('a redirect stays inside the stage text instead of cutting it at the &', () => {
+        const deny = excludedDeny('git fetch -q origin 2>&1; git rev-list --count HEAD', SHIPPED_EXCLUDED)
+        expect(deny).toContain('run "git fetch -q origin 2>&1" alone')
+    })
+    test('a git net verb piped into a stdin-only consumer still passes (regression guard)', () => {
+        expect(excludedDeny('git fetch -q origin 2>&1 | tail -5', SHIPPED_EXCLUDED)).toBeNull()
+        expect(excludedDeny('git fetch -q origin 2>&1 | tail -5', EXCLUDED)).toBeNull()
+    })
+    test('a wrapped stage is named by its inner command', () => {
+        const deny = excludedDeny('sudo $TMPDIR/marker.sh; ssh -V', SHIPPED_EXCLUDED)
+        expect(deny).toContain('run "ssh -V" alone, then "$TMPDIR/marker.sh"')
     })
 })
 

@@ -520,6 +520,19 @@ const RM_INTEREST = /(?:^|[\s;&|(])(?:rm|sudo|xargs|find|sh|bash|ssh|docker|kube
  * compose such a command is the model itself, so removing the composition
  * closes the hole. Scott's ruling 2026-09-13 (option D): keep all ten entries,
  * fix it here rather than in settings.json.
+ *
+ * Re-measured 2026-10-08 on Claude Code 2.1.295 with the same marker, and the
+ * harness now does the OPPOSITE: a compound (`;`, `&&`, `|`, a `VAR=x;` prefix,
+ * `bash -c '...'`) runs fully SANDBOXED whatever heads it contains; only a bare
+ * simple command matching the glob is exempt. `cargo run -q` ran unsandboxed,
+ * `S=x; cargo run -q ...` sandboxed, `otto ci | tail` sandboxed, a bare
+ * `ssh ripr.lan ls /tmp` unsandboxed. That matches `intent-guard.sh`'s GIT-NET
+ * finding (2026-09-24). The deny stays for the heads that FAIL in the sandbox
+ * (git network verbs, `bump`, `ssh`, `slack`, `systemctl`, `aws-vault`,
+ * `crontab`): it turns a confusing in-sandbox auth/DNS failure into a plain
+ * two-call rewrite, and it keeps the hatch shut if a later harness exempts
+ * compounds again. The deny text says what actually happens (2.1.295), not
+ * what the 2026-09-13 build did.
  */
 
 /** Heads that carry an inner command; the inner head is what actually runs. */
@@ -559,7 +572,11 @@ const EX_MAX_DEPTH = 8
 /** Every entry is written `<head> *`; the glob is not part of the head. */
 const EX_GLOB_SUFFIX = ' *'
 
-type Stages = { excluded: string[]; rest: string[] }
+/**
+ * Heads drive classification; `excludedText` / `restText` carry each stage's
+ * own text (redirects kept, trimmed) so the deny can name the two-call rewrite.
+ */
+type Stages = { excluded: string[]; rest: string[]; excludedText: string[]; restText: string[] }
 
 /**
  * The excluded heads from the engine's own merged settings, the one source of
@@ -624,10 +641,14 @@ function readsOnlyStdin(head: string, seg: string): boolean {
 
 /** Split a command into its excluded stages and every other stage that acts. */
 function classifyStages(command: string, entries: readonly string[], depth: number): Stages {
-    const out: Stages = { excluded: [], rest: [] }
+    const out: Stages = { excluded: [], rest: [], excludedText: [], restText: [] }
     for (const head of heads(command)) {
         const seg = segment(command, head.at)
-        if (excludedAs(seg, head.word, entries) !== null) { out.excluded.push(head.word); continue }
+        if (excludedAs(seg, head.word, entries) !== null) {
+            out.excluded.push(head.word)
+            out.excludedText.push(stageText(command, head.at))
+            continue
+        }
         if (EX_TRANSPARENT.has(head.word)) { continue }
         if (head.piped && readsOnlyStdin(head.word, seg)) { continue }
         if (depth < EX_MAX_DEPTH && EX_WRAPPERS.has(head.word)) {
@@ -636,21 +657,60 @@ function classifyStages(command: string, entries: readonly string[], depth: numb
                 const nested = classifyStages(inner, entries, depth + 1)
                 out.excluded.push(...nested.excluded)
                 out.rest.push(...nested.rest)
+                out.excludedText.push(...nested.excludedText)
+                out.restText.push(...nested.restText)
                 continue
             }
         }
         out.rest.push(head.word)
+        out.restText.push(stageText(command, head.at))
     }
     return out
 }
 
-/** The deny reason for a compound that smuggles a stage out of the sandbox, or null. */
+/**
+ * The stage starting at `at` as the user wrote it, trimmed. Unlike `segment`,
+ * a redirect does not end it: `git fetch -q origin 2>&1` stays whole instead of
+ * being cut to `git fetch -q origin 2>` at the `&`.
+ */
+function stageText(command: string, at: number): string {
+    let i = at
+    let quote = ''
+    while (i < command.length) {
+        const c = command.charAt(i)
+        if (quote !== '') {
+            if (c === '\\' && quote === '"') { i += 2; continue }
+            if (c === quote) { quote = '' }
+            i += 1
+            continue
+        }
+        if (c === '\\') { i += 2; continue }
+        if (c === '"' || c === "'") { quote = c; i += 1; continue }
+        if (c === '>' || c === '<') { i = skipRedirect(command, i); continue }
+        if (SEP.has(c)) { break }
+        i += 1
+    }
+    return command.slice(at, i).trim()
+}
+
+function quoted(texts: readonly string[]): string {
+    return texts.map((t) => '"' + t + '"').join(', ')
+}
+
+/**
+ * The deny reason for a compound that mixes an excluded stage with one that
+ * acts, or null. On 2.1.295 the whole compound runs sandboxed (see the header),
+ * so the excluded stage is the one that breaks; the text says so and names the
+ * two-call rewrite.
+ */
 function excludedDeny(command: string, entries: readonly string[]): string | null {
     if (entries.length === 0) { return null }
-    const { excluded, rest } = classifyStages(command, entries, 0)
-    if (excluded.length === 0 || rest.length === 0) { return null }
-    return 'rails: "' + rest[0] + '" would run unsandboxed because "' + excluded[0]
-        + '" is in sandbox.excludedCommands; run them as separate Bash calls'
+    const { excludedText, restText } = classifyStages(command, entries, 0)
+    if (excludedText.length === 0 || restText.length === 0) { return null }
+    const ex = quoted(excludedText)
+    return 'rails: ' + ex + ' would run INSIDE the sandbox here (a compound is never exempt) and cannot '
+        + 'authenticate/reach the host; run ' + ex + ' alone, then ' + quoted(restText)
+        + ' as a separate Bash call'
 }
 
 /**
