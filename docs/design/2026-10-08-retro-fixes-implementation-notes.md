@@ -72,3 +72,27 @@ Design doc: `docs/design/2026-10-08-retro-fixes.md`
 
 ### Open questions
 - None.
+
+## Phase 4: excludedCommands shrink (fix 6)
+### Design decisions
+- Removed `cargo *`, `otto *`, `journalctl *` from `sandbox.excludedCommands`: `HOME/.claude/settings.json:1150`: Phase 0 proved all three run sandboxed (cold cargo fetch, otto in clyde, marker runs); `systemctl *` and the other entries stay.
+- Dropped the `excludedCommands` line from the Fix snippet and rewrote the belt-and-braces snippet: `docs/sandbox-filesystem-allowlist.md`: both restated the removed heads (and a stale `release *` entry that is not in `settings.json`).
+- Supersession of `enforcement-core.md:357` recorded under Resolved Decisions in the design doc.
+- Staged only the phase hunks with `git apply --cached --unidiff-zero`; the unrelated `"model": "opus"` -> `"fable"` hunk stays in the working tree.
+
+### Deviations
+- `HOME/.claude/agents/review-panel.md:90-91` has no list to update: those lines scope `/tmp/review-panel`, and the file mentions `excludedCommands` only for the two seat scripts (lines 137-222), never `cargo`/`otto`/`journalctl` (`rg` found none). No edit made there; recorded in Resolved Decisions.
+- `HOME/.claude/skills/rails/hooks/index.test.ts` edited though the phase did not list it: its test "the settings.json this repo ships reads as the live list" pinned the old ten-plus entries and failed `otto ci`. Added `SHIPPED_EXCLUDED` for that one test; `EXCLUDED` stays as a labeled fixture with `cargo`/`otto`/`journalctl` as stand-in heads because ~45 classification tests use `cargo` as the excluded head and test hook logic, not the shipped list.
+
+### Tradeoffs
+- Rewrote the doc snippet vs deleting the sentence: the optional belt-and-braces idea is still valid for the seat scripts, so it stays with the stale heads removed.
+
+### Open questions
+- None.
+
+### Fresh-session verification (observed)
+Method: `claude -p --no-session-persistence --model haiku --allowedTools=Bash` from a scratch dir outside any repo, probe crate (append-open on `~/HALL-OF-SHAME.md` plus `SANDBOX_RUNTIME`) with a one-task `otto.yml` running `cargo run -q`. The probe was rebuilt from the Phase 0 description; the Phase 0 original was not preserved.
+- `cargo --version && git status .` in the scratch dir: `cargo 1.98.0 (797e8a9bc 2026-08-05)`, then `fatal: not a git repository` (rc 128; the scratch dir is not a repo; not a denial).
+- bare `cargo run -q` in the probe: `append-open: Read-only file system (os error 30)`, `SANDBOX_RUNTIME=1` (sandboxed, built and ran).
+- bare `otto ci` in the probe: `[ci] append-open: Read-only file system (os error 30)`, `[ci] SANDBOX_RUNTIME=1`, `[ci] finished successfully  0s`.
+- bare `otto ci` in `~/repos/scottidler/bump`: `rc=0` (first fresh run, in-session echo), last lines `[ci] ✅ All CI checks passed!` / `[ci] finished successfully  0s`. A second run's rc echo came back empty (the subagent used bash `PIPESTATUS` under zsh), but it printed the same pass lines.

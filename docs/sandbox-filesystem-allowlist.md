@@ -34,7 +34,6 @@ directory-prefix grants, so the parent covers every random subdir:
 ```json
 "sandbox": {
   "enabled": true,
-  "excludedCommands": ["cargo *", "otto *", "release *"],
   "filesystem": {
     "allowRead":  ["/tmp/review-panel"],
     "allowWrite": ["/tmp/review-panel"]
@@ -115,12 +114,11 @@ places, in this order:
 ### Optional belt-and-braces: excludedCommands
 
 If a future CLI update writes somewhere new and the whack-a-mole resumes, exempt
-the two reviewer scripts outright, the same way `cargo`/`otto`/`release` already
-are:
+the two reviewer scripts outright, the same way `bump` and the git network verbs
+already are (`cargo *` and `otto *` left the list 2026-10-08: they run sandboxed):
 
 ```json
 "excludedCommands": [
-  "cargo *", "otto *", "release *",
   "*architect/script.sh *",
   "*staff-engineer/script.sh *"
 ]

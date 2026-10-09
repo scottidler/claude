@@ -361,9 +361,19 @@ describe('rmRewrite: wrapper forms are denied', () => {
     })
 })
 
-/** The live list as of 2026-09-24, already stripped of the ` *` glob. */
+/**
+ * Fixture list for the classification logic, already stripped of the ` *` glob. It keeps `cargo`,
+ * `otto` and `journalctl` as stand-in heads although the shipped settings.json dropped them on
+ * 2026-10-09; SHIPPED_EXCLUDED below is what the shipped file must read as.
+ */
 const EXCLUDED = [
     'cargo', 'otto', 'aws-vault', 'bump', 'systemctl', 'journalctl', 'crontab', 'ssh',
+    'git push', 'git fetch', 'git pull', 'git ls-remote', 'git clone', 'slack',
+    '~/.claude/skills/architect/script.sh', '~/.claude/skills/staff-engineer/script.sh',
+]
+
+const SHIPPED_EXCLUDED = [
+    'aws-vault', 'bump', 'systemctl', 'crontab', 'ssh',
     'git push', 'git fetch', 'git pull', 'git ls-remote', 'git clone', 'slack',
     '~/.claude/skills/architect/script.sh', '~/.claude/skills/staff-engineer/script.sh',
 ]
@@ -382,9 +392,9 @@ describe('excludedHeads', () => {
         expect(excludedHeads({ sandbox: { excludedCommands: 'cargo *' } })).toEqual([])
         expect(excludedHeads({ sandbox: { excludedCommands: [1, '', 'ssh *'] } })).toEqual(['ssh'])
     })
-    test('the settings.json this repo ships reads as the live list', async () => {
+    test('the settings.json this repo ships reads as the shipped list', async () => {
         const path = import.meta.dir + '/../../../settings.json'
-        expect(excludedHeads(JSON.parse(await Bun.file(path).text()))).toEqual(EXCLUDED)
+        expect(excludedHeads(JSON.parse(await Bun.file(path).text()))).toEqual(SHIPPED_EXCLUDED)
     })
 })
 
