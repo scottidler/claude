@@ -122,6 +122,10 @@ On-demand docs in `~/repos/.claude/refs/`, read when the scenario calls for it.
 - Bulk search-and-replace with the `replace` shell function
 - Read when: mechanical cross-file renames
 
+### release-rulings.md
+- Scott's standing release rulings with hall-of-shame lines, plus the superseded ones not to re-derive
+- Read when: shipping, releasing, or choosing between the release-driver and shipit paths
+
 ### sccache-sandbox.md
 - Why cargo builds die `sccache: error: Operation not permitted` in the Bash sandbox, the 2026-06-28 dotfiles change that caused it, and the `sandbox.network.allowAllUnixSockets` fix
 - Read when: any build or tool inside the sandbox fails on a unix socket (sccache, ssh/gpg agent, docker, `systemctl --user`). Do NOT re-derive this; do NOT strip `RUSTC_WRAPPER`.

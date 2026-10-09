@@ -26,3 +26,21 @@ Design doc: `docs/design/2026-10-08-retro-fixes.md`
 - Phase 12 waits on Scott applying the `pull_request` ruleset to `tatari-tv/marquee` main; `bump --gates` there still prints `Gates:  none (ungated)`.
 - Phase 6's operator step should name removing the dangling `~/repos/.claude/rules/cli.md` and `logging.md` symlinks and a scoped manifest apply to link `refs/cli.md` and `refs/logging.md`. Measured harmless if left dangling (`rl-dangle`), but they are dead links.
 - Out of scope, recorded so it is not lost: rails picks the `GH_PERSONA` from the hook's `cwd`, not from a `cd` inside the command, so `cd ~/repos/scottidler/x && gh ...` from a tatari-tv cwd gets `work`.
+
+## Phase 1: Release rulings ref (fix 5)
+### Design decisions
+- Ref has an "In force" list and a "Superseded" heading, 24 lines total: `HOME/repos/.claude/refs/release-rulings.md`: the doc asks the superseded entries sit under their own heading so the next agent does not re-derive them.
+- Pointer is one bullet right under the invariant paragraph of "Tagging / releases": `HOME/repos/.claude/rules/git.md`: keeps the invariant first.
+- References entry placed alphabetically before `sccache-sandbox.md` with the same two-bullet shape as its siblings: `HOME/.claude/CLAUDE.md`.
+- The 10-02 (a) and 10-07 (a)/(d)/(e) bullets cite the hall line of the lesson itself, read from the file, not the doc's range.
+
+### Deviations
+- Hall line numbers differ from the doc's: 10-02 (a) is `:1742` (doc `:1740`), lint-unused is `:1757` (doc `:1756`), 09-29 (a) is `:1660` (doc `:1652`, which is the crime bullet, not the lesson), 10-07 is `:2023-2027` (doc `:2021-2026`, which starts one line early). The ref cites the observed lines; the hall has grown since the doc was drafted.
+- 10-07 (a), (d), (e) and 09-26's "one release command" are listed as in force; 10-05 (d) cited as `:1974`, which matched.
+- `refs/` is referenced as `~/repos/.claude/refs/release-rulings.md` (the deployed path), matching how CLAUDE.md names the other refs.
+
+### Tradeoffs
+- Citing hall lines vs quoting rulings in full: lines keep the ref under 40 lines and the hall stays the ledger; the cost is line drift as the hall grows.
+
+### Open questions
+- The ref only resolves at `~/repos/.claude/refs/` after a scoped manifest apply, like the other refs (see Phase 6's open question on links). Not run here.

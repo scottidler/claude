@@ -52,6 +52,8 @@ gh api repos/OWNER/REPO/rules/branches/main        # rulesets (repo + org level)
 
 **The one invariant: never create or push a tag until the exact commit it points to is on `origin/<default>` and its CI is green.** `bump release` / `bump finish` (bump v0.4.0+) enforce it: they detect the gates, wait for green check runs on the exact sha, tag that sha, and push the tag by name.
 
+- The standing release rulings and the superseded ones, each with its hall line: `~/repos/.claude/refs/release-rulings.md`.
+
 - One release, two bare commands, each its own Bash call after a separate `cd <repo>`, run with `run_in_background` (the CI wait can pass the 600s foreground cap):
   - `bump release [-m|-M]`: ungated, it commits the version, pushes main, waits for CI, tags, pushes the tag, installs. Gated, run on the FEATURE branch with the work committed: it commits the version, pushes the branch, opens the PR itself (`Release: rides this PR (vX.Y.Z)`), and stops.
   - `bump finish`: gated, after the PR merges, from any worktree of the repo. It fast-forwards the default branch, waits for CI on the merged sha, tags, pushes the tag, installs.
