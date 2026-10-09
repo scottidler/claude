@@ -58,3 +58,17 @@ Design doc: `docs/design/2026-10-08-retro-fixes.md`
 
 ### Open questions
 - None.
+
+## Phase 3: security-guidance off (fix 12)
+### Design decisions
+- `enabledPlugins["security-guidance@claude-plugins-official"]` set to `false`: `HOME/.claude/settings.json:1069`: the doc's line number matched exactly.
+- Staged only that hunk: the file carries an unrelated uncommitted `"model": "opus"` -> `"fable"` change (line 745) that belongs to Scott and stays in the working tree.
+
+### Deviations
+- None.
+
+### Tradeoffs
+- Partial staging via `git apply --cached --unidiff-zero` vs committing the whole file: the model change is not this phase's.
+
+### Open questions
+- None.
