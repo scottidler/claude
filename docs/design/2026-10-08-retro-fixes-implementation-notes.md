@@ -128,3 +128,15 @@ Method: `claude -p --no-session-persistence --model haiku --allowedTools=Bash` f
 ### Open questions
 - Retire `HOME/.claude/bin/gen-tools` (its output file is gone and nothing includes it)?
 - Operator step (NOT run, no manifest apply). Live state after this phase, `ls -la`: dangling `~/repos/.claude/rules/cli.md` and `rules/logging.md` (-> repo `rules/` paths that no longer exist) and `~/.claude/tools.md`; missing `~/repos/.claude/refs/{cli,logging,process-taste,release-rulings}.md` (release-rulings is Phase 1's, also never linked). Pointers in agents/skills read `~/repos/.claude/refs/...` so they dead-end until linked. Danger: the pi `rules` extension `readdirSync`s `rules/` and `readFileSync`s each `.md`, so a dangling symlink throws at pi session start until fixed. Fix: scoped link apply, e.g. `manifest -l 'HOME/repos/.claude/*' -l 'HOME/.claude/*'` (confirm the glob form against `manifest.yml`'s `link:` keys first), then `rm` the three dead symlinks (use `rkvr rmrf`).
+
+## Phase 7: JQL line (fix 13c)
+### Design decisions
+- New "JQL Searches (Atlassian MCP)" section in `HOME/repos/.claude/refs/jira.md`: `fields` and `maxResults` (at most 25) always, recommended `fields` of summary/status/assignee/updated, `responseContentFormat: "markdown"`, `nextPageToken` for paging, `searchResultMode: "count"` only for counts (the doc's fix 13c) because the default field set includes `description`.
+- Parameter names taken from the live `mcp__atlassian__searchJiraIssuesUsingJql` schema, checked via ToolSearch in-session by the orchestrator on 2026-10-09 (required `cloudId`, `jql`; optional `fields`, `maxResults`, `nextPageToken`, `responseContentFormat`, `searchResultMode`).
+- The tool's `maxResults` description reads "Max (50-100)" but the schema has `maximum: 100` and no minimum. The doc's <= 25 stands because the schema permits it. If the server rejects values under 50 at call time, this line needs revisiting.
+### Deviations
+- None.
+### Tradeoffs
+- A five-bullet section vs a fuller parameter table: the fix is a tool-budget guard, so only the parameters that move result size are listed.
+### Open questions
+- Does the Atlassian server enforce the "50-100" in the description at call time? Not exercised in this phase (no live JQL call made).

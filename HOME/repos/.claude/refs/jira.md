@@ -37,3 +37,11 @@ Example:
 - Lead with context: why this work exists
 - Include links to design docs, PRs, Slack threads, Confluence pages
 - Keep it scannable; use headers and bullets over paragraphs
+
+## JQL Searches (Atlassian MCP)
+
+- `searchJiraIssuesUsingJql` always carries `fields` and `maxResults`; the default field set includes `description`, which makes every row large
+- `maxResults`: at most 25 (schema max is 100); page with `nextPageToken` instead of raising it
+- `fields`: a small list, e.g. `["summary", "status", "assignee", "updated"]`; add `description` or `comment` only for the issue being read; never `"*all"`
+- `responseContentFormat: "markdown"`
+- `searchResultMode: "count"` only when a count is all that is needed
