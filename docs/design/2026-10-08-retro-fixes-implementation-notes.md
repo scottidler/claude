@@ -156,3 +156,34 @@ Method: `claude -p --no-session-persistence --model haiku --allowedTools=Bash` f
 - Full-slug assertion on a second chore-prefixed branch vs relying on the generic `git branch -m` substring fixtures: the substring never pinned the computed slug, which is the model-facing instruction.
 ### Open questions
 - None.
+
+## Phase 9: bump honors a directory (scottidler/bump)
+### Design decisions
+- `ReleaseArgs.dir` / `FinishArgs.dir`, `Option<PathBuf>` positional `[DIR]` -- bump `src/cli.rs` -- the top-level `DIRECTORIES` positional is untouched; `bump release /path` stays a bare simple command.
+- `resolve_verb_dir(Option<&Path>)` -- bump `src/main.rs` -- one pure resolver for both verbs: explicit dir (made absolute against cwd), else cwd; logs explicit and resolved at DEBUG. `dispatch_command` calls it per verb; `dispatch_release`/`dispatch_finish` already took `&Path`, so they are unchanged.
+- Tests: one per verb parses `bump <verb> -n /some/repo` and asserts the resolved dir, plus a default/relative test. Bite proven: forcing the resolver to ignore the explicit dir failed all three.
+- README usage lines gain `[DIR]`; clap help picks it up from the arg.
+### Deviations
+- None to the spec. Branch `release-verbs-take-dir`, one commit (eba0468) in the bump repo; no push/tag/release (the doc's "lands with `bump release`" is the parent's finalization).
+### Tradeoffs
+- Unit tests on the resolver plus clap parse vs a subprocess end-to-end test -- the end-to-end run was done by hand against the built binary from outside any repo; a subprocess test would need a fixture with a fetchable origin.
+### Open questions
+- `bump release -n <repo>` from outside the repo could not print a dry-run plan here: the repo was on its feature branch, and the verb refuses off-default ("runs on the default branch 'main', but you are on 'release-verbs-take-dir'"), which names the repo's branch and so proves the dir was honored. The plan print for release is only reachable on main with something to release; confirm the refusal is acceptable evidence until the branch merges. `finish -n` printed the full dry-run plan, rc=0.
+
+## Phase 10: Not-a-repo gate (fix 4)
+### Design decisions
+- `not_a_repo_gate` -- `HOME/.claude/hooks/git-release-guard.sh` -- called first in `check_stmt`, before the tag gates, for any statement whose command word is `git` or `bump`. Judges the directory the statement runs in: `resolve_stmt_tree`'s `cd_at` directory, then git's global `-C`/`--git-dir` or bump's directory positionals resolved against it; `git -C <dir> rev-parse --git-dir` failing -> deny.
+- git's global options are parsed by POSITION (only before the subcommand), not by `dash_c_tree`'s directory-exists heuristic: `git commit -C <commit>` and `git switch -C <branch>` put theirs after the verb, and a branch named like a directory would fool the existence test. Fixture `git commit -C $REPO` from /tmp denies.
+- bump: `release`/`finish` [DIR] and the legacy top-level `DIRECTORIES` (which is what `bump --gates <dir>` uses) are resolved the same way; every directory named is checked, not just the first; none named means the statement's directory. Value-taking flags (`--message`, `--install`, `--standalone`, `--ci-timeout`, greedy `--skip-member`) are skipped so their values are never read as directories. This is the design-gap call the parent asked for: resolve, don't deny.
+- Stands down (allows) whenever the hook cannot know the directory: an unexpanded `$VAR`/backtick/substitution or `~` path, a `cd` it cannot follow (`resolve_stmt_tree` now records `stmt_cd_unknown` for `cd -`, `cd "$X"`, or a non-directory target), a `-C` target that does not exist (git refuses that loudly itself), or a leading `GIT_DIR=`/`GIT_WORK_TREE=` assignment. If `cmdword_is` matched but no token reads as the verb, the statement's own directory is judged with no exemption (fail closed).
+- Tests: 85 new cases in `git-release-guard-test.sh` (16 denies, 18 shape-swept denies x2 via `runcwdwrapped` from `shapes.sh`, 33 allows). Self-test 289/0 before -> 374/0 after. Bite: the new test file against `git show dc91785:HOME/.claude/hooks/git-release-guard.sh` (scratch dir with `lib.sh` and `shapes.sh` beside it) -> pass=322 fail=52; all 52 failures are the new denies ("want deny got allow"), including `bump finish` and `git status` at `/tmp`; every allow held on the old hook too.
+### Deviations
+- Baseline: the criterion says `HEAD~1`. The bite ran before this commit existed, when `HEAD~1` was `3240e91` (unrelated); it used `dc91785`, the commit before this phase, explicitly. After this commit `HEAD~1` resolves to the same `dc91785`.
+- Deny text splits by tool (same effect, truer hint): git -> "'<dir>' is not a git repository. 'cd <repo>' in its own call, or 'git -C <repo> ...'."; bump -> "... or 'bump <verb> <repo>'." with the actual verb filled in when it is `release`/`finish`. The doc's single text tells a `git status` caller to run `bump <verb> <repo>`, which is the wrong tool. Single quotes instead of the doc's backticks, matching every other deny in the file.
+- Exemptions added beyond the doc's list, each legal outside a repo: `git version`, `git -v`/`-h`/`--help`/`--exec-path`/`--html-path`/`--man-path`/`--info-path`, `--help` anywhere after a git verb, bare `git`, `git diff --no-index`, the `git rev-parse` repo probes (`--is-inside-work-tree`, `--is-inside-git-dir`, `--git-dir`; denying the probe whose answer IS "not a repo" would break every script that asks), and bump `-h`/`--help`/`-V`/`--version`.
+- `git ls-remote <url>`: "url" is read as any operand carrying `:` or starting `/`, `./`, `../`; a bare word is a remote name and is still denied outside a repo.
+### Tradeoffs
+- Allow on an unresolvable directory vs deny: the verdict names one directory, and a guess would deny legitimate `cd "$REPO" && git ...` chains from a non-repo session; git and bump still fail loudly on their own if the guess would have been right.
+- Position-based global-option parse vs reusing `dash_c_tree` verbatim: the precedent cannot tell `git commit -C <sha>` from `git -C <dir>` when a directory of that name exists; the position can.
+### Open questions
+- `HOME/.claude/bin/pr-open` cites `git-release-guard.sh:563` and `:566` for Gate D in a comment and two `die` texts; those line numbers were already stale before this phase and moved further with it. Not touched here (out of phase scope); a later phase or a pointer-by-name fix should own it.

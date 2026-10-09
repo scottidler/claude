@@ -182,14 +182,21 @@ stmt_dir=""
 stmt_porcelain=""
 stmt_untracked=0
 stmt_branch=""
+stmt_cd_unknown=0
 resolve_stmt_tree() {
   [ -n "$stmt_dir" ] && return 0
   local at d="$cwd"
   at=$(printf '%s' "$cmd" | cd_at "$stmt_idx")
+  # A `cd` the hook cannot follow (`cd "$X"`, `cd -`, a target that is not a
+  # directory) leaves `d` at the session cwd, which is a guess. The tree gates
+  # below have always lived with that guess; the not-a-repo gate cannot, since
+  # its whole verdict is "this directory", so it reads this flag and stands down.
+  stmt_cd_unknown=0
   case "$at" in
-    ""|-) ;;
-    /*) [ -d "$at" ] && d="$at" ;;
-    *) [ -d "$cwd/$at" ] && d="$cwd/$at" ;;
+    "") ;;
+    -) stmt_cd_unknown=1 ;;
+    /*) if [ -d "$at" ]; then d="$at"; else stmt_cd_unknown=1; fi ;;
+    *) if [ -d "$cwd/$at" ]; then d="$cwd/$at"; else stmt_cd_unknown=1; fi ;;
   esac
   stmt_dir="$d"
   stmt_porcelain=$(git -C "$stmt_dir" status --porcelain 2>/dev/null)
@@ -276,6 +283,178 @@ is_bump_only_ref() {
   return 0
 }
 
+# ---- Not a repo (retro-fixes fix 4, 2026-10-08) ----
+# Every gate below reads branch and tree state with a `git -C <dir>` whose
+# failure is swallowed, so outside a repo each one self-skips and the command
+# reaches git or bump, which then fails on its own. That failure is the cheap
+# half. The expensive half is the agent that reads it as a git or bump bug and
+# starts improvising a workaround. This gate names the actual problem and the
+# legal shape before anything runs.
+#
+# The directory judged is the one the statement RUNS in: the `cd` in effect at
+# the statement (`cd_at`), then git's own global `-C`/`--git-dir`, or bump's
+# directory positionals, resolved against it. git's global options are read
+# only BEFORE the subcommand, which is the line `dash_c_tree` in
+# branch-pr-title-guard.sh draws with a directory-exists test instead: the
+# position is the exact answer, since `git switch -C <branch>` and `git commit
+# -C <commit>` put theirs after it.
+#
+# Exempt, because each is legal outside a repo: `git clone`, `git init`, `git
+# help`/`version`/`--version`/`--help`, `git config --global|--system`, `git
+# ls-remote <url>`, `git diff --no-index`, the `git rev-parse` repo probes
+# (`--is-inside-work-tree`, `--is-inside-git-dir`, `--git-dir`), and bump's own
+# help/version. Anything
+# the hook cannot resolve (a `$VAR` or command-substitution directory, a `cd` it
+# cannot follow, a GIT_DIR/GIT_WORK_TREE assignment) stands the gate down,
+# because the verdict is about one specific directory and a guess is not one.
+is_repo_dir() { git -C "$1" rev-parse --git-dir >/dev/null 2>&1; }
+
+# Absolute form of <path> relative to <base>, or nothing when the hook cannot
+# know what the shell will make of it.
+resolve_path() { # resolve_path <base> <path>
+  case "$2" in
+    *'$'*|*'`'*|*"$MASKCH"*|'~'*|"") return 0 ;;
+    /*) printf '%s' "$2" ;;
+    *) printf '%s/%s' "$1" "$2" ;;
+  esac
+}
+
+not_a_repo_deny() { # not_a_repo_deny <dir> <tool> [<bump verb>]
+  local hint
+  if [ "$2" = "git" ]; then
+    hint="'git -C <repo> ...'"
+  else
+    hint="'bump ${3:-<verb>} <repo>'"
+  fi
+  deny "'$1' is not a git repository. 'cd <repo>' in its own call, or $hint."
+}
+
+not_a_repo_gate() { # not_a_repo_gate <statement> <is_git> <is_bump>
+  local s="$1" tool toks t i n sub target
+  [ "$2" -eq 1 ] && tool=git
+  [ "$3" -eq 1 ] && tool=bump
+  [ -z "${tool:-}" ] && return 0
+
+  resolve_stmt_tree
+  [ "$stmt_cd_unknown" -eq 1 ] && return 0
+
+  mapfile -t toks < <(printf '%s' "$s" | mask_comment | args)
+  n=${#toks[@]}
+
+  # Locate the command word. A leading GIT_DIR=/GIT_WORK_TREE= assignment points
+  # git somewhere the hook does not follow.
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    t="${toks[$i]}"
+    case "$t" in
+      GIT_DIR=*|GIT_WORK_TREE=*) return 0 ;;
+    esac
+    [ "$t" = "$tool" ] || [ "${t##*/}" = "$tool" ] && break
+    i=$((i + 1))
+  done
+  # cmdword_is matched but no token reads as the verb: judge the statement's
+  # own directory with no exemption, the fail-closed answer.
+  [ "$i" -ge "$n" ] && { is_repo_dir "$stmt_dir" || not_a_repo_deny "$stmt_dir" "$tool"; return 0; }
+  i=$((i + 1))
+
+  if [ "$tool" = "git" ]; then
+    local cdir="$stmt_dir" gitdir="" v
+    while [ "$i" -lt "$n" ]; do
+      t="${toks[$i]}"
+      case "$t" in
+        --version|--help|-h|-v|--exec-path|--html-path|--man-path|--info-path) return 0 ;;
+        -C)
+          v=$(resolve_path "$cdir" "${toks[$((i + 1))]:-}")
+          [ -z "$v" ] && return 0
+          [ -d "$v" ] || return 0   # git refuses a missing -C target loudly itself
+          cdir="$v"; i=$((i + 2)); continue ;;
+        --git-dir=*) gitdir="${t#--git-dir=}" ;;
+        --git-dir) gitdir="${toks[$((i + 1))]:-}"; i=$((i + 2)); continue ;;
+        -c|--work-tree|--namespace|--config-env|--super-prefix|--exec-path=*)
+          case "$t" in *=*) ;; *) i=$((i + 1)) ;; esac ;;
+        -*) ;;
+        *) sub="$t"; break ;;
+      esac
+      i=$((i + 1))
+    done
+    case "${sub:-}" in
+      ""|clone|init|help|version) return 0 ;;
+    esac
+    # A `--help` anywhere is a man page, never a repo read.
+    for t in "${toks[@]:$i}"; do [ "$t" = "--help" ] && return 0; done
+    case "$sub" in
+      config)
+        for t in "${toks[@]:$i}"; do
+          case "$t" in --global|--system) return 0 ;; esac
+        done ;;
+      diff)
+        for t in "${toks[@]:$i}"; do [ "$t" = "--no-index" ] && return 0; done ;;
+      rev-parse)
+        # The repo PROBE: asking "am I in a repo" is the one question whose
+        # answer outside a repo is the point, not an error.
+        for t in "${toks[@]:$i}"; do
+          case "$t" in --is-inside-work-tree|--is-inside-git-dir|--git-dir) return 0 ;; esac
+        done ;;
+      ls-remote)
+        local j=$((i + 1))
+        while [ "$j" -lt "$n" ]; do
+          t="${toks[$j]}"
+          case "$t" in
+            --upload-pack|--sort|-o|--server-option) j=$((j + 2)); continue ;;
+            -*) j=$((j + 1)); continue ;;
+          esac
+          # A URL, scp-style address, or path names its repo; a bare word is a
+          # remote name, which only means something inside a repo.
+          case "$t" in
+            *:*|/*|./*|../*) return 0 ;;
+          esac
+          break
+        done ;;
+    esac
+    if [ -n "$gitdir" ]; then
+      v=$(resolve_path "$cdir" "$gitdir")
+      [ -z "$v" ] && return 0
+      git --git-dir="$v" rev-parse --git-dir >/dev/null 2>&1 || not_a_repo_deny "$v" git
+      return 0
+    fi
+    is_repo_dir "$cdir" || not_a_repo_deny "$cdir" git
+    return 0
+  fi
+
+  # bump: every directory positional is a repo root bump will operate in, the
+  # release verbs' optional [DIR] and the legacy top-level DIRECTORIES alike
+  # (`bump --gates <dir>` is the latter). None given means the statement's own
+  # directory.
+  local verb="" dirs=() v d
+  while [ "$i" -lt "$n" ]; do
+    t="${toks[$i]}"
+    case "$t" in
+      -h|--help|-V|--version) return 0 ;;
+      --message|--install|--standalone|--ci-timeout) i=$((i + 2)); continue ;;
+      --skip-member)
+        # num_args = 1..: clap feeds it every following non-flag word.
+        i=$((i + 1))
+        while [ "$i" -lt "$n" ] && [ "${toks[$i]#-}" = "${toks[$i]}" ]; do i=$((i + 1)); done
+        continue ;;
+      -*) ;;
+      *)
+        if [ -z "$verb" ] && [ "${#dirs[@]}" -eq 0 ] && { [ "$t" = "release" ] || [ "$t" = "finish" ]; }; then
+          verb="$t"
+        else
+          dirs+=("$t")
+        fi ;;
+    esac
+    i=$((i + 1))
+  done
+  [ "${#dirs[@]}" -eq 0 ] && dirs=(".")
+  for d in "${dirs[@]}"; do
+    if [ "$d" = "." ]; then v="$stmt_dir"; else v=$(resolve_path "$stmt_dir" "$d"); fi
+    [ -z "$v" ] && return 0
+    is_repo_dir "$v" || not_a_repo_deny "${v%/.}" bump "$verb"
+  done
+  return 0
+}
+
 check_stmt() {
   local s="$1"
 
@@ -313,6 +492,10 @@ check_stmt() {
   printf '%s' "$m" | cmdword_is git && is_git=1
   printf '%s' "$m" | cmdword_is gh && is_gh=1
   printf '%s' "$m" | cmdword_is bump && is_bump=1
+
+  # Before every other gate: each of them reads repo state, and outside a repo
+  # that read fails silently and the gate self-skips.
+  not_a_repo_gate "$s" "$is_git" "$is_bump"
 
   # ---- Tags: never delete, never bulk-push (git.md "Tags") ----
   if [ "$is_git" -eq 1 ] && printf '%s' "$mu" | grep -Eq '\bgit[[:space:]]+tag[[:space:]]+(-d|--delete)\b'; then

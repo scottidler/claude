@@ -553,6 +553,65 @@ runcwdwrapped "$D" "$D" 'git clean -fd'
 runcwdwrapped "$D" "$D" 'git checkout -- .'
 
 
+echo "=== not a repo: git and bump outside a repo name the legal shape (retro-fixes fix 4) ==="
+# Before this gate every repo read in the hook failed silently outside a repo
+# and each gate self-skipped, so these denies were allows. The payload cwd and
+# the hook's own cwd are both a non-repo, so nothing can leak in from $REPO.
+mkdir -p "$ROOT/plain"
+PL="$ROOT/plain"
+runcwd deny  /tmp /tmp 'bump finish'
+runcwd deny  /tmp /tmp 'git status'
+runcwd deny  /tmp /tmp 'bump release'
+runcwd deny  /tmp /tmp 'bump -m'
+runcwd deny  /tmp /tmp 'bump --gates'
+runcwd deny  /tmp /tmp "bump finish $PL"                  # the named DIR is judged
+runcwd deny  /tmp /tmp "bump --gates $PL"                 # top-level DIRECTORIES too
+runcwd deny  /tmp /tmp "bump $REPO $PL"                   # every directory, not the first
+runcwd deny  /tmp /tmp "git -C $PL status"
+runcwd deny  /tmp /tmp "git --git-dir=$PL log"
+runcwd deny  /tmp /tmp "git commit -C $REPO"              # -C after the verb is a commit, not a dir
+runcwd deny  /tmp /tmp 'git ls-remote origin'             # a remote name needs a repo
+runcwd deny  /tmp /tmp 'git config user.name'             # repo-local config
+runcwd deny  /tmp /tmp 'git rev-parse --show-toplevel'
+runcwd deny  "$N" "$N" "cd $PL && git status"             # the cd in effect is honored
+runcwd deny  /tmp /tmp 'echo "$(git status)"'             # nested statements are judged
+runcwdwrapped /tmp /tmp 'git status'
+runcwdwrapped /tmp /tmp 'bump finish'
+# Legal outside a repo, or pointed at one.
+run    allow main 'git clone x'
+run    allow main 'git -C "$REPO" status'
+run    allow main 'git --version'
+runcwd allow /tmp /tmp 'git clone x'
+runcwd allow /tmp /tmp 'git init foo'
+runcwd allow /tmp /tmp 'git --version'
+runcwd allow /tmp /tmp 'git version'
+runcwd allow /tmp /tmp 'git help status'
+runcwd allow /tmp /tmp 'git status --help'
+runcwd allow /tmp /tmp 'git'
+runcwd allow /tmp /tmp 'git config --global user.name'
+runcwd allow /tmp /tmp 'git config --system core.editor'
+runcwd allow /tmp /tmp 'git ls-remote https://github.com/x/y'
+runcwd allow /tmp /tmp 'git ls-remote --tags git@github.com:x/y.git'
+runcwd allow /tmp /tmp 'git diff --no-index a b'
+runcwd allow /tmp /tmp 'git rev-parse --is-inside-work-tree'
+runcwd allow /tmp /tmp "git -C $REPO status"
+runcwd allow /tmp /tmp "git -C $REPO switch -C $PL"       # the verb's -C is not git's
+runcwd allow /tmp /tmp "git --git-dir=$REPO/.git log"
+runcwd allow /tmp /tmp 'git -C "$REPO" status'            # unexpanded: the hook cannot judge it
+runcwd allow /tmp /tmp 'GIT_DIR=/x git log'
+runcwd allow /tmp /tmp "bump finish $REPO"
+runcwd allow /tmp /tmp "bump release -n $REPO"
+runcwd allow /tmp /tmp "bump release --standalone 'ship it' $REPO"
+runcwd allow /tmp /tmp "bump --gates $REPO"
+runcwd allow /tmp /tmp 'bump --help'
+runcwd allow /tmp /tmp 'bump release --help'
+runcwd allow /tmp /tmp 'bump --version'
+runcwd allow /tmp /tmp "cd $REPO && git status"
+runcwd allow /tmp /tmp "cd $N && bump finish"
+runcwd allow /tmp /tmp 'cd "$X" && git status'           # a cd the hook cannot follow
+runcwd allow /tmp /tmp 'echo git status'
+runcwd allow "$N" "$N" 'git status'
+
 echo "=== lib.sh word boundaries: substitutions and escapes ==="
 # 74913d8 joined lib.sh tokens at escapes and substitution delimiters. The
 # first seven are pinned: a command inside a substitution is its own statement,
