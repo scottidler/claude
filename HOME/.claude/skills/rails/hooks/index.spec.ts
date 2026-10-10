@@ -1008,3 +1008,106 @@ describe('heads: the scan resumes after a heredoc body (audit round 1, X6CMQgQe)
         expect(pkillOut("cat <<'EOF'\npkill -f foo\nEOF\npkill -f bar")).toBe("cat <<'EOF'\npkill -f foo\nEOF\npkill -f '[b]ar'")
     })
 })
+
+describe('router log (Phase 6)', () => {
+    const { newRouterLog, appendLine, seedLog, logContent, pumpLog, logIdle, staleLogs, failedStatus, utf8Length, LOG_CAP } = internals
+    const DAY = 24 * 60 * 60 * 1000
+
+    test('lines buffer and the file content equals the joined buffer', () => {
+        const log = newRouterLog()
+        appendLine(log, 'one')
+        appendLine(log, 'two é')
+        expect(log.lines).toEqual(['one', 'two é'])
+        expect(logContent(log)).toBe('one\ntwo é\n')
+        expect(log.bytes).toBe(utf8Length(logContent(log)))
+    })
+    test('utf8Length counts bytes, not characters', () => {
+        expect(utf8Length('a')).toBe(1)
+        expect(utf8Length('é')).toBe(2)
+        expect(utf8Length('\u2014')).toBe(3)
+        expect(utf8Length('😀')).toBe(4)
+    })
+    test('past the cap the oldest lines go and the file opens with the marker', () => {
+        const log = newRouterLog()
+        for (let i = 0; i < 10; i += 1) { appendLine(log, 'line ' + i + ' ' + 'x'.repeat(10), 80) }
+        expect(log.dropped).toBeGreaterThan(0)
+        const text = logContent(log)
+        expect(text.startsWith('... ' + log.dropped + ' earlier lines dropped\n')).toBe(true)
+        expect(utf8Length(text)).toBeLessThanOrEqual(80)
+        expect(log.lines[log.lines.length - 1]).toBe('line 9 ' + 'x'.repeat(10))
+        expect(log.dropped + log.lines.length).toBe(10)
+    })
+    test('the real cap is 1 MiB', () => {
+        const log = newRouterLog()
+        const line = 'y'.repeat(1023)
+        for (let i = 0; i < 1100; i += 1) { appendLine(log, line) }
+        expect(LOG_CAP).toBe(1024 * 1024)
+        expect(log.dropped).toBeGreaterThan(0)
+        expect(utf8Length(logContent(log))).toBeLessThanOrEqual(LOG_CAP)
+    })
+    test('under the cap nothing is dropped and there is no marker', () => {
+        const log = newRouterLog()
+        appendLine(log, 'a', 80)
+        expect(logContent(log)).toBe('a\n')
+    })
+    test('seedLog puts an earlier copy ahead of the buffer and keeps its dropped count', () => {
+        const log = newRouterLog()
+        appendLine(log, 'new')
+        seedLog(log, '... 3 earlier lines dropped\nold1\nold2\n')
+        expect(logContent(log)).toBe('... 3 earlier lines dropped\nold1\nold2\nnew\n')
+        expect(log.bytes).toBe(utf8Length('old1\nold2\nnew\n'))
+    })
+    test('writes are serialized: one in flight, one queued, the last write carries the whole buffer', async () => {
+        const log = newRouterLog()
+        let inFlight = 0
+        let most = 0
+        const written: string[] = []
+        log.sink = {
+            write: async (text: string) => {
+                inFlight += 1
+                most = Math.max(most, inFlight)
+                await new Promise((r) => setTimeout(r, 5))
+                written.push(text)
+                inFlight -= 1
+            },
+            note: () => undefined,
+        }
+        for (let i = 0; i < 5; i += 1) {
+            appendLine(log, 'l' + i)
+            pumpLog(log)
+        }
+        await logIdle(log)
+        expect(most).toBe(1)
+        expect(written.length).toBe(2)
+        expect(written[written.length - 1]).toBe(logContent(log))
+    })
+    test('a rejecting write is swallowed and noted once', async () => {
+        const log = newRouterLog()
+        log.path = '/x/s.log'
+        const notes: string[] = []
+        log.sink = { write: async () => { throw new Error('EACCES') }, note: (t: string) => { notes.push(t) } }
+        appendLine(log, 'a')
+        pumpLog(log)
+        await logIdle(log)
+        appendLine(log, 'b')
+        pumpLog(log)
+        await logIdle(log)
+        expect(notes).toEqual(['rules: router log write failed (/x/s.log): EACCES'])
+    })
+    test('staleLogs names only *.log files older than 14 days', () => {
+        const now = 100 * DAY
+        expect(staleLogs([
+            { name: 'old.log', kind: 'file', mtimeMs: now - 15 * DAY },
+            { name: 'fresh.log', kind: 'file', mtimeMs: now - 13 * DAY },
+            { name: 'old.txt', kind: 'file', mtimeMs: now - 30 * DAY },
+            { name: 'dir.log', kind: 'dir', mtimeMs: now - 30 * DAY },
+            { name: 'link.log', kind: 'other', mtimeMs: 0 },
+        ], now)).toEqual(['old.log'])
+    })
+    test('failedStatus names where, the first 80 characters of the message, and the log', () => {
+        const long = 'm'.repeat(100)
+        expect(failedStatus('prompt.attachment', long, '/h/s.log'))
+            .toBe('rules: router failed (prompt.attachment: ' + 'm'.repeat(80) + '), full load restored; log /h/s.log')
+        expect(failedStatus('tool.call', 'boom', null)).toBe('rules: router failed (tool.call: boom), full load restored; log unavailable')
+    })
+})

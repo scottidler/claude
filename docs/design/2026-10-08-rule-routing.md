@@ -240,6 +240,19 @@ Hooks registered in `register` behind `options.rule_routing` (new `userConfig` b
 - Replay e9ef7f18 from `/home/saidler`; run `git tag -l` in a fresh `~/repos` session; canary-verify each.
 - **Success criteria:** the acceptance criteria below, run live.
 
+#### Phase 6: Router log (addendum 2026-10-10)
+**Model:** opus
+- **Why.** Every router line (`say()`, `index.ts:1225`) goes to the CC debug log, written only under `--debug`/`--debug-file`; `~/.claude/debug`'s newest file is 2026-10-02, so normal sessions keep none. The session `.jsonl` records the engine's pre-hook attachment (Phase 0 (c)), so a dropped rule still looks loaded there, and the latch reason is nowhere. On 2026-10-10 the latch fired in a live session (`rules: router failed, full load restored`) and its cause (`$.fs.read(.../rules/cli.md) failed: ENOENT`) could only be recovered from a different session's debug log.
+- **What.** `say()` also appends each line, prefixed with an ISO timestamp and the loop (`main` or `agentId`), to `~/.local/share/rails/router/<sessionId>.log` (`$.session.id()`). `$.fs.write` writes whole files (no append, 4 MiB cap), so the router keeps the session's lines in memory and rewrites the file, writes serialized so two never interleave, at most one in flight plus one queued. Past 1 MiB the oldest lines are dropped and the file opens with `... <n> earlier lines dropped`. Per-session files, so concurrent sessions never clobber each other. At index build, files in that directory older than 14 days are deleted.
+- A log write failure never trips the latch and never fails a hook: it is swallowed, once noted in the debug log.
+- The latch status line names the cause: `rules: router failed (<where>: <message, first 80 chars>), full load restored; log <path>`.
+- Logged beyond today's lines: one `rules: session <id> start, routing on|off, CC <version>` line at index build, and the latch reason line (`rules: routing off: ...`, already emitted by `latch()`).
+- **Success criteria:**
+  - spec tests: lines buffer and the file content equals the joined buffer; the 1 MiB cap drops oldest and writes the marker; a rejecting `$.fs.write` leaves routing on; pruning deletes only `*.log` older than 14 days in that directory.
+  - live: a fresh `claude -p` session leaves `~/.local/share/rails/router/<id>.log` holding the `session ... start` line and the drop lines for git, marquee, otto, voice, with no `--debug` flag.
+  - Observed on `main` `373396d` (2026-10-10): `ls ~/.local/share/rails` -> `No such file or directory`.
+  - Observed live 2026-10-10 (Phase 6 build, CC 2.1.296): spec tests `bun test` `300 pass 0 fail` (290 before), `claude plugin test` rails `19 pass 0 fail` (16 before), each listed case among them. Live: `claude -p "reply OK"` from `~/repos/scottidler/claude`, no `--debug` or `--debug-file`, session `a6c5ed70-64ca-4395-ad10-994e6c07d38a`, answer `OK`. `~/.local/share/rails/router/a6c5ed70-64ca-4395-ad10-994e6c07d38a.log` opens `2026-10-10T14:55:54.583Z main rules: session a6c5ed70-64ca-4395-ad10-994e6c07d38a start, routing on, CC 2.1.296`, then `main rules: pruned 1 router logs older than 14 days` (a `zz-prune-probe.log` touched to 20 days old was gone after the run, the other session's fresh log kept), `main rules: index of 19 files, routed git.md marquee.md otto.md voice.md`, and among the keeps `main rules: drop marquee.md (routed) .../HOME/repos/.claude/rules/marquee.md`, `drop otto.md (routed)`, `drop git.md (routed)`, `drop voice.md (routed)`, all stamped `2026-10-10T14:55:55.079Z`.
+
 ## Acceptance Criteria
 
 - [x] Every rule declares `load:`. `rg --files-without-match '^load:' HOME/repos/.claude/rules/*.md | wc -l` prints `0`.

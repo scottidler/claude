@@ -16,6 +16,10 @@ import type { On } from 'claude-code'
 
 const HOME = '/home/saidler'
 const LINK_DIR = HOME + '/repos/.claude/rules'
+const SESSION = 'sess-1'
+const LOG_DIR = HOME + '/.local/share/rails/router'
+const LOG_FILE = LOG_DIR + '/' + SESSION + '.log'
+const DAY = 24 * 60 * 60 * 1000
 const REAL_DIR = HOME + '/repos/scottidler/claude/HOME/repos/.claude/rules'
 
 const GIT = String.raw`---
@@ -107,19 +111,44 @@ type World = {
     state: Record<string, unknown>
     toolCalls: string[]
     listFails: boolean
+    /** Files `$.fs.write` wrote, by path, last write wins. */
+    files: Record<string, string>
+    writes: number
+    writeFails: boolean
+    /** What the router log directory lists. */
+    logDir: { name: string; kind: 'file' | 'dir'; mtimeMs: number }[]
+    runs: string[][]
 }
 
 /** Answer every noun rails calls, from memory, and the bottom of each event it hooks. */
 function world(on: On): World {
-    const w: World = { logs: [], status: [], invalidated: [], state: {}, toolCalls: [], listFails: false }
+    const w: World = {
+        logs: [], status: [], invalidated: [], state: {}, toolCalls: [], listFails: false,
+        files: {}, writes: 0, writeFails: false, logDir: [], runs: [],
+    }
     mock.env(on, { HOME })
+    on('session.id', () => ({ value: SESSION }))
+    on('session.version', () => ({ value: { version: '9.9.9-test' } }))
+    on('fs.write', ($, e) => {
+        if (w.writeFails) { return { deny: 'forced: fs.write failed' } }
+        w.files[e.path] = e.text
+        w.writes += 1
+        return { value: undefined }
+    })
+    on('process.run', ($, e) => {
+        w.runs.push([...e.argv])
+        return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    })
     on('fs.exists', ($, e) => ({ value: e.path === LINK_DIR }))
     on('fs.list', ($, e) => {
+        if (e.path === LOG_DIR) { return { value: w.logDir.map((f) => ({ ...f, size: 1, isLink: false })) } }
         if (w.listFails) { return { deny: 'forced: fs.list failed' } }
         expect(e.path).toBe(LINK_DIR)
         return { value: [...Object.keys(RULES), DANGLING].map((name) => ({ name, kind: 'other' as const, size: 0, mtimeMs: 0, isLink: true })) }
     })
     on('fs.read', ($, e) => {
+        const written = w.files[e.path]
+        if (written !== undefined) { return { value: written } }
         const name = e.path.slice(LINK_DIR.length + 1)
         const text = RULES[name]
         if (!e.path.startsWith(LINK_DIR + '/') || text === undefined) { throw new Error('ENOENT ' + e.path) }
@@ -154,6 +183,16 @@ function world(on: On): World {
         return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage: null } as never
     })
     return w
+}
+
+/** The router log file once every write the router started has landed. */
+async function logFile(w: World): Promise<string> {
+    let seen = -1
+    while (seen !== w.writes) {
+        seen = w.writes
+        await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    return w.files[LOG_FILE] ?? ''
 }
 
 /** A deny surfaces to the test's `$` as an errored result whose text is the reason. */
@@ -327,14 +366,15 @@ describe('rule routing: the inject path', () => {
 })
 
 describe('rule routing: the latch', () => {
-    test('a forced throw in the drop hook latches, re-asks, and the same attachment then passes unchanged', async ($, on) => {
+    test('a forced throw in the drop hook latches, re-asks, names the cause and the log, and the same attachment then passes unchanged', async ($, on) => {
         const w = world(on)
         w.listFails = true
         const text = nested(REAL_DIR + '/git.md')
         const failed = await $.prompt.attachment({ type: 'nested_memory', text, origin: { kind: 'engine' } })
         expect(failed.text).toBe(text)
         expect(w.invalidated).toEqual(['prompt.attachment'])
-        expect(w.status).toEqual(['rules: router failed, full load restored'])
+        expect(w.status).toEqual(['rules: router failed (prompt.attachment: rails: $.fs.list: forced: fs.list failed), full load restored; log '
+            + LOG_FILE])
         expect(w.state['routingOff']).toEqual(expect.stringContaining('prompt.attachment failed: '))
         expect(String(w.state['routingOff'])).toContain('forced: fs.list failed')
         expect(w.logs.some((l) => l.includes('forced: fs.list failed'))).toBe(true)
@@ -356,5 +396,55 @@ describe('rule routing: the latch', () => {
         expect(w.status).toEqual([])
         expect(w.state['routingOff']).toBe('rule_routing is false')
         expect(denied(await $.tool.call({ tool: 'Bash', command: 'git push' }))).toBeUndefined()
+    })
+})
+
+describe('rule routing: the router log', () => {
+    test('a session leaves its start line and every drop in its own file, stamped and tagged with the loop', async ($, on) => {
+        const w = world(on)
+        for (const path of BURST) {
+            await $.prompt.attachment({ type: 'nested_memory', text: nested(path), origin: { kind: 'engine' } })
+        }
+        await $.tool.call({ tool: 'Bash', command: 'otto ci', agentId: 'a1' } as never)
+        const text = await logFile(w)
+        const lines = text.split('\n').filter((l) => l !== '')
+        expect(lines[0]).toMatch(/^\d{4}-\d\d-\d\dT[\d:.]+Z main rules: session sess-1 start, routing on, CC 9\.9\.9-test$/)
+        for (const name of ['marquee.md', 'otto.md', 'git.md', 'voice.md']) {
+            expect(lines.some((l) => l.endsWith(' main rules: drop ' + name + ' (routed) ' + REAL_DIR + '/' + name))).toBe(true)
+        }
+        expect(lines.filter((l) => l.includes(' rules: drop ')).length).toBe(4)
+        expect(lines.some((l) => l.endsWith(' a1 rules: inject otto.md (Bash) ' + REAL_DIR + '/otto.md'))).toBe(true)
+        expect(text.endsWith('\n')).toBe(true)
+    })
+
+    test('a rejecting fs.write leaves routing on and is noted in the debug log once', async ($, on) => {
+        const w = world(on)
+        w.writeFails = true
+        const dropped: string[] = []
+        for (const path of BURST) {
+            const r = await $.prompt.attachment({ type: 'nested_memory', text: nested(path), origin: { kind: 'engine' } })
+            if (r.text === null) { dropped.push(path) }
+        }
+        await logFile(w)
+        expect(dropped.length).toBe(4)
+        expect(w.invalidated).toEqual([])
+        expect(w.status).toEqual([])
+        expect(w.state['routingOff']).toBeUndefined()
+        expect(w.logs.filter((l) => l.startsWith('rules: router log write failed')).length).toBe(1)
+        expect(denied(await $.tool.call({ tool: 'Bash', command: 'git push' }))).toContain('git.md must be in context')
+    })
+
+    test('index build deletes only router logs older than 14 days', async ($, on) => {
+        const w = world(on)
+        const now = Date.now()
+        w.logDir = [
+            { name: 'old.log', kind: 'file', mtimeMs: now - 15 * DAY },
+            { name: 'fresh.log', kind: 'file', mtimeMs: now - 13 * DAY },
+            { name: 'old.txt', kind: 'file', mtimeMs: now - 30 * DAY },
+            { name: 'old-dir.log', kind: 'dir', mtimeMs: now - 30 * DAY },
+        ]
+        await $.prompt.attachment({ type: 'nested_memory', text: nested(REAL_DIR + '/git.md'), origin: { kind: 'engine' } })
+        expect(w.runs).toEqual([['rm', '-f', '--', LOG_DIR + '/old.log']])
+        expect(w.logs).toContain('rules: pruned 1 router logs older than 14 days')
     })
 })

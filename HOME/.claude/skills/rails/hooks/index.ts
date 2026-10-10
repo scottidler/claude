@@ -1030,7 +1030,6 @@ const MAIN_LOOP = 'main'
 /** Where the rule index lives, under $HOME; the per-file symlinks `manifest.yml` lays down. */
 const RULES_DIR = '/repos/.claude/rules'
 const ROUTED_TYPES = new Set(['instructions', 'nested_memory'])
-const FAILED_STATUS = 'rules: router failed, full load restored'
 const DRAFT_CLAUSE = 'If your text changes after reading it, show Scott the new draft before sending.'
 
 /** What a routed rule's index entry needs at run time: its body, frontmatter stripped. */
@@ -1200,6 +1199,136 @@ function statements(command: string): string[] {
 }
 
 /**
+ * The router log (Phase 6): every router line, timestamped and tagged with its
+ * loop, in `~/.local/share/rails/router/<sessionId>.log`, so a session run
+ * without `--debug` still says what the router dropped and why it latched.
+ *
+ * `$.fs.write` writes whole files only, so the session's lines live here and
+ * every flush rewrites the file: one write in flight, at most one queued, the
+ * queued one taking whatever the buffer holds when it starts. Past `LOG_CAP`
+ * the oldest lines go and the file opens with a count of them.
+ */
+const LOG_DIR = '/.local/share/rails/router'
+const LOG_CAP = 1024 * 1024
+const LOG_KEEP_MS = 14 * 24 * 60 * 60 * 1000
+const DROPPED_MARKER = /^\.\.\. (\d+) earlier lines dropped$/
+
+/** Where the buffer goes, bound to the newest `$` a line arrived with. */
+type LogSink = { write: (text: string) => Promise<void>; note: (text: string) => void }
+
+type RouterLog = {
+    /** The session's file; null until opened, and for good when it cannot be. */
+    path: string | null
+    opened: Promise<void> | null
+    lines: string[]
+    /** UTF-8 bytes of `lines`, a newline after each. */
+    bytes: number
+    dropped: number
+    sink: LogSink | null
+    inFlight: Promise<void> | null
+    queued: boolean
+    /** A write failure is noted in the debug log once, then only swallowed. */
+    noted: boolean
+}
+
+function newRouterLog(): RouterLog {
+    return { path: null, opened: null, lines: [], bytes: 0, dropped: 0, sink: null, inFlight: null, queued: false, noted: false }
+}
+
+function utf8Length(s: string): number {
+    let n = 0
+    for (let i = 0; i < s.length; i += 1) {
+        const c = s.charCodeAt(i)
+        if (c < 0x80) { n += 1 } else if (c < 0x800) { n += 2 } else if (c >= 0xd800 && c <= 0xdbff) { n += 4; i += 1 } else { n += 3 }
+    }
+    return n
+}
+
+function droppedMarker(dropped: number): string {
+    return '... ' + dropped + ' earlier lines dropped'
+}
+
+/** The file's whole content: the dropped-lines marker when any were, then every line. */
+function logContent(log: RouterLog): string {
+    const head = log.dropped > 0 ? droppedMarker(log.dropped) + '\n' : ''
+    return head + log.lines.map((l) => l + '\n').join('')
+}
+
+/** Drop the oldest lines until the file, marker included, fits `cap`; one line always stays. */
+function trimLog(log: RouterLog, cap: number): void {
+    const markerBytes = (d: number): number => (d > 0 ? utf8Length(droppedMarker(d)) + 1 : 0)
+    while (log.lines.length > 1 && log.bytes + markerBytes(log.dropped) > cap) {
+        const oldest = log.lines.shift() as string
+        log.bytes -= utf8Length(oldest) + 1
+        log.dropped += 1
+    }
+}
+
+function appendLine(log: RouterLog, line: string, cap: number = LOG_CAP): void {
+    log.lines.push(line)
+    log.bytes += utf8Length(line) + 1
+    trimLog(log, cap)
+}
+
+/** Put an earlier copy's file (a hot reload) ahead of what this copy buffered. */
+function seedLog(log: RouterLog, prior: string, cap: number = LOG_CAP): void {
+    const old = prior.split('\n').filter((l) => l !== '')
+    const marker = DROPPED_MARKER.exec(old[0] ?? '')
+    if (marker !== null) {
+        log.dropped += Number(marker[1])
+        old.shift()
+    }
+    log.lines = [...old, ...log.lines]
+    log.bytes += old.reduce((n, l) => n + utf8Length(l) + 1, 0)
+    trimLog(log, cap)
+}
+
+function noteLogFailure(log: RouterLog, err: unknown): void {
+    if (log.noted) { return }
+    log.noted = true
+    const message = err instanceof Error ? err.message : String(err)
+    try {
+        log.sink?.note('rules: router log write failed (' + (log.path ?? 'no path') + '): ' + message)
+    } catch {
+        // Nowhere left to say it.
+    }
+}
+
+/** Write the buffer out, serialized: a flush while one runs only queues one more. */
+function pumpLog(log: RouterLog): void {
+    if (log.inFlight !== null) {
+        log.queued = true
+        return
+    }
+    if (log.sink === null) { return }
+    log.inFlight = (async () => {
+        do {
+            log.queued = false
+            const sink = log.sink
+            if (sink === null) { break }
+            try {
+                await sink.write(logContent(log))
+            } catch (err) {
+                noteLogFailure(log, err)
+            }
+        } while (log.queued)
+        log.inFlight = null
+    })()
+}
+
+/** Resolves once nothing is in flight or queued. */
+async function logIdle(log: RouterLog): Promise<void> {
+    while (log.inFlight !== null) { await log.inFlight }
+}
+
+/** The `*.log` files in the log directory last written before `now - LOG_KEEP_MS`. */
+function staleLogs(entries: readonly { name: string; kind: string; mtimeMs: number }[], now: number): string[] {
+    return entries
+        .filter((e) => e.kind === 'file' && e.name.endsWith('.log') && e.mtimeMs < now - LOG_KEEP_MS)
+        .map((e) => e.name)
+}
+
+/**
  * The router's per-session memory.
  *
  * The working copy of the ledger and the latch lives here, so every claim is
@@ -1215,18 +1344,100 @@ type Router = {
     off: string | null
     rules: Promise<Rules> | null
     realPaths: Map<string, string>
+    log: RouterLog
+    started: Promise<void> | null
 }
 
 function newRouter(routing: boolean, verbose: boolean): Router {
-    return { routing, verbose, loaded: null, ledger: {}, off: null, rules: null, realPaths: new Map() }
+    return {
+        routing, verbose, loaded: null, ledger: {}, off: null, rules: null, realPaths: new Map(),
+        log: newRouterLog(), started: null,
+    }
 }
 
-/** One router line: the debug log always, the transcript too when `debug` is on. */
-function say($: EngineInterface, r: Router, line: string): void {
+/** Point the log at this `$`, the newest one: a queued write runs on it. */
+function bindLog($: EngineInterface, log: RouterLog): void {
+    const path = log.path
+    if (path === null) { return }
+    log.sink = {
+        write: (text) => $.fs.write(path, text),
+        note: (text) => { $.ui.log(text, { to: 'debug' }) },
+    }
+}
+
+/**
+ * One router line: the debug log always, the transcript too when `debug` is
+ * on, and the router log file, stamped with the time and the loop.
+ */
+function say($: EngineInterface, r: Router, line: string, loop: string = MAIN_LOOP): void {
     try {
         if (r.verbose) { $.ui.log(line) } else { $.ui.log(line, { to: 'debug' }) }
     } catch {
         // A log line is never worth failing a hook over.
+    }
+    try {
+        appendLine(r.log, new Date().toISOString() + ' ' + loop + ' ' + line)
+        if (r.log.path === null) { return }
+        bindLog($, r.log)
+        pumpLog(r.log)
+    } catch (err) {
+        noteLogFailure(r.log, err)
+    }
+}
+
+/**
+ * Find the session's log file, take in what an earlier copy of the module
+ * wrote there, and flush what this copy buffered. Never throws: a log that
+ * cannot open stays a memory buffer, noted once.
+ */
+async function openLog($: EngineInterface, r: Router): Promise<void> {
+    if (r.log.opened === null) {
+        r.log.opened = (async () => {
+            try {
+                const home = await $.env.get('HOME')
+                if (home === undefined || home === '') { throw new Error('HOME is unset') }
+                const id = await $.session.id()
+                const path = home + LOG_DIR + '/' + id + '.log'
+                const prior = await $.fs.read(path).catch(() => '')
+                seedLog(r.log, typeof prior === 'string' ? prior : '')
+                r.log.path = path
+                bindLog($, r.log)
+                pumpLog(r.log)
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err)
+                try { $.ui.log('rules: router log off: ' + message, { to: 'debug' }) } catch { /* nowhere to say it */ }
+                r.log.noted = true
+            }
+        })()
+    }
+    return r.log.opened
+}
+
+/** Once per module copy: open the log and say which session, whether routing is on, and the engine; `loop` is the first hook's. */
+async function startRouter($: EngineInterface, r: Router, loop: string): Promise<void> {
+    if (r.started === null) {
+        r.started = (async () => {
+            await openLog($, r)
+            const id = await $.session.id().catch(() => 'unknown')
+            const version = await $.session.version().then((v) => v.version).catch(() => 'unknown')
+            const on = r.off === null && r.routing
+            say($, r, 'rules: session ' + id + ' start, routing ' + (on ? 'on' : 'off') + ', CC ' + version, loop)
+        })()
+    }
+    return r.started
+}
+
+/** Delete the router logs older than `LOG_KEEP_MS`; best effort, never fails the index. */
+async function pruneLogs($: EngineInterface, r: Router, home: string, loop: string): Promise<void> {
+    try {
+        const dir = home + LOG_DIR
+        const stale = staleLogs(await $.fs.list(dir), Date.now())
+        if (stale.length === 0) { return }
+        const run = await $.process.run(['rm', '-f', '--', ...stale.map((n) => dir + '/' + n)])
+        say($, r, 'rules: pruned ' + stale.length + ' router logs older than 14 days'
+            + (run.exitCode === 0 ? '' : ' (rm exit ' + run.exitCode + ': ' + run.stderr.trim().slice(0, 80) + ')'), loop)
+    } catch {
+        // No directory yet, or nothing to list: nothing to prune.
     }
 }
 
@@ -1251,54 +1462,67 @@ async function persist($: EngineInterface, r: Router): Promise<void> {
  * Turn routing off for the session and re-ask every attachment, so each
  * dropped file comes back (from the next turn on, Phase 0 (h)). Memory
  * first: the latch holds in this process even if the engine calls fail.
+ * `status` is the line shown on screen; a toggle turned off shows none.
  */
-async function latch($: EngineInterface, r: Router, why: string, failed: boolean): Promise<void> {
+async function latch($: EngineInterface, r: Router, why: string, status: string | null, loop: string): Promise<void> {
     if (r.off !== null) { return }
     r.off = why
-    say($, r, 'rules: routing off: ' + why)
-    if (failed) { $.ui.status(FAILED_STATUS) }
+    say($, r, 'rules: routing off: ' + why, loop)
+    if (status !== null) { $.ui.status(status) }
     $.ui.invalidate('prompt.attachment')
     await $.state.set(ROUTING_OFF, why)
 }
 
+/** The on-screen line for a router failure: where, the message's first 80 characters, and the log. */
+function failedStatus(where: string, message: string, logPath: string | null): string {
+    return 'rules: router failed (' + where + ': ' + message.slice(0, 80) + '), full load restored; log '
+        + (logPath ?? 'unavailable')
+}
+
 /** True when routing is off for this session, latching it the first time the toggle reads false. */
-async function routingOff($: EngineInterface, r: Router): Promise<boolean> {
+async function routingOff($: EngineInterface, r: Router, loop: string): Promise<boolean> {
     if (r.off !== null) { return true }
     await loadRouter($, r)
+    await startRouter($, r, loop)
     if (r.off !== null) { return true }
     if (!r.routing) {
-        await latch($, r, 'rule_routing is false', false)
+        await latch($, r, 'rule_routing is false', null, loop)
         return true
     }
     return false
 }
 
-/** Any router failure: name it in the debug log and latch routing off. */
-async function routerFailed($: EngineInterface, r: Router, where: string, err: unknown): Promise<void> {
+/** Any router failure: name it in the debug log and the router log, and latch routing off. */
+async function routerFailed($: EngineInterface, r: Router, where: string, err: unknown, loop: string): Promise<void> {
     const message = err instanceof Error ? err.message : String(err)
-    say($, r, 'rules: ' + where + ' failed: ' + message)
+    say($, r, 'rules: ' + where + ' failed: ' + message, loop)
     try {
-        await latch($, r, where + ' failed: ' + message, true)
+        await latch($, r, where + ' failed: ' + message, failedStatus(where, message, r.log.path), loop)
     } catch {
         // The latch is set in memory; the engine calls behind it are best effort.
     }
 }
 
 /** Run `fn` unless routing is off; any throw latches and answers null (pass through). */
-async function guarded<T>($: EngineInterface, r: Router, where: string, fn: () => Promise<T>): Promise<T | null> {
+async function guarded<T>(
+    $: EngineInterface, r: Router, where: string, agentId: string | undefined, fn: () => Promise<T>,
+): Promise<T | null> {
+    const loop = loopOf(agentId)
     try {
-        if (await routingOff($, r)) { return null }
+        if (await routingOff($, r, loop)) { return null }
         return await fn()
     } catch (err) {
-        await routerFailed($, r, where, err)
+        await routerFailed($, r, where, err, loop)
         return null
     }
 }
 
 /** A `.catch` handler's latch: never on a re-entry, where `$` calls reject and the hook judged nothing. */
-async function caught($: EngineInterface, r: Router, where: string, kind: string, message: string | undefined): Promise<void> {
+async function caught(
+    $: EngineInterface, r: Router, where: string, agentId: string | undefined, kind: string, message: string | undefined,
+): Promise<void> {
     if (kind === 're-entry') { return }
-    await routerFailed($, r, where, new Error(kind + (message === undefined ? '' : ': ' + message)))
+    await routerFailed($, r, where, new Error(kind + (message === undefined ? '' : ': ' + message)), loopOf(agentId))
 }
 
 /** Where a path lands, every link followed; the spelling itself when it cannot be resolved. */
@@ -1311,18 +1535,19 @@ async function realPathOf($: EngineInterface, r: Router, path: string): Promise<
     return landed
 }
 
-async function ruleIndex($: EngineInterface, r: Router): Promise<Rules> {
-    if (r.rules === null) { r.rules = buildRules($, r) }
+async function ruleIndex($: EngineInterface, r: Router, loop: string): Promise<Rules> {
+    if (r.rules === null) { r.rules = buildRules($, r, loop) }
     return r.rules
 }
 
 /** The rule index from `~/repos/.claude/rules`, keyed by real path, with each rule's body. */
-async function buildRules($: EngineInterface, r: Router): Promise<Rules> {
+async function buildRules($: EngineInterface, r: Router, loop: string): Promise<Rules> {
     const home = await $.env.get('HOME')
     if (home === undefined || home === '') { throw new Error('HOME is unset, so ~' + RULES_DIR + ' cannot be found') }
+    await pruneLogs($, r, home, loop)
     const dir = home + RULES_DIR
     if (!(await $.fs.exists(dir))) {
-        say($, r, 'rules: no rule index at ' + dir + ', nothing to route')
+        say($, r, 'rules: no rule index at ' + dir + ', nothing to route', loop)
         return { index: { rules: [] }, bodies: {} }
     }
     const names = (await $.fs.list(dir)).filter((e) => e.name.endsWith('.md')).map((e) => e.name).sort()
@@ -1333,7 +1558,7 @@ async function buildRules($: EngineInterface, r: Router): Promise<Rules> {
         // refs/ in ba21860) loads nothing for the engine either: not a rule.
         const stat = await $.fs.stat(path, { resolve: true }).catch(() => undefined)
         if (stat?.realPath === undefined || stat.kind !== 'file') {
-            say($, r, 'rules: skip ' + name + ' (leads to no file) ' + path)
+            say($, r, 'rules: skip ' + name + ' (leads to no file) ' + path, loop)
             continue
         }
         r.realPaths.set(path, stat.realPath)
@@ -1343,20 +1568,20 @@ async function buildRules($: EngineInterface, r: Router): Promise<Rules> {
     const bodies: Record<string, string> = {}
     for (const f of files) { bodies[f.path] = ruleBody(f.text) }
     const broken = built.rules.filter((rule) => rule.error !== undefined)
-    for (const rule of broken) { say($, r, 'rules: ' + baseName(rule.path) + ' load: unusable (' + rule.error + '), kept as always') }
+    for (const rule of broken) { say($, r, 'rules: ' + baseName(rule.path) + ' load: unusable (' + rule.error + '), kept as always', loop) }
     if (broken.length > 0) {
         $.ui.status('rules: load: unusable in ' + broken.map((rule) => baseName(rule.path)).join(', ') + ', kept as always')
     }
     say($, r, 'rules: index of ' + built.rules.length + ' files, routed '
-        + built.rules.filter((rule) => rule.triggers !== undefined).map((rule) => baseName(rule.path)).join(' '))
+        + built.rules.filter((rule) => rule.triggers !== undefined).map((rule) => baseName(rule.path)).join(' '), loop)
     return { index: built, bodies }
 }
 
-function logDecisions($: EngineInterface, r: Router, decisions: readonly FileDecision[]): void {
+function logDecisions($: EngineInterface, r: Router, decisions: readonly FileDecision[], loop: string): void {
     for (const d of decisions) {
         const verb = d.verdict === 'keep' ? 'keep' : 'drop'
         const reason = d.verdict === 'keep' ? 'bulk' : d.verdict
-        say($, r, 'rules: ' + verb + ' ' + baseName(d.path) + ' (' + reason + ') ' + d.real)
+        say($, r, 'rules: ' + verb + ' ' + baseName(d.path) + ' (' + reason + ') ' + d.real, loop)
     }
 }
 
@@ -1367,15 +1592,15 @@ function logDecisions($: EngineInterface, r: Router, decisions: readonly FileDec
 async function routeAttachment(
     $: EngineInterface, r: Router, type: string, text: string, agentId: string | undefined,
 ): Promise<'pass' | { text: string | null }> {
-    const { index } = await ruleIndex($, r)
     const loop = loopOf(agentId)
+    const { index } = await ruleIndex($, r, loop)
     const owner = fingerprint(type, text)
     if (type === 'nested_memory') {
         const path = nestedPath(text)
         if (path === undefined) { throw new Error('nested_memory: no `Contents of <path>:` header') }
         const decisions = decideFiles(index, r.ledger, loop, [{ path, real: await realPathOf($, r, path) }], owner)
         await persist($, r)
-        logDecisions($, r, decisions)
+        logDecisions($, r, decisions, loop)
         return decisions[0]?.verdict === 'keep' ? 'pass' : { text: null }
     }
     const parts = splitInstructions(text)
@@ -1385,7 +1610,7 @@ async function routeAttachment(
     }
     const decisions = decideFiles(index, r.ledger, loop, files, owner)
     await persist($, r)
-    logDecisions($, r, decisions)
+    logDecisions($, r, decisions, loop)
     const dropped = new Set(files.filter((_, i) => decisions[i]?.verdict !== 'keep').map((f) => f.part))
     return dropped.size === 0 ? 'pass' : { text: rejoin(text, parts, dropped) }
 }
@@ -1395,7 +1620,7 @@ type Owed = { paths: string[]; texts: string[] }
 
 /** The framed rules a prompt triggers, marked delivered for the main loop. */
 async function promptRules($: EngineInterface, r: Router, text: string): Promise<Owed> {
-    const { index, bodies } = await ruleIndex($, r)
+    const { index, bodies } = await ruleIndex($, r, MAIN_LOOP)
     const paths = claimDelivered(r.ledger, MAIN_LOOP, matchPrompt(index, text))
     if (paths.length > 0) { await persist($, r) }
     for (const p of paths) { say($, r, 'rules: inject ' + baseName(p) + ' (prompt) ' + p) }
@@ -1406,20 +1631,20 @@ async function promptRules($: EngineInterface, r: Router, text: string): Promise
 async function toolRules(
     $: EngineInterface, r: Router, tool: string, input: unknown, agentId: string | undefined,
 ): Promise<Owed & { deny?: string }> {
-    const { index, bodies } = await ruleIndex($, r)
     const loop = loopOf(agentId)
+    const { index, bodies } = await ruleIndex($, r, loop)
     const m = matchTool(index, tool, input, statements)
     if (m.gate.length === 0 && m.after.length === 0) { return { paths: [], texts: [] } }
     const { fresh, waiting } = claimGate(r.ledger, loop, m.gate)
     if (fresh.length > 0 || waiting.length > 0) {
         await persist($, r)
-        for (const p of fresh) { say($, r, 'rules: gate ' + baseName(p) + ' (deny ' + tool + ') ' + p) }
-        for (const p of waiting) { say($, r, 'rules: gate ' + baseName(p) + ' (pending, deny ' + tool + ') ' + p) }
+        for (const p of fresh) { say($, r, 'rules: gate ' + baseName(p) + ' (deny ' + tool + ') ' + p, loop) }
+        for (const p of waiting) { say($, r, 'rules: gate ' + baseName(p) + ' (pending, deny ' + tool + ') ' + p, loop) }
         return { deny: gateDeny(fresh.map((p) => ({ path: p, body: bodies[p] ?? '' })), waiting), paths: [], texts: [] }
     }
     const paths = claimPending(r.ledger, loop, m.after)
     if (paths.length > 0) { await persist($, r) }
-    for (const p of paths) { say($, r, 'rules: inject ' + baseName(p) + ' (' + tool + ') ' + p) }
+    for (const p of paths) { say($, r, 'rules: inject ' + baseName(p) + ' (' + tool + ') ' + p, loop) }
     return { paths, texts: paths.map((p) => framed(p, bodies[p] ?? '')) }
 }
 
@@ -1427,16 +1652,18 @@ async function toolRules(
 async function releaseRules(
     $: EngineInterface, r: Router, agentId: string | undefined, paths: readonly string[], state: 'delivered' | 'pending',
 ): Promise<void> {
-    releaseClaimed(r.ledger, loopOf(agentId), paths, state)
-    for (const p of paths) { say($, r, 'rules: release ' + baseName(p) + ' (carrier refused) ' + p) }
+    const loop = loopOf(agentId)
+    releaseClaimed(r.ledger, loop, paths, state)
+    for (const p of paths) { say($, r, 'rules: release ' + baseName(p) + ' (carrier refused) ' + p, loop) }
     await persist($, r)
 }
 
 /** A model request of this loop is starting: its pending denies are delivered now. */
 async function promoteRules($: EngineInterface, r: Router, agentId: string | undefined): Promise<void> {
-    const promoted = promotePending(r.ledger, loopOf(agentId))
+    const loop = loopOf(agentId)
+    const promoted = promotePending(r.ledger, loop)
     if (promoted.length === 0) { return }
-    for (const p of promoted) { say($, r, 'rules: delivered ' + baseName(p) + ' (turn.step) ' + p) }
+    for (const p of promoted) { say($, r, 'rules: delivered ' + baseName(p) + ' (turn.step) ' + p, loop) }
     await persist($, r)
 }
 
@@ -1445,7 +1672,7 @@ async function clearLoop($: EngineInterface, r: Router, agentId: string | undefi
     const loop = loopOf(agentId)
     if (r.ledger[loop] === undefined) { return }
     delete r.ledger[loop]
-    say($, r, 'rules: ledger cleared for ' + loop + ' (compacted)')
+    say($, r, 'rules: ledger cleared for ' + loop + ' (compacted)', loop)
     await persist($, r)
 }
 
@@ -1464,47 +1691,47 @@ export const register: Register = (on, options) => {
 
     on('prompt.attachment', async ($, e, next) => {
         if (!ROUTED_TYPES.has(e.type)) { return next(e) }
-        const answer = await guarded($, rr, 'prompt.attachment', () => routeAttachment($, rr, e.type, e.text, e.agentId))
+        const answer = await guarded($, rr, 'prompt.attachment', e.agentId, () => routeAttachment($, rr, e.type, e.text, e.agentId))
         if (answer === null || answer === 'pass') { return next(e) }
         if (answer.text === null) { return { text: null } }
         return next({ ...e, text: answer.text })
     }).catch(async ($, e, next) => {
-        await caught($, rr, 'prompt.attachment', next.error.kind, next.error.message).catch(() => undefined)
+        await caught($, rr, 'prompt.attachment', e.agentId, next.error.kind, next.error.message).catch(() => undefined)
         return next(e)
     })
 
     on('prompt.submit', async ($, e, next) => {
-        const add = await guarded($, rr, 'prompt.submit', () => promptRules($, rr, e.text))
+        const add = await guarded($, rr, 'prompt.submit', undefined, () => promptRules($, rr, e.text))
         if (add === null || add.texts.length === 0) { return next(e) }
         const r = await next({ ...e, context: [...(e.context ?? []), ...add.texts] })
-        if (r.drop !== undefined) { await guarded($, rr, 'prompt.submit', () => releaseRules($, rr, undefined, add.paths, 'delivered')) }
+        if (r.drop !== undefined) { await guarded($, rr, 'prompt.submit', undefined, () => releaseRules($, rr, undefined, add.paths, 'delivered')) }
         return r
     }).catch(async ($, e, next) => {
-        await caught($, rr, 'prompt.submit', next.error.kind, next.error.message).catch(() => undefined)
+        await caught($, rr, 'prompt.submit', undefined, next.error.kind, next.error.message).catch(() => undefined)
         return next(e)
     })
 
     on('tool.call', async ($, e, next) => {
-        const owed = await guarded($, rr, 'tool.call', () => toolRules($, rr, String(e.tool), e, e.agentId))
+        const owed = await guarded($, rr, 'tool.call', e.agentId, () => toolRules($, rr, String(e.tool), e, e.agentId))
         if (owed === null) { return next(e) }
         if (owed.deny !== undefined) { return { deny: owed.deny } }
         if (owed.texts.length === 0) { return next(e) }
         const r = await next(e)
         if (r.deny !== undefined) {
-            await guarded($, rr, 'tool.call', () => releaseRules($, rr, e.agentId, owed.paths, 'pending'))
+            await guarded($, rr, 'tool.call', e.agentId, () => releaseRules($, rr, e.agentId, owed.paths, 'pending'))
             return r
         }
         return { ...r, context: [...(r.context ?? []), ...owed.texts] }
     }).catch(async ($, e, next) => {
-        await caught($, rr, 'tool.call', next.error.kind, next.error.message).catch(() => undefined)
+        await caught($, rr, 'tool.call', e.agentId, next.error.kind, next.error.message).catch(() => undefined)
         return next(e)
     })
 
     on('turn.step', async function* ($, e, next) {
-        await guarded($, rr, 'turn.step', () => promoteRules($, rr, e.agentId))
+        await guarded($, rr, 'turn.step', e.agentId, () => promoteRules($, rr, e.agentId))
         return yield* next(e)
     }).catch(async function* ($, e, next) {
-        await caught($, rr, 'turn.step', next.error.kind, next.error.message).catch(() => undefined)
+        await caught($, rr, 'turn.step', e.agentId, next.error.kind, next.error.message).catch(() => undefined)
         if (next.called) { return undefined }
         return yield* next(e)
     })
@@ -1512,11 +1739,11 @@ export const register: Register = (on, options) => {
     on('session.compact', async ($, e, next) => {
         const r = await next(e)
         if (e.trigger !== 'precompute' && r.messages !== undefined) {
-            await guarded($, rr, 'session.compact', () => clearLoop($, rr, e.agentId))
+            await guarded($, rr, 'session.compact', e.agentId, () => clearLoop($, rr, e.agentId))
         }
         return r
     }).catch(async ($, e, next) => {
-        await caught($, rr, 'session.compact', next.error.kind, next.error.message).catch(() => undefined)
+        await caught($, rr, 'session.compact', e.agentId, next.error.kind, next.error.message).catch(() => undefined)
         return next(e)
     })
 
@@ -1633,4 +1860,14 @@ export const internals = {
     promotePending,
     gateDeny,
     statements,
+    newRouterLog,
+    appendLine,
+    seedLog,
+    logContent,
+    pumpLog,
+    logIdle,
+    staleLogs,
+    failedStatus,
+    utf8Length,
+    LOG_CAP,
 }
