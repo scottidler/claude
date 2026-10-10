@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { homedir } from 'node:os'
 import { internals } from './index.ts'
+import { buildIndex, joinInstructions, splitInstructions } from './rules.ts'
+import type { InstructionPart, RuleIndex } from './rules.ts'
 
 const { ghSpots, headSpots, segment, personaFor, inject, inWorkTree } = internals
 const { splitWords, stageComment, resolvePath, rmRewrite } = internals
@@ -761,7 +763,8 @@ describe('module loads in the engine', () => {
         const src = await Bun.file(new URL('./index.ts', import.meta.url)).text()
         const specs = [...src.matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1])
         expect(specs.length).toBeGreaterThan(0)
-        expect(specs.filter((s) => s !== 'claude-code' && !s?.startsWith('./'))).toEqual([])
+        // `../types/index.d.ts` is the plugin's own `$.state` contract, a file of the plugin.
+        expect(specs.filter((s) => s !== 'claude-code' && !s?.startsWith('./') && !s?.startsWith('../'))).toEqual([])
     })
     test('an absolute runs/ path under any home is scratch, rounds/ is not', async () => {
         expect((await rmRewrite('sudo rm -rf /home/someone/.cache/review-panel/runs/x', env())).deny).toBeUndefined()
@@ -776,5 +779,182 @@ describe('pkillArgs', () => {
         expect(pkillArgs(splitWords('pkill -f -- -vite'))).toEqual({ full: true, exact: false, pattern: 3 })
         expect(pkillArgs(splitWords('pkill -u1000 -f vite'))).toEqual({ full: true, exact: false, pattern: 3 })
         expect(pkillArgs(splitWords('pkill -f'))).toEqual({ full: true, exact: false, pattern: -1 })
+    })
+})
+
+// ---------------------------------------------------------------------------
+// Rule routing: the pure halves of the hooks (end to end: tests/routing.test.ts
+// under `claude plugin test`).
+// ---------------------------------------------------------------------------
+
+const { ruleBody, framed, fingerprint, decideFiles, rejoin } = internals
+const { claimDelivered, releaseDelivered, claimGate, promotePending, gateDeny, statements } = internals
+
+const ROUTING_FIXTURES = new URL('./fixtures/', import.meta.url)
+const RECORDED_RULES = '/home/saidler/repos/scottidler/claude/HOME/repos/.claude/rules'
+const LIVE_RULES = new URL('../../../../repos/.claude/rules/', import.meta.url)
+
+/** The live rule files keyed under the dir the fixtures recorded, as rules.test.ts does. */
+async function recordedIndex(): Promise<RuleIndex> {
+    const names = [...new Bun.Glob('*.md').scanSync(LIVE_RULES.pathname)].sort()
+    const files = await Promise.all(names.map(async (n) => ({
+        path: RECORDED_RULES + '/' + n,
+        text: await Bun.file(new URL(n, LIVE_RULES)).text(),
+    })))
+    return buildIndex(files)
+}
+
+async function fixture<T>(name: string): Promise<T> {
+    return JSON.parse(await Bun.file(new URL(name, ROUTING_FIXTURES)).text()) as T
+}
+
+const base = (p: string): string => p.slice(p.lastIndexOf('/') + 1)
+
+describe('ruleBody and framed', () => {
+    test('frontmatter and the blank lines after it go, the body stays', () => {
+        expect(ruleBody('---\nload: always\n---\n\n# Git\n\nBody.\n')).toBe('# Git\n\nBody.')
+    })
+    test('a rule with no frontmatter is its own body', () => {
+        expect(ruleBody('# Git\n')).toBe('# Git')
+    })
+    test('an unclosed frontmatter block is left as text', () => {
+        expect(ruleBody('---\nload: always\n# Git\n')).toBe('---\nload: always\n# Git')
+    })
+    test('framed uses the engine nested_memory header', () => {
+        expect(framed('/r/git.md', '# Git')).toBe('Contents of /r/git.md:\n\n# Git')
+    })
+})
+
+describe('fingerprint', () => {
+    test('stable for the same attachment, different for another text or type', () => {
+        expect(fingerprint('instructions', 'abc')).toBe(fingerprint('instructions', 'abc'))
+        expect(fingerprint('instructions', 'abc')).not.toBe(fingerprint('instructions', 'abd'))
+        expect(fingerprint('instructions', 'abc')).not.toBe(fingerprint('nested_memory', 'abc'))
+    })
+})
+
+describe('decideFiles over the recorded attachments', () => {
+    test('the e9ef7f18 burst: 11 kept, git marquee otto voice dropped as routed', async () => {
+        const index = await recordedIndex()
+        const burst = await fixture<{ rows: { path: string; text: string }[] }>('nested-e9ef7f18.json')
+        const ledger = {}
+        const verdicts = burst.rows.map((row) => {
+            const d = decideFiles(index, ledger, 'main', [{ path: row.path, real: row.path }], fingerprint('nested_memory', row.text))
+            return [base(row.path), d[0]?.verdict]
+        })
+        expect(verdicts.filter(([, v]) => v === 'keep').length).toBe(11)
+        expect(verdicts.filter(([, v]) => v !== 'keep')).toEqual([
+            ['marquee.md', 'routed'], ['otto.md', 'routed'], ['git.md', 'routed'], ['voice.md', 'routed'],
+        ])
+    })
+
+    test('the 2b8aebe2 blob: the 4 routed sections go, preamble and managed tier stay, the rest is byte for byte', async () => {
+        const index = await recordedIndex()
+        const blob = await fixture<{ text: string }>('instructions-2b8aebe2.json')
+        const parts = splitInstructions(blob.text)
+        const files = parts.flatMap((part) => (part.path === undefined ? [] : [{ part, path: part.path, real: part.path }]))
+        const decisions = decideFiles(index, {}, 'main', files, fingerprint('instructions', blob.text))
+        const dropped = new Set(files.filter((_, i) => decisions[i]?.verdict !== 'keep').map((f) => f.part))
+        expect([...dropped].map((p) => base(p.path ?? ''))).toEqual(['marquee.md', 'otto.md', 'git.md', 'voice.md'])
+        const text = rejoin(blob.text, parts, dropped)
+        expect(text).toBe(joinInstructions(parts.filter((p) => !dropped.has(p))))
+        expect(text.startsWith('Codebase and user instructions are shown below.')).toBe(true)
+        expect(text).toContain('Contents of <managed-settings> (organization-managed policy instructions):')
+        expect(text).not.toContain('/rules/git.md (')
+        expect(blob.text.length - text.length).toBe([...dropped].reduce((n, p) => n + p.header.length + p.body.length, 0))
+    })
+})
+
+describe('decideFiles: duplicates', () => {
+    const index = buildIndex([{ path: '/r/git.md', text: '---\nload:\n  bash: [\'^git\\b\']\n---\n# Git\n' }])
+    test('a real path another attachment kept is a duplicate; the same attachment again is not', () => {
+        const ledger = {}
+        expect(decideFiles(index, ledger, 'main', [{ path: '/a/CLAUDE.md', real: '/x/CLAUDE.md' }], 'one')[0]?.verdict).toBe('keep')
+        expect(decideFiles(index, ledger, 'main', [{ path: '/b/CLAUDE.md', real: '/x/CLAUDE.md' }], 'two')[0]?.verdict).toBe('duplicate')
+        expect(decideFiles(index, ledger, 'main', [{ path: '/a/CLAUDE.md', real: '/x/CLAUDE.md' }], 'one')[0]?.verdict).toBe('keep')
+    })
+    test('one attachment carrying a file twice keeps the first', () => {
+        const d = decideFiles(index, {}, 'main', [{ path: '/a', real: '/x' }, { path: '/b', real: '/x' }], 'one')
+        expect(d.map((x) => x.verdict)).toEqual(['keep', 'duplicate'])
+    })
+    test('loops do not share what they kept', () => {
+        const ledger = {}
+        decideFiles(index, ledger, 'main', [{ path: '/a', real: '/x' }], 'one')
+        expect(decideFiles(index, ledger, 'agent-1', [{ path: '/a', real: '/x' }], 'two')[0]?.verdict).toBe('keep')
+    })
+    test('a routed rule is routed even under a symlink spelling, once resolved', () => {
+        expect(decideFiles(index, {}, 'main', [{ path: '/l/git.md', real: '/r/git.md' }], 'one')[0]?.verdict).toBe('routed')
+    })
+})
+
+describe('rejoin', () => {
+    const blob = 'Pre.\n\nContents of /a.md (p):\n\nA\n\nContents of /b.md (p):\n\nB'
+    const parts = splitInstructions(blob)
+    test('dropping the last section leaves no dangling separator', () => {
+        const last = parts[parts.length - 1] as InstructionPart
+        expect(rejoin(blob, parts, new Set([last]))).toBe('Pre.\n\nContents of /a.md (p):\n\nA')
+    })
+    test('the blob own trailing newline is kept', () => {
+        const withNl = blob + '\n'
+        const p = splitInstructions(withNl)
+        expect(rejoin(withNl, p, new Set([p[p.length - 1] as InstructionPart]))).toBe('Pre.\n\nContents of /a.md (p):\n\nA\n')
+    })
+    test('dropping a middle section keeps the rest byte for byte', () => {
+        expect(rejoin(blob, parts, new Set([parts[1] as InstructionPart]))).toBe('Pre.\n\nContents of /b.md (p):\n\nB')
+    })
+})
+
+describe('delivery state', () => {
+    test('claimDelivered takes each rule once per loop; releaseDelivered gives it back', () => {
+        const ledger = {}
+        expect(claimDelivered(ledger, 'main', ['/g', '/o'])).toEqual(['/g', '/o'])
+        expect(claimDelivered(ledger, 'main', ['/g'])).toEqual([])
+        expect(claimDelivered(ledger, 'a1', ['/g'])).toEqual(['/g'])
+        releaseDelivered(ledger, 'main', ['/g'])
+        expect(claimDelivered(ledger, 'main', ['/g'])).toEqual(['/g'])
+    })
+    test('releaseDelivered leaves a pending rule pending', () => {
+        const ledger = {}
+        claimGate(ledger, 'main', ['/g'])
+        releaseDelivered(ledger, 'main', ['/g'])
+        expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: [], waiting: ['/g'] })
+    })
+    test('a gate is fresh, then waiting, then passes once a step promoted it', () => {
+        const ledger = {}
+        expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: ['/g'], waiting: [] })
+        expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: [], waiting: ['/g'] })
+        expect(promotePending(ledger, 'main')).toEqual(['/g'])
+        expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: [], waiting: [] })
+        expect(promotePending(ledger, 'main')).toEqual([])
+    })
+    test('promotePending on a loop with no ledger is a no-op', () => {
+        expect(promotePending({}, 'nobody')).toEqual([])
+    })
+    test('a rule already delivered by context never gates', () => {
+        const ledger = {}
+        claimDelivered(ledger, 'main', ['/g'])
+        expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: [], waiting: [] })
+    })
+})
+
+describe('gateDeny', () => {
+    test('fresh rules carry their text, waiting ones one line, and the draft clause ends it', () => {
+        const text = gateDeny([{ path: '/r/git.md', body: '# Git' }], ['/r/voice.md'])
+        expect(text).toContain('rails: git.md must be in context before this call runs, so it did not run.')
+        expect(text).toContain('Contents of /r/git.md:\n\n# Git')
+        expect(text).toContain('rails: voice.md: rule delivered above, retry after reading it.')
+        expect(text.endsWith('show Scott the new draft before sending.')).toBe(true)
+    })
+    test('waiting alone carries no rule text', () => {
+        expect(gateDeny([], ['/r/git.md'])).not.toContain('Contents of')
+    })
+})
+
+describe('statements', () => {
+    test('one string per simple command, the way the Bash hooks split', () => {
+        expect(statements('cd x && git push; echo done')).toEqual(['cd x ', 'git push', 'echo done'])
+    })
+    test('no command, no statements', () => {
+        expect(statements('')).toEqual([])
     })
 })

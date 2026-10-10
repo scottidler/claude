@@ -2,7 +2,8 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "rails",
   "version": "0.1.0",
-  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA, rm of anything that cannot be regenerated becomes rkvr rmrf, and a pkill -f pattern is bracketed so it cannot kill its own shell",
+  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA, rm of anything that cannot be regenerated becomes rkvr rmrf, a pkill -f pattern is bracketed so it cannot kill its own shell, and a rule in ~/repos/.claude/rules whose load: names triggers reaches the model when a trigger fires instead of in the bulk load",
+  "types": "./types/index.d.ts",
   "author": {
     "name": "Scott A. Idler",
     "email": "scott.a.idler@gmail.com"
@@ -31,6 +32,12 @@
       "default": true,
       "title": "pkill -f bracket",
       "description": "Bracket the first character of a pkill -f pattern (quartz.*4173 -> [q]uartz.*4173) so it cannot match the Bash tool's own shell, and deny a pattern outside the rewritable subset (an alternation, a leading metacharacter) with the bracketed form named. Underscore because the plugin schema rejects hyphens in these keys."
+    },
+    "rule_routing": {
+      "type": "boolean",
+      "default": true,
+      "title": "rule routing",
+      "description": "Drop rules whose load: names triggers from the bulk load of ~/repos/.claude/rules, inject each once when its prompt, tool or Bash trigger fires, and drop a file loaded a second time under another path. Turning it off restores the full load from the next turn for the rest of the session. Underscore because the plugin schema rejects hyphens in these keys."
     },
     "debug": {
       "type": "boolean",
