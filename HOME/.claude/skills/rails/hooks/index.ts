@@ -1200,23 +1200,40 @@ function statements(command: string): string[] {
 
 /**
  * The router log (Phase 6): every router line, timestamped and tagged with its
- * loop, in `~/.local/share/rails/router/<sessionId>.log`, so a session run
- * without `--debug` still says what the router dropped and why it latched.
+ * loop, in `~/.local/share/rails/router/<sessionId>.<copyTag>.log`, so a
+ * session run without `--debug` still says what the router dropped and why it
+ * latched.
  *
  * `$.fs.write` writes whole files only, so the session's lines live here and
  * every flush rewrites the file: one write in flight, at most one queued, the
  * queued one taking whatever the buffer holds when it starts. Past `LOG_CAP`
  * the oldest lines go and the file opens with a count of them.
+ *
+ * One file per module copy: a hot reload loads a second copy beside the
+ * first, and two whole-file writers on one file lose each other's lines
+ * (implementation audit round 2, X6CMQgQe, P4). The tag sorts by load time,
+ * so `ls` lists a session's copies in order.
  */
 const LOG_DIR = '/.local/share/rails/router'
 const LOG_CAP = 1024 * 1024
 const LOG_KEEP_MS = 14 * 24 * 60 * 60 * 1000
-const DROPPED_MARKER = /^\.\.\. (\d+) earlier lines dropped$/
+const RKVR = 'rkvr'
+
+/** This copy's part of the file name: its load time, then a random suffix for two loads in one millisecond. */
+function copyTag(): string {
+    return Date.now().toString() + '-' + Math.random().toString(36).slice(2, 8)
+}
+
+function logFileName(sessionId: string, tag: string): string {
+    return sessionId + '.' + tag + '.log'
+}
 
 /** Where the buffer goes, bound to the newest `$` a line arrived with. */
 type LogSink = { write: (text: string) => Promise<void>; note: (text: string) => void }
 
 type RouterLog = {
+    /** This copy's part of the file name (`copyTag`). */
+    tag: string
     /** The session's file; null until opened, and for good when it cannot be. */
     path: string | null
     opened: Promise<void> | null
@@ -1231,8 +1248,8 @@ type RouterLog = {
     noted: boolean
 }
 
-function newRouterLog(): RouterLog {
-    return { path: null, opened: null, lines: [], bytes: 0, dropped: 0, sink: null, inFlight: null, queued: false, noted: false }
+function newRouterLog(tag: string = copyTag()): RouterLog {
+    return { tag, path: null, opened: null, lines: [], bytes: 0, dropped: 0, sink: null, inFlight: null, queued: false, noted: false }
 }
 
 function utf8Length(s: string): number {
@@ -1270,16 +1287,10 @@ function appendLine(log: RouterLog, line: string, cap: number = LOG_CAP): void {
     trimLog(log, cap)
 }
 
-/** Put an earlier copy's file (a hot reload) ahead of what this copy buffered. */
-function seedLog(log: RouterLog, prior: string, cap: number = LOG_CAP): void {
-    const old = prior.split('\n').filter((l) => l !== '')
-    const marker = DROPPED_MARKER.exec(old[0] ?? '')
-    if (marker !== null) {
-        log.dropped += Number(marker[1])
-        old.shift()
-    }
-    log.lines = [...old, ...log.lines]
-    log.bytes += old.reduce((n, l) => n + utf8Length(l) + 1, 0)
+/** The copy's start line goes first whenever it is ready: lines said before it stay after it. */
+function prependLine(log: RouterLog, line: string, cap: number = LOG_CAP): void {
+    log.lines.unshift(line)
+    log.bytes += utf8Length(line) + 1
     trimLog(log, cap)
 }
 
@@ -1346,12 +1357,14 @@ type Router = {
     realPaths: Map<string, string>
     log: RouterLog
     started: Promise<void> | null
+    /** The latch an earlier copy left in `$.state`, as `loadRouter` read it: what the start line reports. */
+    held: string | null
 }
 
 function newRouter(routing: boolean, verbose: boolean): Router {
     return {
         routing, verbose, loaded: null, ledger: {}, off: null, rules: null, realPaths: new Map(),
-        log: newRouterLog(), started: null,
+        log: newRouterLog(), started: null, held: null,
     }
 }
 
@@ -1369,14 +1382,15 @@ function bindLog($: EngineInterface, log: RouterLog): void {
  * One router line: the debug log always, the transcript too when `debug` is
  * on, and the router log file, stamped with the time and the loop.
  */
-function say($: EngineInterface, r: Router, line: string, loop: string = MAIN_LOOP): void {
+function say($: EngineInterface, r: Router, line: string, loop: string = MAIN_LOOP, first: boolean = false): void {
     try {
         if (r.verbose) { $.ui.log(line) } else { $.ui.log(line, { to: 'debug' }) }
     } catch {
         // A log line is never worth failing a hook over.
     }
     try {
-        appendLine(r.log, new Date().toISOString() + ' ' + loop + ' ' + line)
+        const stamped = new Date().toISOString() + ' ' + loop + ' ' + line
+        if (first) { prependLine(r.log, stamped) } else { appendLine(r.log, stamped) }
         if (r.log.path === null) { return }
         bindLog($, r.log)
         pumpLog(r.log)
@@ -1386,56 +1400,95 @@ function say($: EngineInterface, r: Router, line: string, loop: string = MAIN_LO
 }
 
 /**
- * Find the session's log file, take in what an earlier copy of the module
- * wrote there, and flush what this copy buffered. Never throws: a log that
- * cannot open stays a memory buffer, noted once.
+ * Name this copy's log file and flush what it buffered. Reads nothing back:
+ * the file is this copy's alone, so there is nothing of anyone else's to keep
+ * (audit round 2, P3, P4). Only `HOME` and the session id are awaited, never
+ * the file system. Never throws: a log that cannot open stays a memory
+ * buffer, noted once.
  */
 async function openLog($: EngineInterface, r: Router): Promise<void> {
-    if (r.log.opened === null) {
-        r.log.opened = (async () => {
+    const log = r.log
+    if (log.opened === null) {
+        log.opened = (async () => {
             try {
                 const home = await $.env.get('HOME')
                 if (home === undefined || home === '') { throw new Error('HOME is unset') }
                 const id = await $.session.id()
-                const path = home + LOG_DIR + '/' + id + '.log'
-                const prior = await $.fs.read(path).catch(() => '')
-                seedLog(r.log, typeof prior === 'string' ? prior : '')
-                r.log.path = path
-                bindLog($, r.log)
-                pumpLog(r.log)
+                log.path = home + LOG_DIR + '/' + logFileName(id, log.tag)
+                bindLog($, log)
+                pumpLog(log)
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err)
                 try { $.ui.log('rules: router log off: ' + message, { to: 'debug' }) } catch { /* nowhere to say it */ }
-                r.log.noted = true
+                log.noted = true
             }
         })()
     }
-    return r.log.opened
+    return log.opened
 }
 
-/** Once per module copy: open the log and say which session, whether routing is on, and the engine; `loop` is the first hook's. */
-async function startRouter($: EngineInterface, r: Router, loop: string): Promise<void> {
+/**
+ * Once per module copy and session: open the log and put first in it which
+ * session, whether routing is on, and the engine; `loop` is the first hook's.
+ * Never awaited by a routing decision (audit round 2, P2); never rejects.
+ */
+function startRouter($: EngineInterface, r: Router, loop: string): Promise<void> {
     if (r.started === null) {
         r.started = (async () => {
             await openLog($, r)
+            await (r.loaded ?? Promise.resolve()).catch(() => undefined)
             const id = await $.session.id().catch(() => 'unknown')
             const version = await $.session.version().then((v) => v.version).catch(() => 'unknown')
-            const on = r.off === null && r.routing
-            say($, r, 'rules: session ' + id + ' start, routing ' + (on ? 'on' : 'off') + ', CC ' + version, loop)
+            // The state the session started in: a failure latched since is its own line.
+            const on = r.routing && r.held === null
+            say($, r, 'rules: session ' + id + ' start, routing ' + (on ? 'on' : 'off') + ', CC ' + version, loop, true)
         })()
     }
     return r.started
 }
 
-/** Delete the router logs older than `LOG_KEEP_MS`; best effort, never fails the index. */
+/**
+ * The session ended and the process goes on under a new id (`/clear`, an
+ * in-process resume; no `session.start` fires for it): close this session's
+ * log with a line, and start the next one in a file of its own (audit round 2, P5).
+ */
+function endSession($: EngineInterface, r: Router, sessionId: string, reason: string): void {
+    say($, r, 'rules: session ' + sessionId + ' end (' + reason + '), the next session logs to its own file')
+    r.log = newRouterLog()
+    r.started = null
+}
+
+/** The `rkvr` the engine's process would run: the first on its PATH, else `~/.cargo/bin/rkvr`; null when neither exists. */
+async function findRkvr($: EngineInterface, home: string): Promise<string | null> {
+    const path = (await $.env.get('PATH')) ?? ''
+    const dirs = [...path.split(':').filter((d) => d.startsWith('/')), home + '/.cargo/bin']
+    for (const dir of dirs) {
+        const candidate = dir.replace(/\/+$/, '') + '/' + RKVR
+        if (await $.fs.exists(candidate)) { return candidate }
+    }
+    return null
+}
+
+/**
+ * Delete the router logs older than `LOG_KEEP_MS` through `rkvr rmrf`
+ * (rules/safety.md: logs are not regenerable, so rkvr and nothing else).
+ * Without rkvr nothing is deleted and the log says so. Best effort, never
+ * throws; run beside the index build, not inside it.
+ */
 async function pruneLogs($: EngineInterface, r: Router, home: string, loop: string): Promise<void> {
     try {
         const dir = home + LOG_DIR
         const stale = staleLogs(await $.fs.list(dir), Date.now())
         if (stale.length === 0) { return }
-        const run = await $.process.run(['rm', '-f', '--', ...stale.map((n) => dir + '/' + n)])
+        const rkvr = await findRkvr($, home)
+        if (rkvr === null) {
+            say($, r, 'rules: prune skipped, no ' + RKVR + ' on PATH or at ' + home + '/.cargo/bin/' + RKVR
+                + ': ' + stale.length + ' router logs older than 14 days kept', loop)
+            return
+        }
+        const run = await $.process.run([rkvr, 'rmrf', '--', ...stale.map((n) => dir + '/' + n)])
         say($, r, 'rules: pruned ' + stale.length + ' router logs older than 14 days'
-            + (run.exitCode === 0 ? '' : ' (rm exit ' + run.exitCode + ': ' + run.stderr.trim().slice(0, 80) + ')'), loop)
+            + (run.exitCode === 0 ? '' : ' (rkvr exit ' + run.exitCode + ': ' + run.stderr.trim().slice(0, 80) + ')'), loop)
     } catch {
         // No directory yet, or nothing to list: nothing to prune.
     }
@@ -1446,6 +1499,7 @@ async function loadRouter($: EngineInterface, r: Router): Promise<void> {
     if (r.loaded === null) {
         r.loaded = (async () => {
             const held = await $.state.get(ROUTING_OFF)
+            if (held.value !== undefined) { r.held = held.value }
             if (held.value !== undefined && r.off === null) { r.off = held.value }
             const stored = await $.state.get(LEDGER)
             if (stored.value !== undefined) { r.ledger = stored.value }
@@ -1482,8 +1536,10 @@ function failedStatus(where: string, message: string, logPath: string | null): s
 /** True when routing is off for this session, latching it the first time the toggle reads false. */
 async function routingOff($: EngineInterface, r: Router, loop: string): Promise<boolean> {
     if (r.off !== null) { return true }
-    await loadRouter($, r)
-    await startRouter($, r, loop)
+    const loaded = loadRouter($, r)
+    // The log opens beside the decision, never in its path: lines buffer until it does.
+    void startRouter($, r, loop)
+    await loaded
     if (r.off !== null) { return true }
     if (!r.routing) {
         await latch($, r, 'rule_routing is false', null, loop)
@@ -1492,10 +1548,18 @@ async function routingOff($: EngineInterface, r: Router, loop: string): Promise<
     return false
 }
 
-/** Any router failure: name it in the debug log and the router log, and latch routing off. */
+/**
+ * Any router failure: name it in the debug log and the router log, and latch
+ * routing off. The log is opened here too, so a failure before any hook got
+ * that far (a `$.state.get` that throws) still reaches the file, and the
+ * status line names the real path (audit round 2, P1). The wait is `HOME`
+ * and the session id, no file system call.
+ */
 async function routerFailed($: EngineInterface, r: Router, where: string, err: unknown, loop: string): Promise<void> {
     const message = err instanceof Error ? err.message : String(err)
     say($, r, 'rules: ' + where + ' failed: ' + message, loop)
+    void startRouter($, r, loop)
+    await openLog($, r)
     try {
         await latch($, r, where + ' failed: ' + message, failedStatus(where, message, r.log.path), loop)
     } catch {
@@ -1544,7 +1608,7 @@ async function ruleIndex($: EngineInterface, r: Router, loop: string): Promise<R
 async function buildRules($: EngineInterface, r: Router, loop: string): Promise<Rules> {
     const home = await $.env.get('HOME')
     if (home === undefined || home === '') { throw new Error('HOME is unset, so ~' + RULES_DIR + ' cannot be found') }
-    await pruneLogs($, r, home, loop)
+    void pruneLogs($, r, home, loop)
     const dir = home + RULES_DIR
     if (!(await $.fs.exists(dir))) {
         say($, r, 'rules: no rule index at ' + dir + ', nothing to route', loop)
@@ -1747,6 +1811,13 @@ export const register: Register = (on, options) => {
         return next(e)
     })
 
+    // A `/clear` or an in-process resume goes on under a new session id: the
+    // next session's lines go to a file of its own.
+    on('session.end', async ($, e, next) => {
+        if (e.reason === 'clear' || e.reason === 'resume') { endSession($, rr, e.sessionId, e.reason) }
+        return next(e)
+    })
+
     on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
         const command = e.command
         if (!persona || typeof command !== 'string') { return next(e) }
@@ -1862,7 +1933,8 @@ export const internals = {
     statements,
     newRouterLog,
     appendLine,
-    seedLog,
+    prependLine,
+    logFileName,
     logContent,
     pumpLog,
     logIdle,

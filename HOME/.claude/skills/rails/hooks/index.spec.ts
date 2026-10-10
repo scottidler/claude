@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { homedir } from 'node:os'
-import { internals } from './index.ts'
+import { internals, register } from './index.ts'
 import { buildIndex, joinInstructions, splitInstructions } from './rules.ts'
 import type { InstructionPart, RuleIndex } from './rules.ts'
 
@@ -1010,7 +1010,7 @@ describe('heads: the scan resumes after a heredoc body (audit round 1, X6CMQgQe)
 })
 
 describe('router log (Phase 6)', () => {
-    const { newRouterLog, appendLine, seedLog, logContent, pumpLog, logIdle, staleLogs, failedStatus, utf8Length, LOG_CAP } = internals
+    const { newRouterLog, appendLine, prependLine, logFileName, logContent, pumpLog, logIdle, staleLogs, failedStatus, utf8Length, LOG_CAP } = internals
     const DAY = 24 * 60 * 60 * 1000
 
     test('lines buffer and the file content equals the joined buffer', () => {
@@ -1050,12 +1050,20 @@ describe('router log (Phase 6)', () => {
         appendLine(log, 'a', 80)
         expect(logContent(log)).toBe('a\n')
     })
-    test('seedLog puts an earlier copy ahead of the buffer and keeps its dropped count', () => {
+    test('prependLine puts the start line first, ahead of lines said before it', () => {
         const log = newRouterLog()
-        appendLine(log, 'new')
-        seedLog(log, '... 3 earlier lines dropped\nold1\nold2\n')
-        expect(logContent(log)).toBe('... 3 earlier lines dropped\nold1\nold2\nnew\n')
-        expect(log.bytes).toBe(utf8Length('old1\nold2\nnew\n'))
+        appendLine(log, 'index')
+        prependLine(log, 'start')
+        expect(logContent(log)).toBe('start\nindex\n')
+        expect(log.bytes).toBe(utf8Length('start\nindex\n'))
+    })
+    test('every module copy gets its own tag, so its own file (audit round 2, P4)', () => {
+        const a = newRouterLog()
+        const b = newRouterLog()
+        expect(a.tag).not.toBe(b.tag)
+        expect(a.tag).toMatch(/^\d+-[0-9a-z]+$/)
+        expect(logFileName('s1', a.tag)).toBe('s1.' + a.tag + '.log')
+        expect(logFileName('s1', a.tag)).not.toBe(logFileName('s1', b.tag))
     })
     test('writes are serialized: one in flight, one queued, the last write carries the whole buffer', async () => {
         const log = newRouterLog()
@@ -1109,5 +1117,81 @@ describe('router log (Phase 6)', () => {
         expect(failedStatus('prompt.attachment', long, '/h/s.log'))
             .toBe('rules: router failed (prompt.attachment: ' + 'm'.repeat(80) + '), full load restored; log /h/s.log')
         expect(failedStatus('tool.call', 'boom', null)).toBe('rules: router failed (tool.call: boom), full load restored; log unavailable')
+    })
+})
+
+describe('router log: two loaded copies of the module (audit round 2, P4)', () => {
+    type Disk = { files: Record<string, string>; writes: number }
+    type Attach = ($: unknown, e: unknown, next: (e: { text: string }) => Promise<{ text: string }>) => Promise<unknown>
+
+    /** An engine answering from memory; `fs.write` lands its text only after a delay, so writes overlap. */
+    function engine(disk: Disk, said: string[]): unknown {
+        return {
+            env: { get: async (name: string) => (name === 'HOME' ? '/h' : undefined) },
+            session: { id: async () => 's1', version: async () => ({ version: 't' }) },
+            state: { get: async () => ({ value: undefined, version: 0 }), set: async () => ({ isSet: true, version: 1 }) },
+            fs: {
+                exists: async () => false,
+                list: async () => { throw new Error('ENOENT') },
+                read: async (path: string) => {
+                    const text = disk.files[path]
+                    if (text === undefined) { throw new Error('ENOENT ' + path) }
+                    return text
+                },
+                stat: async (path: string) => ({ kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: path }),
+                write: async (path: string, text: string) => {
+                    await new Promise((r) => setTimeout(r, 5))
+                    disk.files[path] = text
+                    disk.writes += 1
+                },
+            },
+            ui: { log: (text: string) => { said.push(text) }, status: () => undefined, invalidate: () => undefined },
+            process: { run: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
+        }
+    }
+
+    /** One copy of the module, registered as the engine would: its attachment hook. */
+    function loadCopy(): Attach {
+        let attach: Attach | null = null
+        const on = (event: string, ...rest: unknown[]): { catch: () => undefined } => {
+            if (event === 'prompt.attachment') { attach = rest[rest.length - 1] as Attach }
+            return { catch: () => undefined }
+        }
+        register(on as never, {})
+        if (attach === null) { throw new Error('no prompt.attachment hook') }
+        return attach
+    }
+
+    async function settled(disk: Disk): Promise<void> {
+        let seen = -1
+        while (seen !== disk.writes) {
+            seen = disk.writes
+            await new Promise((r) => setTimeout(r, 30))
+        }
+    }
+
+    test('neither copy loses a line of the other: each writes its own file', async () => {
+        const disk: Disk = { files: {}, writes: 0 }
+        const saidA: string[] = []
+        const saidB: string[] = []
+        const a = loadCopy()
+        const b = loadCopy()
+        const $a = engine(disk, saidA)
+        const $b = engine(disk, saidB)
+        const attachment = (name: string): unknown => ({ type: 'nested_memory', text: 'Contents of /h/' + name + ':\n\nbody\n', origin: { kind: 'engine' } })
+        const pass = async (e: { text: string }): Promise<{ text: string }> => ({ text: e.text })
+        await a($a, attachment('a1.md'), pass)
+        await b($b, attachment('b1.md'), pass)
+        await a($a, attachment('a2.md'), pass)
+        await b($b, attachment('b2.md'), pass)
+        await a($a, attachment('a3.md'), pass)
+        await settled(disk)
+
+        const lines = Object.values(disk.files).join('').split('\n')
+        const lost = [...saidA, ...saidB].filter((l) => l.startsWith('rules: ') && !lines.some((f) => f.endsWith(' main ' + l)))
+        expect(lost).toEqual([])
+        const names = Object.keys(disk.files).sort()
+        expect(names.length).toBe(2)
+        for (const name of names) { expect(name).toMatch(/^\/h\/\.local\/share\/rails\/router\/s1\.\d+-[0-9a-z]+\.log$/) }
     })
 })

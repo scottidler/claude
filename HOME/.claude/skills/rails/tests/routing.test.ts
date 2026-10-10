@@ -18,7 +18,9 @@ const HOME = '/home/saidler'
 const LINK_DIR = HOME + '/repos/.claude/rules'
 const SESSION = 'sess-1'
 const LOG_DIR = HOME + '/.local/share/rails/router'
-const LOG_FILE = LOG_DIR + '/' + SESSION + '.log'
+/** One module copy's file for a session: `<id>.<load ms>-<random>.log`. */
+const logFileOf = (session: string): RegExp => new RegExp('^' + LOG_DIR.replace(/[./]/g, '\\$&') + '/' + session + '\\.\\d+-[0-9a-z]+\\.log$')
+const RKVR = HOME + '/.cargo/bin/rkvr'
 const DAY = 24 * 60 * 60 * 1000
 const REAL_DIR = HOME + '/repos/scottidler/claude/HOME/repos/.claude/rules'
 
@@ -118,6 +120,16 @@ type World = {
     /** What the router log directory lists. */
     logDir: { name: string; kind: 'file' | 'dir'; mtimeMs: number }[]
     runs: string[][]
+    /** What `$.session.id()` answers; a `/clear` moves it on. */
+    sessionId: string
+    /** `$.state.get` rejects. */
+    stateFails: boolean
+    /** `$.session.id()` and `$.fs.read` never settle. */
+    hangs: boolean
+    /** Every path `$.fs.read` was asked for. */
+    reads: string[]
+    /** `~/.cargo/bin/rkvr` exists. */
+    rkvr: boolean
 }
 
 /** Answer every noun rails calls, from memory, and the bottom of each event it hooks. */
@@ -125,9 +137,11 @@ function world(on: On): World {
     const w: World = {
         logs: [], status: [], invalidated: [], state: {}, toolCalls: [], listFails: false,
         files: {}, writes: 0, writeFails: false, logDir: [], runs: [],
+        sessionId: SESSION, stateFails: false, hangs: false, reads: [], rkvr: true,
     }
     mock.env(on, { HOME })
-    on('session.id', () => ({ value: SESSION }))
+    on('session.id', () => (w.hangs ? new Promise<never>(() => undefined) : { value: w.sessionId }))
+    on('session.end', ($, e) => ({ sessionId: e.sessionId }))
     on('session.version', () => ({ value: { version: '9.9.9-test' } }))
     on('fs.write', ($, e) => {
         if (w.writeFails) { return { deny: 'forced: fs.write failed' } }
@@ -139,7 +153,7 @@ function world(on: On): World {
         w.runs.push([...e.argv])
         return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     })
-    on('fs.exists', ($, e) => ({ value: e.path === LINK_DIR }))
+    on('fs.exists', ($, e) => ({ value: e.path === LINK_DIR || (w.rkvr && e.path === RKVR) }))
     on('fs.list', ($, e) => {
         if (e.path === LOG_DIR) { return { value: w.logDir.map((f) => ({ ...f, size: 1, isLink: false })) } }
         if (w.listFails) { return { deny: 'forced: fs.list failed' } }
@@ -147,6 +161,8 @@ function world(on: On): World {
         return { value: [...Object.keys(RULES), DANGLING].map((name) => ({ name, kind: 'other' as const, size: 0, mtimeMs: 0, isLink: true })) }
     })
     on('fs.read', ($, e) => {
+        w.reads.push(e.path)
+        if (w.hangs) { return new Promise<never>(() => undefined) }
         const written = w.files[e.path]
         if (written !== undefined) { return { value: written } }
         const name = e.path.slice(LINK_DIR.length + 1)
@@ -160,6 +176,7 @@ function world(on: On): World {
         return { value: { kind: 'file' as const, size: 1, mtimeMs: 0, isLink: realPath !== e.path, realPath } }
     })
     on('state.get', ($, e) => {
+        if (w.stateFails) { return { deny: 'forced: state offline' } }
         const value = w.state[e.key]
         return { value: { value, version: value === undefined ? 0 : 1 } }
     })
@@ -185,14 +202,26 @@ function world(on: On): World {
     return w
 }
 
-/** The router log file once every write the router started has landed. */
-async function logFile(w: World): Promise<string> {
+/** Resolves once every write the router started has landed. */
+async function settled(w: World): Promise<void> {
     let seen = -1
     while (seen !== w.writes) {
         seen = w.writes
         await new Promise((resolve) => setTimeout(resolve, 20))
     }
-    return w.files[LOG_FILE] ?? ''
+}
+
+/** The paths of a session's router log files, once every write has landed. */
+async function logPaths(w: World, session: string = SESSION): Promise<string[]> {
+    await settled(w)
+    return Object.keys(w.files).filter((p) => logFileOf(session).test(p))
+}
+
+/** The session's one router log file, once every write has landed. */
+async function logFile(w: World, session: string = SESSION): Promise<string> {
+    const paths = await logPaths(w, session)
+    expect(paths.length).toBe(1)
+    return w.files[paths[0] as string] ?? ''
 }
 
 /** A deny surfaces to the test's `$` as an errored result whose text is the reason. */
@@ -373,8 +402,10 @@ describe('rule routing: the latch', () => {
         const failed = await $.prompt.attachment({ type: 'nested_memory', text, origin: { kind: 'engine' } })
         expect(failed.text).toBe(text)
         expect(w.invalidated).toEqual(['prompt.attachment'])
+        const [path] = await logPaths(w)
+        expect(path).toMatch(logFileOf(SESSION))
         expect(w.status).toEqual(['rules: router failed (prompt.attachment: rails: $.fs.list: forced: fs.list failed), full load restored; log '
-            + LOG_FILE])
+            + path])
         expect(w.state['routingOff']).toEqual(expect.stringContaining('prompt.attachment failed: '))
         expect(String(w.state['routingOff'])).toContain('forced: fs.list failed')
         expect(w.logs.some((l) => l.includes('forced: fs.list failed'))).toBe(true)
@@ -425,7 +456,7 @@ describe('rule routing: the router log', () => {
             const r = await $.prompt.attachment({ type: 'nested_memory', text: nested(path), origin: { kind: 'engine' } })
             if (r.text === null) { dropped.push(path) }
         }
-        await logFile(w)
+        await settled(w)
         expect(dropped.length).toBe(4)
         expect(w.invalidated).toEqual([])
         expect(w.status).toEqual([])
@@ -444,7 +475,68 @@ describe('rule routing: the router log', () => {
             { name: 'old-dir.log', kind: 'dir', mtimeMs: now - 30 * DAY },
         ]
         await $.prompt.attachment({ type: 'nested_memory', text: nested(REAL_DIR + '/git.md'), origin: { kind: 'engine' } })
-        expect(w.runs).toEqual([['rm', '-f', '--', LOG_DIR + '/old.log']])
+        await settled(w)
+        expect(w.runs).toEqual([[RKVR, 'rmrf', '--', LOG_DIR + '/old.log']])
         expect(w.logs).toContain('rules: pruned 1 router logs older than 14 days')
+    })
+
+    test('without rkvr nothing is deleted and the log says so', async ($, on) => {
+        const w = world(on)
+        w.rkvr = false
+        w.logDir = [{ name: 'old.log', kind: 'file', mtimeMs: Date.now() - 15 * DAY }]
+        await $.prompt.attachment({ type: 'nested_memory', text: nested(REAL_DIR + '/git.md'), origin: { kind: 'engine' } })
+        const text = await logFile(w)
+        expect(w.runs).toEqual([])
+        expect(text).toContain(' main rules: prune skipped, no rkvr on PATH or at ' + RKVR + ': 1 router logs older than 14 days kept\n')
+    })
+
+    test('a latch before the log opened still reaches the file, and the status names it (audit round 2, P1)', async ($, on) => {
+        const w = world(on)
+        w.stateFails = true
+        const text = nested(REAL_DIR + '/git.md')
+        expect((await $.prompt.attachment({ type: 'nested_memory', text, origin: { kind: 'engine' } })).text).toBe(text)
+        const [path] = await logPaths(w)
+        expect(path).toMatch(logFileOf(SESSION))
+        expect(w.status).toEqual(['rules: router failed (prompt.attachment: rails: $.state.get: forced: state offline), full load restored; log '
+            + path])
+        const lines = (w.files[path as string] ?? '').split('\n')
+        expect(lines[0]).toMatch(/ main rules: session sess-1 start, routing on, CC 9\.9\.9-test$/)
+        expect(lines.some((l) => l.endsWith(' main rules: routing off: prompt.attachment failed: rails: $.state.get: forced: state offline'))).toBe(true)
+    })
+
+    test('the log never reads a file back (audit round 2, P3)', async ($, on) => {
+        const w = world(on)
+        for (const path of BURST) {
+            await $.prompt.attachment({ type: 'nested_memory', text: nested(path), origin: { kind: 'engine' } })
+        }
+        await settled(w)
+        expect(w.reads.filter((p) => p.startsWith(LOG_DIR))).toEqual([])
+    })
+
+    test('a log that never opens does not hold up the rule_routing false latch (audit round 2, P2)', { options: { rule_routing: false } }, async ($, on) => {
+        const w = world(on)
+        w.hangs = true
+        const text = nested(REAL_DIR + '/git.md')
+        expect((await $.prompt.attachment({ type: 'nested_memory', text, origin: { kind: 'engine' } })).text).toBe(text)
+        expect(w.invalidated).toEqual(['prompt.attachment'])
+        expect(w.state['routingOff']).toBe('rule_routing is false')
+    })
+
+    test('after /clear the new session id gets its own file (audit round 2, P5)', async ($, on) => {
+        const w = world(on)
+        await $.prompt.attachment({ type: 'nested_memory', text: nested(REAL_DIR + '/git.md'), origin: { kind: 'engine' } })
+        await settled(w)
+        await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } } as never)
+        w.sessionId = 'sess-2'
+        await $.prompt.attachment({ type: 'nested_memory', text: nested(REAL_DIR + '/voice.md'), origin: { kind: 'engine' } })
+        await settled(w)
+        // Any file for the new id at all, whatever its name: before the fix there was none.
+        expect(Object.keys(w.files).filter((p) => p.startsWith(LOG_DIR + '/sess-2.'))).toHaveLength(1)
+        const second = await logFile(w, 'sess-2')
+        const first = await logFile(w, SESSION)
+        expect(first).toContain(' main rules: session sess-1 end (clear), the next session logs to its own file\n')
+        expect(first).not.toContain('drop voice.md')
+        expect(second.split('\n')[0]).toMatch(/ main rules: session sess-2 start, routing on, CC 9\.9\.9-test$/)
+        expect(second).toContain(' main rules: drop voice.md (routed) ' + REAL_DIR + '/voice.md\n')
     })
 })
