@@ -1166,6 +1166,7 @@
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
+  "theme": "dark",
   "autoMode": {
     "allow": [
       "$defaults",
