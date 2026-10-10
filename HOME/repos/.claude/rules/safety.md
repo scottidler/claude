@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/*"
+load: native
 ---
 
 # Safety Rules

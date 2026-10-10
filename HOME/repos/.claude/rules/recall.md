@@ -1,5 +1,6 @@
 ---
 alwaysApply: true
+load: always
 ---
 
 # Session recall

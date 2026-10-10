@@ -1,5 +1,6 @@
 ---
 alwaysApply: true
+load: always
 ---
 
 # Pull Requests: always carry the URL

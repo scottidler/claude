@@ -1,5 +1,11 @@
 ---
 alwaysApply: true
+load:
+  prompt: ['marquee']
+  tools:
+    - { match: '^mcp__marquee__' }
+  bash:
+    - '^marquee\b'
 ---
 
 # Marquee

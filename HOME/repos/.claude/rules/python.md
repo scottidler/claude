@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/*.py"
+load: native
 ---
 
 # Python Coding Conventions

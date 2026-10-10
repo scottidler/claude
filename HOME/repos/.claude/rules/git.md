@@ -1,5 +1,17 @@
 ---
 alwaysApply: true
+load:
+  prompt: ['\b(push|tag|merge|rebase|release|branch)\b']
+  tools:
+    - { match: '^mcp__multi-account-github__' }
+    - { match: '^mcp__multi-account-github__(create_pr|delete_tag)$', gate: true }
+  bash:
+    - '^git\b'
+    - '^gh\b'
+    - { match: '^git (push|tag|branch -D)\b', gate: true }
+    - { match: '^bump\b', gate: true }
+    - { match: '^gh (pr (create|merge)|release)\b', gate: true }
+    - { match: '^gh api .*refs/tags', gate: true }
 ---
 
 # Git Safety

@@ -1,5 +1,9 @@
 ---
 alwaysApply: true
+load:
+  prompt: ['\botto\b']
+  bash:
+    - '^otto\b'
 ---
 
 # Otto

@@ -1,5 +1,18 @@
 ---
 alwaysApply: true
+load:
+  prompt: ['\bslack\b|\bemail\b|confluence|\bjira\b|announce|draft|design doc|readme|\bPR\b|commit message']
+  tools:
+    - { match: '^mcp__slack__(chat_(post_message|schedule_message|update)|conversations_add_message)$', gate: true }
+    - { match: '^mcp__atlassian__(create|edit|update|add)', gate: true }
+    - { match: '^mcp__marquee__marquee_(publish|update)$', gate: true }
+    - { match: '^mcp__multi-account-github__create_pr$', gate: true }
+    - { match: '^(Write|Edit)$', path: '\.md$', gate: true }
+    - { match: '^ToolSearch$', query: 'slack|atlassian|marquee' }
+  bash:
+    - { match: '^marquee (publish|update)\b', gate: true }
+    - { match: '^gh (pr|issue) (create|edit|comment)\b', gate: true }
+    - { match: '^git commit\b', gate: true }
 ---
 
 # Voice

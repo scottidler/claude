@@ -1,5 +1,6 @@
 ---
 alwaysApply: true
+load: always
 ---
 
 # Secrets and multi-persona credentials

@@ -8,6 +8,7 @@ paths:
   - "**/tatari-tv/shepherd/**"
   - "**/tatari-tv/pagerduty-cli/**"
   - "**/tatari-tv/tatari-skills/**"
+load: native
 ---
 
 # Fleet repos publish MORE than a binary

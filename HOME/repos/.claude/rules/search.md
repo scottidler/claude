@@ -1,5 +1,6 @@
 ---
 alwaysApply: true
+load: always
 ---
 
 # Search: prefer rg / fd, fall back to grep / find

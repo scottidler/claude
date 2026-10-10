@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/*.{rs,py,go,rb,c,h,cpp,hpp,cc,cs,java,kt,swift,ts,tsx,js,jsx,mjs,cjs,sh,bash,zsh,yml,yaml}"
+load: native
 ---
 
 # Code Comments: Name It, Don't Narrate It

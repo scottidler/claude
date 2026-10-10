@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/*.rs"
+load: native
 ---
 
 # Rust Coding Conventions

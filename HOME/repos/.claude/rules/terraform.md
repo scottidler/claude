@@ -3,6 +3,7 @@ paths:
   - "**/*.tf"
   - "**/*.tf.json"
   - "**/*.tftest.hcl"
+load: native
 ---
 
 # Terraform Operating Rules

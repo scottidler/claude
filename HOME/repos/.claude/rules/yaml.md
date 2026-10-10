@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/*.{yml,yaml}"
+load: native
 ---
 
 # YAML File Extensions

@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/*.{ts,tsx,js,jsx,mjs,cjs}"
+load: native
 ---
 
 # JavaScript / TypeScript Coding Conventions
