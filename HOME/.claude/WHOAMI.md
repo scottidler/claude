@@ -10,7 +10,7 @@ Durable, load-bearing facts about me. Read at session start (included from
   Pixel unless I say otherwise.
 - **Desktop:** `desk.lan` (primary workstation, where daemons run).
 - **Laptop:** `ltl-7007.lan` (`lappy`/`laptop`), used over Tailscale.
-- **ripr:** `ripr.lan` (10.10.10.76), reached over ssh. Has a `second-brain`
+- **ripr:** `ripr.lan` (10.10.10.11), reached over ssh. Has a `second-brain`
   clone and `sb` installed; runs no borg/cortex daemons; no `otto`
   (deploy there is pull + `cargo build --release` + install by hand).
 
