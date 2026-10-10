@@ -18,13 +18,13 @@ Before dispatching, pin down in one or two lines (do not ask Scott unless the to
 
 ## 2. Pick lanes
 
-Default is every lane. Drop a lane only when it clearly cannot help (e.g. Reddit for an internal Tatari system, docs when no product exists), and say which lanes were dropped and why in the final report.
+Default is every lane. Drop a lane only when it clearly cannot help (e.g. docs when no product exists) or cannot run (reddit without credentials, see the table), and say which lanes were dropped and why in the final report. Check reddit with `python3 -I ~/.claude/skills/scour/scripts/scour_src.py reddit-available` before dispatch.
 
 | Lane | Agents | Why it exists |
 |---|---|---|
 | web | 2-3 (split by angle: overview, problems/criticism, comparisons/alternatives) | broadest net |
 | hackernews | 1 | practitioner opinion, launch threads, war stories |
-| reddit | 1 | user sentiment, gotchas, "what do you use instead" |
+| reddit | 1, only when `scripts/scour_src.py reddit-available` exits 0 (REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET set); otherwise drop the lane | user sentiment, gotchas, "what do you use instead" |
 | blogs | 1 | long-form write-ups, postmortems, tutorials from individuals |
 | docs | 1-2 (only if an entity is involved; 2 for big products: docs + changelog/pricing/status) | ground truth from the vendor |
 | github | 1 | repos, issues, discussions: where the bugs and workarounds live |
@@ -70,15 +70,13 @@ The fixed return shape is what makes synthesis possible: every digest lines up, 
 
 Paste the matching block into the template's `<LANE INSTRUCTIONS>`.
 
-**web**: Use WebSearch with the angle you were given. Fetch the top results to confirm claims (prefer the `jina-reader` or `markitdown` approach, `curl -s https://r.jina.ai/<url>`, over WebFetch for clean text). Skip SEO listicles and content farms.
+**Source script**: lanes that read a page or an API go through `~/.claude/skills/scour/scripts/scour_src.py` (stdlib Python, JSON out). Tell each agent to run it by absolute path with `python3 -I`. It tries a reader proxy, then a direct GET, then a Wayback snapshot, and rejects bodies that are short or carry a paywall or bot-wall marker. When every route fails it prints `{"ok": false, "error": ..., "attempts": [...]}` and exits 1. The agent must report that failure under GAPS with the `attempts` list, never paraphrase a snippet in its place, and never fall back to raw curl or WebFetch to get around it.
 
-**hackernews**: Use the Algolia HN API with curl: `https://hn.algolia.com/api/v1/search?query=<q>&tags=story` for stories, `&tags=comment` for comments, `search_by_date` for recent-first, `&numericFilters=created_at_i>` for recency. Read the top threads' comments (`https://hn.algolia.com/api/v1/items/<id>`) and pull the highest-signal practitioner opinions. Cite as `https://news.ycombinator.com/item?id=<id>`.
+**web**: Use WebSearch with the angle you were given. Fetch the top results to confirm claims with `scour_src.py fetch <url>`. Skip SEO listicles and content farms.
 
-**reddit**: Reddit 403s unauthenticated requests (`reddit.com/*.json`, `old.reddit.com`, and Jina's proxy are all blocked, measured 2026-10-04), so do not curl reddit.com. Instead:
-1. Discover threads with WebSearch: `site:reddit.com <q>`, plus variants with likely subreddits (`site:reddit.com/r/rust <q>`) and phrasings people actually post ("<topic> vs", "anyone using <topic>", "<topic> worth it").
-2. Read each promising thread's comments through the Arctic Shift public archive: take the post id from the URL (`/comments/<id>/`) and `curl -s -m 30 "https://arctic-shift.photon-reddit.com/api/comments/tree?link_id=t3_<id>&limit=50"`.
-3. Optional: Arctic Shift search (`/api/posts/search?subreddit=<sub>&query=<q>`) requires a subreddit and often times out; one try, then move on.
-Note the subreddit and score for each finding; r/rust and r/sysadmin opinions carry different weight.
+**hackernews**: `scour_src.py hn-search "<q>" [--days N] [--comments]` for stories or comments, `scour_src.py hn-item <id>` to read a thread. Pull the highest-signal practitioner opinions. Cite as `https://news.ycombinator.com/item?id=<id>`.
+
+**reddit**: Run only when `scour_src.py reddit-available` exits 0 (REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET in the env); otherwise the lane is dropped at dispatch and the coverage line says so. Unauthenticated Reddit is blocked (measured 2026-10-04), and Arctic Shift and WebSearch were not reliable substitutes. Use `scour_src.py reddit-search "<q>" [--sub <subreddit>]` and `scour_src.py reddit-thread <post_id>`. Note the subreddit and score for each finding; r/rust and r/sysadmin opinions carry different weight.
 
 **blogs**: WebSearch for personal and engineering blogs, postmortems, and deep-dives (try "<topic> blog", "<topic> lessons learned", "<topic> migration", "<topic> postmortem", "why we switched from/to <topic>"). Exclude vendor marketing pages and the big aggregators; the point is individual practitioners. Read each before citing it.
 
@@ -121,8 +119,10 @@ Conflicts
 Gaps
 - <what nobody covered, what to look at next>
 
-Coverage: web 3, hn 1, reddit 1, blogs 1, docs 2, github 1, youtube 1, oracle 1, clyde 1, hindsight 1 (dropped: <lane>: <reason>)
+Coverage: web 3, hn 1, reddit 1, blogs 1, docs 2, github 1, youtube 1, oracle 1, clyde 1, hindsight 1 (dropped: <lane>: <reason>; failed: <lane>: <script error>)
 ```
+
+A lane whose source script failed is reported as failed with its error, not folded into "nothing found".
 
 Every finding carries a citation (URL, HN item, session id, vault note, or hindsight bank). An uncited claim is an opinion from the synthesizer, not a finding; leave it out or label it.
 
