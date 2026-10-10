@@ -307,7 +307,13 @@ function parse(frontmatterText: string): { load: Load; compiled?: Compiled } {
     if (starts.length > 1) { throw new Error('load: appears ' + starts.length + ' times') }
     const at = starts[0] as number
     const inline = (lines[at] as string).slice('load:'.length).trim()
-    if (inline !== '') { return validate(Flow.parse(inline)) }
+    if (inline !== '') {
+        const follow = lines.slice(at + 1).find((l) => l.trim() !== '')
+        if (follow !== undefined && indentOf(follow) > 0) {
+            throw new Error('load: an inline value cannot be followed by indented lines: ' + follow.trim())
+        }
+        return validate(Flow.parse(inline))
+    }
     const block: string[] = []
     for (let i = at + 1; i < lines.length; i += 1) {
         const line = lines[i] as string
@@ -427,8 +433,15 @@ export function nestedPath(text: string): string | undefined {
 const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/
 /** git global options that take the next word as their value. */
 const GIT_VALUE_OPTS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env'])
-/** env options that take the next word as their value. */
-const ENV_VALUE_OPTS = new Set(['-u', '--unset', '-C', '--chdir', '-S', '--split-string'])
+/** env options that take the next word as their value (`-S` is handled apart: its value is the command). */
+const ENV_VALUE_OPTS = new Set(['-u', '--unset', '-C', '--chdir'])
+/** sudo options that take the next word as their value. */
+const SUDO_VALUE_OPTS = new Set([
+    '-u', '--user', '-g', '--group', '-C', '--close-from', '-D', '--chdir', '-h', '--host', '-p', '--prompt',
+    '-R', '--chroot', '-r', '--role', '-t', '--type', '-T', '--command-timeout', '-U', '--other-user',
+])
+/** exec options that take the next word as their value. */
+const EXEC_VALUE_OPTS = new Set(['-a'])
 
 /** Whitespace-separated words, quote-aware, each kept as written. */
 function rawWords(stmt: string): string[] {
@@ -455,26 +468,112 @@ function rawWords(stmt: string): string[] {
     return words
 }
 
+/** One shell word with its quotes and backslash escapes removed. */
+function unquote(word: string): string {
+    let out = ''
+    let quote = ''
+    for (let i = 0; i < word.length; i += 1) {
+        const c = word.charAt(i)
+        if (quote === "'") {
+            if (c === "'") { quote = '' } else { out += c }
+            continue
+        }
+        if (c === '\\' && i + 1 < word.length) {
+            const n = word.charAt(i + 1)
+            if (quote === '' || '"\\$`'.includes(n)) { out += n; i += 1; continue }
+            out += c
+            continue
+        }
+        if (quote === '"') {
+            if (c === '"') { quote = '' } else { out += c }
+            continue
+        }
+        if (c === "'" || c === '"') { quote = c; continue }
+        out += c
+    }
+    return out
+}
+
+/** An unquoted path-qualified command reads as its basename: `/usr/bin/git` is `git`. */
+function commandName(word: string): string {
+    return /^[^'"\\]*\/[^/'"\\]+$/.test(word) ? word.slice(word.lastIndexOf('/') + 1) : word
+}
+
+/**
+ * How many words one option takes: two when it names a value option, or when
+ * it is a short cluster (`-Eu`) whose last letter does.
+ */
+function optionWidth(word: string, valueOpts: ReadonlySet<string>): number {
+    if (valueOpts.has(word)) { return 2 }
+    if (/^-[A-Za-z]{2,}$/.test(word) && valueOpts.has('-' + word.charAt(word.length - 1))) { return 2 }
+    return 1
+}
+
+/** Past a wrapper's own options, from `i`: the index of the command it runs. */
+function pastOptions(w: readonly string[], i: number, valueOpts: ReadonlySet<string>): number {
+    while (i < w.length) {
+        const word = w[i] as string
+        if (word === '--') { return i + 1 }
+        if (!word.startsWith('-') || word === '-') { return i }
+        i += optionWidth(word, valueOpts)
+    }
+    return i
+}
+
+/**
+ * Past `env`'s options and assignments, from `i`. `-S <string>` (also
+ * `-S<string>`, `--split-string=<string>`) carries the command itself, so the
+ * string is split into words in place and scanning goes on through them.
+ */
+function pastEnv(w: string[], i: number): number {
+    while (i < w.length) {
+        const word = w[i] as string
+        if (ASSIGN.test(word)) { i += 1; continue }
+        if (word === '--') { return i + 1 }
+        const split = word === '-S' || word === '--split-string' ? w[i + 1]
+            : word.startsWith('--split-string=') ? word.slice('--split-string='.length)
+                : /^-S./.test(word) ? word.slice(2) : undefined
+        if (split !== undefined) {
+            const width = word === '-S' || word === '--split-string' ? 2 : 1
+            w.splice(i, width, ...rawWords(unquote(split)))
+            continue
+        }
+        if (!word.startsWith('-')) { return i }
+        i += optionWidth(word, ENV_VALUE_OPTS)
+    }
+    return i
+}
+
 /**
  * One Bash statement as a `bash:` trigger sees it.
  *
- * Leading `VAR=val` assignments and an `env` prefix (with its own options and
- * assignments) are stripped, and git's global options (`-C <dir>`, `-c <k=v>`,
- * `--git-dir=...`, `--no-pager`, ...) are removed, so `env X=1 git -C repo push`
- * reads `git push`. Words are rejoined with single spaces.
+ * Leading `VAR=val` assignments and the wrappers `env`, `sudo`, `command` and
+ * `exec` (each with its own options; env's `-S` string re-split as the
+ * command) are stripped, a path-qualified head reads as its basename, and
+ * git's global options (`-C <dir>`, `-c <k=v>`, `--git-dir=...`,
+ * `--no-pager`, ...) are removed, so `sudo /usr/bin/git -C repo push` reads
+ * `git push`. `command -v` and `-V` only look a name up, so that statement is
+ * left as written. Words are rejoined with single spaces.
  */
 export function normalizeStatement(stmt: string): string {
     const w = rawWords(stmt)
     let i = 0
     for (;;) {
         while (i < w.length && ASSIGN.test(w[i] as string)) { i += 1 }
-        if (w[i] !== 'env') { break }
-        i += 1
-        while (i < w.length) {
-            const word = w[i] as string
-            if (ASSIGN.test(word)) { i += 1; continue }
-            if (ENV_VALUE_OPTS.has(word)) { i += 2; continue }
-            if (word.startsWith('-')) { i += 1; continue }
+        if (i >= w.length) { break }
+        const head = commandName(w[i] as string)
+        w[i] = head
+        if (head === 'env') {
+            i = pastEnv(w, i + 1)
+        } else if (head === 'sudo') {
+            i = pastOptions(w, i + 1, SUDO_VALUE_OPTS)
+        } else if (head === 'exec') {
+            i = pastOptions(w, i + 1, EXEC_VALUE_OPTS)
+        } else if (head === 'command') {
+            const at = i
+            i = pastOptions(w, i + 1, new Set())
+            if (w.slice(at + 1, i).some((o) => /^-[A-Za-z]*[vV]/.test(o))) { return w.slice(at).join(' ') }
+        } else {
             break
         }
     }

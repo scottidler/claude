@@ -106,11 +106,38 @@ function quotedWord(command: string, i: number): { text: string; end: number } {
     return { text, end: j }
 }
 
+/** A heredoc whose body starts after the current line: its delimiter, and whether `<<-` strips tabs. */
+type Heredoc = { delim: string; tabs: boolean }
+
+/**
+ * Where the scan resumes after the heredoc bodies that start at `at` (the
+ * offset just past the newline ending the `<<` line), or -1 when a body has no
+ * terminator line and so runs to the end of the command.
+ */
+function pastBodies(command: string, at: number, docs: readonly Heredoc[]): number {
+    let i = at
+    for (const doc of docs) {
+        for (;;) {
+            if (i >= command.length) { return -1 }
+            const nl = command.indexOf('\n', i)
+            const end = nl === -1 ? command.length : nl
+            const line = command.slice(i, end)
+            i = nl === -1 ? command.length : nl + 1
+            if ((doc.tabs ? line.replace(/^\t+/, '') : line) === doc.delim) { break }
+        }
+    }
+    return i
+}
+
 /**
  * Every simple-command head in `command`, quote-aware.
  *
- * Scanning stops at an unquoted `<<`: a heredoc body is data, so neither a `gh`
- * in a PR body nor an `rm` in a script fixture is a command. `loop` marks a head
+ * A heredoc body is data, so neither a `gh` in a PR body nor an `rm` in a
+ * script fixture is a command. The scan skips each body and resumes after its
+ * terminator line, so `git commit -F - <<'EOF' ... EOF` followed by
+ * `git push` still sees the push (implementation audit round 1, X6CMQgQe); a
+ * body with no terminator runs to the end, and scanning stops there. A `<<<`
+ * here-string has no body: its word is a redirect target. `loop` marks a head
  * that follows a `do` keyword; that is a loop body, which the rm rule refuses to
  * rewrite because the paths are a variable, not text. `piped` marks a head whose
  * only separator from the stage before it was a single `|`, which is what makes
@@ -123,6 +150,7 @@ function heads(command: string): Head[] {
     let loop = false
     let quote = ''
     let sep = ''
+    let docs: Heredoc[] = []
     while (i < command.length) {
         const c = command.charAt(i)
         if (quote !== '') {
@@ -132,6 +160,16 @@ function heads(command: string): Head[] {
             continue
         }
         if (c === '\\') { i += 2; continue }
+        if (c === '\n' && docs.length > 0) {
+            const resume = pastBodies(command, i + 1, docs)
+            if (resume === -1) { break }
+            docs = []
+            start = true
+            loop = false
+            sep += c
+            i = resume
+            continue
+        }
         if (c === '"' || c === "'") {
             if (start) {
                 const w = quotedWord(command, i)
@@ -149,7 +187,18 @@ function heads(command: string): Head[] {
             }
             quote = c; start = false; i += 1; continue
         }
-        if (c === '<' && command.charAt(i + 1) === '<') { break }
+        if (c === '<' && command.charAt(i + 1) === '<') {
+            if (command.charAt(i + 2) === '<') { i = skipRedirect(command, i + 1); continue }
+            let j = i + 2
+            const tabs = command.charAt(j) === '-'
+            if (tabs) { j += 1 }
+            while (command.charAt(j) === ' ' || command.charAt(j) === '\t') { j += 1 }
+            const delim = quotedWord(command, j)
+            if (delim.text === '') { break }
+            docs.push({ delim: delim.text, tabs })
+            i = delim.end
+            continue
+        }
         if (c === '>' || c === '<') { i = skipRedirect(command, i); continue }
         if (SEP.has(c)) { start = true; loop = false; sep += c; i += 1; continue }
         if (c === ' ' || c === '\t' || c === '\r') { i += 1; continue }
@@ -1071,7 +1120,12 @@ function rejoin(blob: string, parts: readonly InstructionPart[], dropped: Readon
     return joined.replace(/\n+$/, '') + tail
 }
 
-/** Mark every rule not yet seen in this loop as delivered; returns those it marked. */
+/**
+ * Mark every rule not yet seen in this loop as delivered; returns those it marked.
+ *
+ * Only a prompt inject is delivered on the spot: it rides the user turn, which
+ * reaches the model before any tool call of that turn can exist.
+ */
 function claimDelivered(ledger: RuleLedger, loop: string, paths: readonly string[]): string[] {
     const l = loopLedger(ledger, loop)
     const claimed = paths.filter((p) => l.rules[p] === undefined)
@@ -1079,11 +1133,27 @@ function claimDelivered(ledger: RuleLedger, loop: string, paths: readonly string
     return claimed
 }
 
-/** Undo `claimDelivered` for rules whose carrier never reached the model. */
-function releaseDelivered(ledger: RuleLedger, loop: string, paths: readonly string[]): void {
+/**
+ * Mark every rule not yet seen in this loop as pending; returns those it marked.
+ *
+ * A tool result's `context[]` reaches the model only with the next request,
+ * so a sibling call in the same model response has not read it. Pending makes
+ * that sibling's gate wait ("delivered above") until `turn.step` promotes it;
+ * marking it delivered here let `git log -1` + `git push` in one response push
+ * before git.md was read (implementation audit round 1, X6CMQgQe).
+ */
+function claimPending(ledger: RuleLedger, loop: string, paths: readonly string[]): string[] {
+    const l = loopLedger(ledger, loop)
+    const claimed = paths.filter((p) => l.rules[p] === undefined)
+    for (const p of claimed) { l.rules[p] = 'pending' }
+    return claimed
+}
+
+/** Undo `claimDelivered` (or `claimPending`) for rules whose carrier never reached the model. */
+function releaseClaimed(ledger: RuleLedger, loop: string, paths: readonly string[], state: 'delivered' | 'pending'): void {
     const l = loopLedger(ledger, loop)
     for (const p of paths) {
-        if (l.rules[p] === 'delivered') { delete l.rules[p] }
+        if (l.rules[p] === state) { delete l.rules[p] }
     }
 }
 
@@ -1347,15 +1417,17 @@ async function toolRules(
         for (const p of waiting) { say($, r, 'rules: gate ' + baseName(p) + ' (pending, deny ' + tool + ') ' + p) }
         return { deny: gateDeny(fresh.map((p) => ({ path: p, body: bodies[p] ?? '' })), waiting), paths: [], texts: [] }
     }
-    const paths = claimDelivered(r.ledger, loop, m.after)
+    const paths = claimPending(r.ledger, loop, m.after)
     if (paths.length > 0) { await persist($, r) }
     for (const p of paths) { say($, r, 'rules: inject ' + baseName(p) + ' (' + tool + ') ' + p) }
     return { paths, texts: paths.map((p) => framed(p, bodies[p] ?? '')) }
 }
 
 /** The call or prompt that carried these rules was refused: they never reached the model. */
-async function releaseRules($: EngineInterface, r: Router, agentId: string | undefined, paths: readonly string[]): Promise<void> {
-    releaseDelivered(r.ledger, loopOf(agentId), paths)
+async function releaseRules(
+    $: EngineInterface, r: Router, agentId: string | undefined, paths: readonly string[], state: 'delivered' | 'pending',
+): Promise<void> {
+    releaseClaimed(r.ledger, loopOf(agentId), paths, state)
     for (const p of paths) { say($, r, 'rules: release ' + baseName(p) + ' (carrier refused) ' + p) }
     await persist($, r)
 }
@@ -1405,7 +1477,7 @@ export const register: Register = (on, options) => {
         const add = await guarded($, rr, 'prompt.submit', () => promptRules($, rr, e.text))
         if (add === null || add.texts.length === 0) { return next(e) }
         const r = await next({ ...e, context: [...(e.context ?? []), ...add.texts] })
-        if (r.drop !== undefined) { await guarded($, rr, 'prompt.submit', () => releaseRules($, rr, undefined, add.paths)) }
+        if (r.drop !== undefined) { await guarded($, rr, 'prompt.submit', () => releaseRules($, rr, undefined, add.paths, 'delivered')) }
         return r
     }).catch(async ($, e, next) => {
         await caught($, rr, 'prompt.submit', next.error.kind, next.error.message).catch(() => undefined)
@@ -1419,7 +1491,7 @@ export const register: Register = (on, options) => {
         if (owed.texts.length === 0) { return next(e) }
         const r = await next(e)
         if (r.deny !== undefined) {
-            await guarded($, rr, 'tool.call', () => releaseRules($, rr, e.agentId, owed.paths))
+            await guarded($, rr, 'tool.call', () => releaseRules($, rr, e.agentId, owed.paths, 'pending'))
             return r
         }
         return { ...r, context: [...(r.context ?? []), ...owed.texts] }
@@ -1555,7 +1627,8 @@ export const internals = {
     decideFiles,
     rejoin,
     claimDelivered,
-    releaseDelivered,
+    claimPending,
+    releaseClaimed,
     claimGate,
     promotePending,
     gateDeny,

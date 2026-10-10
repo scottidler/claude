@@ -267,6 +267,23 @@ describe('rule routing: the inject path', () => {
         expect(w.toolCalls).toEqual(['git push origin main'])
     })
 
+    test('an after inject and a gated call in one step: the gate still denies; after turn.step it runs', async ($, on) => {
+        const w = world(on)
+        const log = await $.tool.call({ tool: 'Bash', command: 'git log -1' })
+        expect(log.context).toEqual(['Contents of ' + REAL_DIR + '/git.md:\n\n# Git\n\nGit rule body.'])
+        const push = denied(await $.tool.call({ tool: 'Bash', command: 'git push origin main' }))
+        expect(push).toContain('git.md: rule delivered above, retry after reading it.')
+        expect(push).not.toContain('Git rule body.')
+        expect(w.toolCalls).toEqual(['git log -1'])
+
+        await step($, 1)
+        expect(w.logs).toContain('rules: delivered git.md (turn.step) ' + REAL_DIR + '/git.md')
+        const retry = await $.tool.call({ tool: 'Bash', command: 'git push origin main' })
+        expect(denied(retry)).toBeUndefined()
+        expect(retry.context).toBeUndefined()
+        expect(w.toolCalls).toEqual(['git log -1', 'git push origin main'])
+    })
+
     test('a gated MCP tool denies once with the rule', async ($, on) => {
         world(on)
         const first = denied(await $.tool.call({ tool: 'mcp__slack__chat_post_message', channel: 'C1', text: 'hi' } as never))

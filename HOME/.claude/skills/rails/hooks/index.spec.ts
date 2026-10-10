@@ -788,7 +788,7 @@ describe('pkillArgs', () => {
 // ---------------------------------------------------------------------------
 
 const { ruleBody, framed, fingerprint, decideFiles, rejoin } = internals
-const { claimDelivered, releaseDelivered, claimGate, promotePending, gateDeny, statements } = internals
+const { claimDelivered, claimPending, releaseClaimed, claimGate, promotePending, gateDeny, statements } = internals
 
 const ROUTING_FIXTURES = new URL('./fixtures/', import.meta.url)
 const RECORDED_RULES = '/home/saidler/repos/scottidler/claude/HOME/repos/.claude/rules'
@@ -905,19 +905,33 @@ describe('rejoin', () => {
 })
 
 describe('delivery state', () => {
-    test('claimDelivered takes each rule once per loop; releaseDelivered gives it back', () => {
+    test('claimDelivered takes each rule once per loop; releaseClaimed gives it back', () => {
         const ledger = {}
         expect(claimDelivered(ledger, 'main', ['/g', '/o'])).toEqual(['/g', '/o'])
         expect(claimDelivered(ledger, 'main', ['/g'])).toEqual([])
         expect(claimDelivered(ledger, 'a1', ['/g'])).toEqual(['/g'])
-        releaseDelivered(ledger, 'main', ['/g'])
+        releaseClaimed(ledger, 'main', ['/g'], 'delivered')
         expect(claimDelivered(ledger, 'main', ['/g'])).toEqual(['/g'])
     })
-    test('releaseDelivered leaves a pending rule pending', () => {
+    test('releaseClaimed of delivered leaves a pending rule pending', () => {
         const ledger = {}
         claimGate(ledger, 'main', ['/g'])
-        releaseDelivered(ledger, 'main', ['/g'])
+        releaseClaimed(ledger, 'main', ['/g'], 'delivered')
         expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: [], waiting: ['/g'] })
+    })
+    test('claimPending takes each rule once per loop; releaseClaimed of pending gives it back', () => {
+        const ledger = {}
+        expect(claimPending(ledger, 'main', ['/g', '/o'])).toEqual(['/g', '/o'])
+        expect(claimPending(ledger, 'main', ['/g'])).toEqual([])
+        releaseClaimed(ledger, 'main', ['/g'], 'pending')
+        expect(claimPending(ledger, 'main', ['/g'])).toEqual(['/g'])
+    })
+    test('a rule a tool result injected is pending: a sibling gate waits until a step promotes it', () => {
+        const ledger = {}
+        claimPending(ledger, 'main', ['/g'])
+        expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: [], waiting: ['/g'] })
+        expect(promotePending(ledger, 'main')).toEqual(['/g'])
+        expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: [], waiting: [] })
     })
     test('a gate is fresh, then waiting, then passes once a step promoted it', () => {
         const ledger = {}
@@ -930,7 +944,7 @@ describe('delivery state', () => {
     test('promotePending on a loop with no ledger is a no-op', () => {
         expect(promotePending({}, 'nobody')).toEqual([])
     })
-    test('a rule already delivered by context never gates', () => {
+    test('a rule a prompt delivered never gates', () => {
         const ledger = {}
         claimDelivered(ledger, 'main', ['/g'])
         expect(claimGate(ledger, 'main', ['/g'])).toEqual({ fresh: [], waiting: [] })
@@ -956,5 +970,41 @@ describe('statements', () => {
     })
     test('no command, no statements', () => {
         expect(statements('')).toEqual([])
+    })
+})
+
+describe('heads: the scan resumes after a heredoc body (audit round 1, X6CMQgQe)', () => {
+    test('a command after the terminator line is a statement; the body is not', () => {
+        const cmd = "git add -A && git commit -F - <<'EOF'\nmsg\ngit push in the body\nEOF\ngit push origin main"
+        expect(statements(cmd)).toEqual(['git add -A ', "git commit -F - <<'EOF'", 'git push origin main'])
+    })
+    test('the rest of the << line is still scanned', () => {
+        expect(statements('cat <<EOF | sh\nbody\nEOF')).toEqual(['cat <<EOF ', 'sh'])
+    })
+    test('<<- strips leading tabs from the terminator line', () => {
+        expect(statements('cat <<-END\n\tbody\n\tEND\necho after')).toEqual(['cat <<-END', 'echo after'])
+    })
+    test('two heredocs on one line: both bodies are skipped, in order', () => {
+        expect(statements('paste <<A <<B\nrm x\nA\nrm y\nB\necho after')).toEqual(['paste <<A <<B', 'echo after'])
+    })
+    test('a body with no terminator runs to the end', () => {
+        expect(statements('cat <<EOF\nrm -rf x\ngit push')).toEqual(['cat <<EOF'])
+    })
+    test('a line that only starts with the delimiter does not end the body', () => {
+        expect(statements('cat <<EOF\nEOF2\nrm x\nEOF\necho after')).toEqual(['cat <<EOF', 'echo after'])
+    })
+    test('a <<< here-string has no body: the scan goes on', () => {
+        expect(statements("grep x <<< 'a b'; echo after")).toEqual(["grep x <<< 'a b'", 'echo after'])
+    })
+    test('gh after a heredoc is a gh spot; gh in the body is not', () => {
+        const cmd = "cat <<'EOF'\ngh api user\nEOF\ngh pr view 1"
+        expect(ghSpots(cmd)).toEqual([cmd.indexOf('gh pr view')])
+    })
+    test('rm after a heredoc is rewritten; rm in the body is not', async () => {
+        const r = await rmRewrite("cat <<'EOF'\nrm -rf x\nEOF\nrm -rf y", env())
+        expect(r.command).toBe("cat <<'EOF'\nrm -rf x\nEOF\nrkvr rmrf y")
+    })
+    test('pkill after a heredoc is bracketed; pkill in the body is not', () => {
+        expect(pkillOut("cat <<'EOF'\npkill -f foo\nEOF\npkill -f bar")).toBe("cat <<'EOF'\npkill -f foo\nEOF\npkill -f '[b]ar'")
     })
 })

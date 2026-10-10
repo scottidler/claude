@@ -126,6 +126,15 @@ describe('parseLoad', () => {
     test('an unterminated flow sequence is an error', () => {
         expect(parseLoad("load:\n  prompt: ['x'")).toBeInstanceOf(Error)
     })
+    test('an inline value followed by indented lines is an error, not a silent drop (audit round 1)', () => {
+        const r = parseLoad("load: { bash: ['^git'] }\n  tools: [{ match: '^Write$', gate: true }]\n")
+        expect(r).toBeInstanceOf(Error)
+        expect((r as Error).message).toContain('inline value cannot be followed by indented lines')
+    })
+    test('an inline value followed by a blank line and a top-level key is fine', () => {
+        expect(parseLoad("load: { bash: ['^git'] }\n\nother: x\n")).toEqual({ bash: ['^git'] })
+        expect(parseLoad('load: always\n')).toBe('always')
+    })
 })
 
 describe('the live rules dir', () => {
@@ -267,6 +276,44 @@ describe('normalizeStatement', () => {
     })
 })
 
+describe('normalizeStatement: wrappers and path-qualified heads (audit round 1, X6CMQgQe)', () => {
+    test('sudo and its value options are stripped', () => {
+        expect(normalizeStatement('sudo git push')).toBe('git push')
+        expect(normalizeStatement('sudo -u scott -E git push origin')).toBe('git push origin')
+        expect(normalizeStatement('sudo -Eu scott git push')).toBe('git push')
+        expect(normalizeStatement('sudo --user=scott -- git push')).toBe('git push')
+        expect(normalizeStatement('sudo X=1 git push')).toBe('git push')
+    })
+    test('sudo -u x echo git push still names echo', () => {
+        expect(normalizeStatement('sudo -u x echo git push')).toBe('echo git push')
+    })
+    test('command and command -p are stripped; command -v and -V only look up', () => {
+        expect(normalizeStatement('command git push')).toBe('git push')
+        expect(normalizeStatement('command -p git push')).toBe('git push')
+        expect(normalizeStatement('command -v git push')).toBe('command -v git push')
+        expect(normalizeStatement('command -V git')).toBe('command -V git')
+    })
+    test('exec and exec -a NAME are stripped', () => {
+        expect(normalizeStatement('exec git push')).toBe('git push')
+        expect(normalizeStatement('exec -c -a mygit git push')).toBe('git push')
+    })
+    test('an absolute command path reads as its basename', () => {
+        expect(normalizeStatement('/usr/bin/git push')).toBe('git push')
+        expect(normalizeStatement('/usr/bin/sudo /usr/bin/env X=1 /usr/bin/git -C r push')).toBe('git push')
+        expect(normalizeStatement('cat /usr/bin/git')).toBe('cat /usr/bin/git')
+    })
+    test('wrappers nest', () => {
+        expect(normalizeStatement('sudo env X=1 command git push')).toBe('git push')
+    })
+    test('env -S re-splits its string as the command', () => {
+        expect(normalizeStatement("env -S 'git push'")).toBe('git push')
+        expect(normalizeStatement('env -S "X=1 git -C r push" origin')).toBe('git push origin')
+        expect(normalizeStatement("env --split-string='git push'")).toBe('git push')
+        expect(normalizeStatement("env -S'git push'")).toBe('git push')
+        expect(normalizeStatement("env -S 'echo git push'")).toBe('echo git push')
+    })
+})
+
 describe('matchTool, Bash', () => {
     const git = rule('git')
     const voice = rule('voice')
@@ -299,6 +346,17 @@ describe('matchTool, Bash', () => {
     })
     test('a heredoc body is data, not a statement', () => {
         expect(bash('cat <<EOF\ngit push\nEOF')).toEqual({ gate: [], after: [] })
+    })
+    test('a push after a heredoc terminator still gates (audit round 1)', () => {
+        expect(bash("git add -A && git commit -F - <<'EOF'\nmsg\nEOF\ngit push origin main").gate).toContain(git)
+    })
+    for (const command of ['sudo git push', 'command git push', 'exec git push', '/usr/bin/git push', "env -S 'git push'"]) {
+        test(command + ' reaches the git gate (audit round 1)', () => {
+            expect(bash(command).gate).toEqual([git])
+        })
+    }
+    test('sudo -u x echo git push does not gate', () => {
+        expect(bash('sudo -u x echo git push')).toEqual({ gate: [], after: [] })
     })
     test('bash triggers ignore a non-Bash tool with a command field', () => {
         expect(matchTool(index, 'Task', { command: 'git push' }, split)).toEqual({ gate: [], after: [] })
