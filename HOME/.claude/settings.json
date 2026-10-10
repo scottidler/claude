@@ -1075,7 +1075,8 @@
     "ttv@tatari-skills": true,
     "squad@tatari-skills": true,
     "spec-lab@tatari-skills": true,
-    "marquee@tatari-skills": true
+    "marquee@tatari-skills": true,
+    "sec@tatari-skills": true
   },
   "extraKnownMarketplaces": {
     "understand-anything": {
@@ -1171,6 +1172,7 @@
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
+  "theme": "dark",
   "autoMode": {
     "allow": [
       "$defaults",
