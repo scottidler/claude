@@ -794,7 +794,7 @@ const ROUTING_FIXTURES = new URL('./fixtures/', import.meta.url)
 const RECORDED_RULES = '/home/saidler/repos/scottidler/claude/HOME/repos/.claude/rules'
 const LIVE_RULES = new URL('../../../../repos/.claude/rules/', import.meta.url)
 
-/** The live rule files keyed under the dir the fixtures recorded, as rules.test.ts does. */
+/** The live rule files keyed under the dir the fixtures recorded, as rules.spec.ts does. */
 async function recordedIndex(): Promise<RuleIndex> {
     const names = [...new Bun.Glob('*.md').scanSync(LIVE_RULES.pathname)].sort()
     const files = await Promise.all(names.map(async (n) => ({

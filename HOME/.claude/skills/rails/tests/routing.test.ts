@@ -7,7 +7,7 @@
  * The kit runs with no file system, so the rule index is a small synthetic
  * one with the real classification (4 routed, the rest always or native) and
  * the e9ef7f18 burst is its 15 real paths with stub bodies; the routing
- * decision reads paths only. `rules.test.ts` covers the real rule files and
+ * decision reads paths only. `rules.spec.ts` covers the real rule files and
  * the full recorded text under bun.
  */
 import { describe, expect, mock, test } from 'claude-code/testing'

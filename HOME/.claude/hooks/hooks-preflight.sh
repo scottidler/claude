@@ -37,11 +37,27 @@ if [ ! -r "$LIB_SH" ]; then
   missing+=("~/.claude/hooks/lib.sh (not readable)")
 fi
 
+# rails owns the rule router (docs/design/2026-10-08-rule-routing.md). Absent
+# keys mean enabled (plugin.json defaults); only an explicit false warns.
+rails_off=$(jq -r '
+  if .enabledPlugins["rails@skills-dir"] == false then "rails@skills-dir is disabled in enabledPlugins"
+  elif .pluginConfigs.rails.options.enabled == false then "pluginConfigs.rails.options.enabled is false"
+  elif .pluginConfigs.rails.options.rule_routing == false then "pluginConfigs.rails.options.rule_routing is false"
+  else empty end' "$SETTINGS" 2>/dev/null)
+
 if [ "${#missing[@]}" -gt 0 ]; then
   detail=$(printf '%s; ' "${missing[@]}")
   # The globs are spelled out rather than a bare `hooks/*`, which also emits a
   # link for every __pycache__/*.pyc (measured 2026-09-14, Phase 7).
   msg="hooks-preflight: unresolved hook(s): ${detail}fix: cd ~/repos/scottidler/claude && manifest -l HOME/.claude/hooks/*.sh HOME/.claude/hooks/*.py | bash"
+fi
+
+if [ -n "$rails_off" ]; then
+  msg="${msg:+$msg
+}hooks-preflight: rule routing is off ($rails_off), so git, marquee, otto and voice rules load in bulk instead of on trigger. fix: enable the rails plugin and set pluginConfigs.rails.options.rule_routing true"
+fi
+
+if [ -n "${msg:-}" ]; then
   jq -n --arg ctx "$msg" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}'
 fi
 

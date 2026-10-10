@@ -98,6 +98,22 @@ else
   bad "hooks-preflight: all-present fixture printed: $ctx"
 fi
 
+# ---- fixtures: rails / rule_routing switched off ----------------------------
+for case in \
+  'rule_routing|{"pluginConfigs":{"rails":{"options":{"rule_routing":false}}}}' \
+  'enabled|{"pluginConfigs":{"rails":{"options":{"enabled":false}}}}' \
+  'disabled in enabledPlugins|{"enabledPlugins":{"rails@skills-dir":false}}'; do
+  want="${case%%|*}"; extra="${case#*|}"
+  off="$SCRATCH/rails-off.json"
+  jq --argjson x "$extra" '. + $x' "$good" > "$off"
+  ctx=$(HOOKS_PREFLIGHT_SETTINGS="$off" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" bash "$PREFLIGHT")
+  if printf '%s' "$ctx" | rg -q "rule routing is off.*$want"; then
+    ok "hooks-preflight: warns when rails routing is off ($want)"
+  else
+    bad "hooks-preflight: no routing warning for $want: $ctx"
+  fi
+done
+
 # ---- bin/hooks-resolve with no arguments, against the repo as-is -----------
 out=$("$RESOLVE" 2>&1); rc=$?
 if [ "$rc" -eq 0 ]; then

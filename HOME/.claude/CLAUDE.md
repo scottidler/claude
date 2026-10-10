@@ -64,7 +64,7 @@ Auto-loaded from `~/repos/.claude/rules/`, grouped by purpose.
 Conventions (how I write code & config):
 - `general`: naming, files, config, deps, CI, version control (always-on)
 - `taste`: design/review judgment: quality bar, architecture & security instincts (always-on; pipeline, phasing, evidence standards moved to `refs/process-taste.md`; mined from all sessions 2026-05..07)
-- `voice`: outward-facing prose (Slack/email/Jira/Confluence/docs/PRs/marquee) goes out in Scott's voice via `~/Claude/writing/VOICE.md` (always-on)
+- `voice`: outward-facing prose (Slack/email/Jira/Confluence/docs/PRs/marquee) goes out in Scott's voice via `~/Claude/writing/VOICE.md` (on trigger)
 - `python` / `rust` / `js-ts` / `yaml`: language-specific (path-scoped)
 - `fleet-plugins`: the tatari-tv CLI fleet (marquee/persona/clyde/sdv/slack/
   shepherd/pagerduty) publishes a CLI, an MCP server, a `plugin/` pinned by tag
@@ -75,8 +75,9 @@ Conventions (how I write code & config):
   (path-scoped: code files + yaml, not json)
 
 Tool rules (hard constraints on specific tools):
-- `git`: tag/push/working-dir safety (always-on)
-- `otto`: task-runner usage (always-on)
+- `git`: tag/push/working-dir safety (on trigger)
+- `otto`: task-runner usage (on trigger)
+- Routed rules (git, marquee, otto, voice) arrive on trigger via the rails rule router, declared by each rule's `load:` frontmatter
 
 Safety:
 - `safety`: file deletion; applies to all files (path-scoped `**/*`)

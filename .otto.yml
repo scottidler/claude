@@ -19,7 +19,11 @@ tasks:
         HOME/.claude/skills/anthropic-usage-report/SKILL.md
         HOME/.claude/skills/create-design-doc/SKILL.md
         HOME/.claude/skills/rails/hooks/index.ts
-        HOME/.claude/skills/rails/hooks/index.test.ts
+        HOME/.claude/skills/rails/hooks/index.spec.ts
+        HOME/.claude/skills/rails/hooks/rules.ts
+        HOME/.claude/skills/rails/hooks/rules.spec.ts
+        HOME/.claude/skills/rails/tests/routing.test.ts
+        HOME/.claude/skills/rails/types/index.d.ts
         HOME/repos/.claude/rules/git.md
         HOME/repos/.claude/refs/cli.md
         HOME/repos/.claude/refs/process-taste.md
@@ -150,9 +154,9 @@ tasks:
       exit "$WS_RC"
 
   # Every HOME/.claude/hooks/*-test.sh regression matrix, the relocate-targets
-  # fixture matrix, plus the rails plugin's bun tests.
+  # fixture matrix, plus the rails plugin's bun specs and engine-kit tests.
   test:
-    help: "Run the hook regression matrices, the relocate-targets fixtures, and the rails plugin's bun tests"
+    help: "Run the hook regression matrices, the relocate-targets fixtures, and the rails plugin's bun specs and kit tests"
     bash: |
       set -e
       for t in HOME/.claude/hooks/*-test.sh; do
@@ -165,7 +169,12 @@ tasks:
       bash HOME/.claude/bin/pr-open-test.sh
       echo "=== bin/relocate-targets-test.sh ==="
       bash bin/relocate-targets-test.sh
+      # Two runners, partitioned by suffix: bun's *.spec.ts under hooks/, and the
+      # engine kit's *.test.ts under tests/ (the kit refuses bun:test imports).
+      echo "=== bun test (rails/hooks) ==="
       (cd HOME/.claude/skills/rails/hooks && bun test)
+      echo "=== claude plugin test rails ==="
+      claude plugin test HOME/.claude/skills/rails
       # The engine's own loader rules (imports, manifest schema); bun cannot see them.
       echo "=== claude plugin validate --strict rails ==="
       claude plugin validate --strict HOME/.claude/skills/rails
