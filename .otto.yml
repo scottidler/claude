@@ -115,6 +115,8 @@ tasks:
         docs/design/2026-09-18-handoff-and-waiting-discipline-implementation-notes.md
         HOME/.claude/skills/relocate-targets/scripts/relocate-targets
         bin/relocate-targets-test.sh
+        bin/prose-report
+        bin/prose-report-test.sh
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
@@ -154,9 +156,10 @@ tasks:
       exit "$WS_RC"
 
   # Every HOME/.claude/hooks/*-test.sh regression matrix, the relocate-targets
-  # fixture matrix, plus the rails plugin's bun specs and engine-kit tests.
+  # and prose-report fixture matrices, plus the rails plugin's bun specs and
+  # engine-kit tests.
   test:
-    help: "Run the hook regression matrices, the relocate-targets fixtures, and the rails plugin's bun specs and kit tests"
+    help: "Run the hook regression matrices, the relocate-targets and prose-report fixtures, and the rails plugin's bun specs and kit tests"
     bash: |
       set -e
       for t in HOME/.claude/hooks/*-test.sh; do
@@ -169,6 +172,8 @@ tasks:
       bash HOME/.claude/bin/pr-open-test.sh
       echo "=== bin/relocate-targets-test.sh ==="
       bash bin/relocate-targets-test.sh
+      echo "=== bin/prose-report-test.sh ==="
+      bash bin/prose-report-test.sh
       # Two runners, partitioned by suffix: bun's *.spec.ts under hooks/, and the
       # engine kit's *.test.ts under tests/ (the kit refuses bun:test imports).
       echo "=== bun test (rails/hooks) ==="

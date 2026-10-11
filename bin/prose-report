@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""prose-report: summarize prose.sh's offer-rule decision log.
+
+prose.sh appends one JSONL record per instruction test (the offer rule's "was
+the prompt an instruction?" check) to ~/.local/state/prose/decisions.jsonl.
+This prints three things from it:
+
+  health   is Jev answering, or is the hook running on the verb-list fallback,
+           and why (off, no-key, curl-exit-<n>, bad-answer); Jev latency
+  verdicts blocks vs allows, and how Jev's probabilities spread
+  review   one row per decision (time, verdict, source, p, prompt, final
+           sentence) to label by hand: was this block or allow right?
+
+Usage:
+  prose-report [--log PATH] [--since YYYY-MM-DD] [--uncertain] [--rows N]
+
+  --log        decision log (default: $PROSE_LOG, else the XDG state path)
+  --since      only records on or after this UTC date
+  --uncertain  review rows only for Jev answers between 0.3 and 0.7
+  --rows       cap the review table at the newest N rows (default: all)
+
+Exit 0 on a readable log, 1 when the log is missing or holds no records.
+"""
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+UNCERTAIN = (0.3, 0.7)
+STALE_RUN = 5
+
+
+def default_log():
+    if os.environ.get("PROSE_LOG"):
+        return Path(os.environ["PROSE_LOG"])
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
+    return Path(state) / "prose/decisions.jsonl"
+
+
+def load(path, since):
+    records, bad = [], 0
+    for line in path.read_text(errors="replace").splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            bad += 1
+            continue
+        if since and r.get("ts", "")[:10] < since:
+            continue
+        records.append(r)
+    return records, bad
+
+
+def percentile(values, q):
+    s = sorted(values)
+    return s[min(len(s) - 1, int(q * len(s)))]
+
+
+def clip(text, n):
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[: n - 1] + "~"
+
+
+def report(records, bad, uncertain, rows):
+    jev = [r for r in records if r.get("source") == "jev"]
+    fallback = [r for r in records if r.get("source") == "verbs"]
+    slash = [r for r in records if r.get("source") == "slash"]
+    print(f"records  {len(records)}  ({records[0]['ts']} .. {records[-1]['ts']})"
+          + (f"  [{bad} unparseable lines skipped]" if bad else ""))
+
+    print("\nhealth")
+    print(f"  jev answered   {len(jev)}")
+    print(f"  fallback       {len(fallback)}")
+    reasons = {}
+    for r in fallback:
+        reasons[r.get("reason") or "?"] = reasons.get(r.get("reason") or "?", 0) + 1
+    for reason, n in sorted(reasons.items(), key=lambda kv: -kv[1]):
+        print(f"    {reason:<16} {n}")
+    print(f"  slash (no call) {len(slash)}")
+    if jev:
+        ms = [r.get("ms", 0) for r in jev]
+        print(f"  jev latency ms  p50 {percentile(ms, 0.5)}  p90 {percentile(ms, 0.9)}  max {max(ms)}")
+    tail = records[-STALE_RUN:]
+    if len(tail) == STALE_RUN and all(r.get("source") == "verbs" for r in tail):
+        print(f"  WARN: the last {STALE_RUN} decisions all fell back to the verb list "
+              f"({', '.join(sorted({r.get('reason') or '?' for r in tail}))})")
+
+    print("\nverdicts")
+    for source, group in (("jev", jev), ("fallback", fallback), ("slash", slash)):
+        if group:
+            blocks = sum(1 for r in group if r.get("verdict") == "block")
+            print(f"  {source:<9} block {blocks:<4} allow {len(group) - blocks}")
+    if jev:
+        lo, hi = UNCERTAIN
+        bands = [sum(1 for r in jev if r["p"] < lo),
+                 sum(1 for r in jev if lo <= r["p"] < hi),
+                 sum(1 for r in jev if r["p"] >= hi)]
+        print(f"  jev p          <{lo}: {bands[0]}   {lo}-{hi}: {bands[1]} (review band)   >={hi}: {bands[2]}")
+
+    review = records
+    if uncertain:
+        lo, hi = UNCERTAIN
+        review = [r for r in jev if lo <= r["p"] < hi]
+    if rows:
+        review = review[-rows:]
+    print(f"\nreview ({len(review)} rows: was each verdict right?)")
+    for r in review:
+        p = f"{r['p']:.2f}" if isinstance(r.get("p"), (int, float)) else (r.get("reason") or "-")
+        print(f"  {r.get('ts', '')[:16]}  {r.get('verdict', '?'):<5}  {r.get('source', '?'):<5}  {p:<13}"
+              f"  {clip(r.get('prompt'), 50)!r:<54} -> {clip(r.get('final'), 60)!r}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Summarize prose.sh's offer-rule decision log.")
+    ap.add_argument("--log", type=Path, default=default_log())
+    ap.add_argument("--since")
+    ap.add_argument("--uncertain", action="store_true")
+    ap.add_argument("--rows", type=int, default=0)
+    args = ap.parse_args()
+    if not args.log.is_file():
+        print(f"prose-report: no decision log at {args.log} (prose.sh writes it on the first offer it judges)",
+              file=sys.stderr)
+        return 1
+    records, bad = load(args.log, args.since)
+    if not records:
+        print(f"prose-report: {args.log} has no records" + (f" since {args.since}" if args.since else ""),
+              file=sys.stderr)
+        return 1
+    report(records, bad, args.uncertain, args.rows)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

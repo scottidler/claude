@@ -19,10 +19,31 @@
 # THE THREE RULES:
 #   em-dash        any literal U+2014 in the final text            (rules/safety.md)
 #   offer-closer   the final sentence offers to do more ("Want me to ...")
-#                  AND the last typed prompt was imperative or a bare go-ahead
+#                  AND the last typed prompt was an instruction or a go-ahead
 #                                             (output-styles/edges.md, interaction.md)
 #   decision ask   a "Rec:" line or a trailing question, over 20 lines
 #                                                              (rules/interaction.md)
+#
+# INSTRUCTION TEST (offer rule only, asked only after the offer regex matched):
+#   slash command   always an instruction, no call
+#   Jev             one yes/no to TypeSafe's jev-1.13.0, "is this prompt an
+#                   instruction or go-ahead?", p >= PROSE_JEV_THRESHOLD (0.5)
+#   verb list       the fallback: first word in VERBS, or a bare go-ahead. Used
+#                   when ESCOTE_TYPESAFE_API_KEY is unset, PROSE_JEV=off, or the
+#                   call fails, times out (PROSE_JEV_TIMEOUT, 3s) or answers in
+#                   an unknown shape
+#   Why: replaying the 35 logged offer blocks (2026-10-11), the verb list blocked
+#   all 35 and 22 were right; Jev's instruction answer matched the hand labels on
+#   34 of 35 ("do we have separate worktrees?" 0.05, "ok sent. now what?" 0.27).
+#   The decision-ask rule stays a regex: Jev scored 27 of the 147 logged `Rec:`
+#   asks below 0.5. PROSE_JEV_URL overrides the endpoint; prose-test.sh points
+#   it at canned file:// answers so the matrix never touches the network.
+#
+# DECISION LOG: every instruction test appends one JSONL record (verdict,
+#   source jev|verbs|slash, p, fallback reason, ms, prompt, final sentence) to
+#   PROSE_LOG, default ~/.local/state/prose/decisions.jsonl. The transcript
+#   keeps hook stderr only on an allow, so this log is the one place both
+#   verdicts land. bin/prose-report summarizes it.
 # Every reason quotes the offending line so the model's rewrite is one edit: a
 # block that only names the rule costs a second block, and the 8-block cap makes
 # each miss expensive.
@@ -87,6 +108,14 @@ proceed continue use read check search find look review verify test probe pull
 rebase open close resolve address apply deploy babysit shakedown'
 
 GOAHEAD='(yes|y|ok|okay|go|do it|proceed|ship it|send it)'
+
+JEV_URL="${PROSE_JEV_URL:-https://api.typesafe.ai/v1/systemone}"
+JEV_MODEL="jev-1.13.0"
+JEV_TIMEOUT="${PROSE_JEV_TIMEOUT:-3}"
+JEV_THRESHOLD="${PROSE_JEV_THRESHOLD:-0.5}"
+JEV_PROMPT_CHARS=1500
+JEV_QUESTION="Is the USER PROMPT an instruction or go-ahead telling the assistant to do work, as opposed to a question, pasted output, or a comment?"
+PROSE_LOG="${PROSE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/prose/decisions.jsonl}"
 
 # Bytes into the sandbox-safe tail read of a transcript. Records are one JSON
 # object per line and the newest prompt always sits near the end, so a bounded
@@ -216,12 +245,73 @@ final_sentence() {
   tail_chars "$last" 300
 }
 
-is_imperative() {
+now_ms() { date +%s%3N; }
+
+# Prints one line: `ok <p> <ms>` with Jev's probability that the prompt is an
+# instruction, or `fallback <reason> <ms>` when Jev cannot answer. Reasons:
+# off, no-key, curl-exit-<n> (22 is an HTTP error, 28 a timeout), bad-answer.
+# The key goes through a header file descriptor so it never reaches argv.
+jev_instruction_p() {
+  local p="$1" body resp rc t0 jp
+  [ "${PROSE_JEV:-on}" = "off" ] && { echo "fallback off 0"; return; }
+  [ -z "${ESCOTE_TYPESAFE_API_KEY:-}" ] && { echo "fallback no-key 0"; return; }
+  body=$(jq -n --arg s "USER PROMPT:
+$(head_chars "$p" "$JEV_PROMPT_CHARS")" --arg m "$JEV_MODEL" --arg q "$JEV_QUESTION" \
+    '{state:$s, model:$m, questions:{instruction:{type:"noul", instructions:$q}}}')
+  t0=$(now_ms)
+  resp=$(printf '%s' "$body" | curl -sS --fail --max-time "$JEV_TIMEOUT" \
+    -H @<(printf 'Authorization: Bearer %s' "$ESCOTE_TYPESAFE_API_KEY") \
+    -H 'Content-Type: application/json' --data-binary @- "$JEV_URL" 2>/dev/null)
+  rc=$?
+  [ "$rc" -ne 0 ] && { echo "fallback curl-exit-$rc $(( $(now_ms) - t0 ))"; return; }
+  jp=$(printf '%s' "$resp" | jq -r '.answers.instruction.noul | numbers' 2>/dev/null)
+  [ -z "$jp" ] && { echo "fallback bad-answer $(( $(now_ms) - t0 ))"; return; }
+  echo "ok $jp $(( $(now_ms) - t0 ))"
+}
+
+# Sets INSTR_SOURCE (slash | jev | verbs), INSTR_P, INSTR_REASON and INSTR_MS
+# for the decision log, and returns 0 when the prompt counts as an instruction.
+is_instruction() {
+  local p="$1" first status
+  INSTR_SOURCE=""; INSTR_P=""; INSTR_REASON=""; INSTR_MS=0
+  first=$(printf '%s' "$p" | awk '{print $1}')
+  # A slash command IS an instruction: invoking /how-to-execute-a-plan is an
+  # order, and its first word is never in the verb list.
+  case "$first" in /?*) INSTR_SOURCE=slash; return 0 ;; esac
+  read -r status INSTR_P INSTR_MS <<< "$(jev_instruction_p "$p")"
+  if [ "$status" = "ok" ]; then
+    INSTR_SOURCE=jev
+    note "instruction test: jev p=$INSTR_P ms=$INSTR_MS (threshold $JEV_THRESHOLD)"
+    awk -v p="$INSTR_P" -v t="$JEV_THRESHOLD" 'BEGIN{exit !(p >= t)}'
+    return
+  fi
+  INSTR_SOURCE=verbs; INSTR_REASON="$INSTR_P"; INSTR_P=""
+  note "instruction test: verb-list fallback ($INSTR_REASON, ms=$INSTR_MS)"
+  is_imperative_by_verbs "$p"
+}
+
+# One JSONL record per instruction test, blocked or not. The transcript keeps a
+# hook's stderr only when it allows (a block records the reason alone), so this
+# log is the one place both verdicts land. bin/prose-report reads it. A failed
+# write never touches the verdict.
+log_decision() {  # log_decision <block|allow>
+  local dir
+  dir=$(dirname "$PROSE_LOG")
+  { mkdir -p "$dir" && jq -nc \
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg session "$(field '.session_id // ""')" \
+      --arg event "$event" --arg verdict "$1" --arg source "$INSTR_SOURCE" \
+      --arg p "$INSTR_P" --arg reason "$INSTR_REASON" --argjson ms "${INSTR_MS:-0}" \
+      --arg threshold "$JEV_THRESHOLD" --arg prompt "$(head_chars "$prompt" 300)" \
+      --arg final "$(head_chars "$fs" 300)" \
+      '{ts:$ts, session:$session, event:$event, verdict:$verdict, source:$source,
+        p:($p|tonumber? // null), reason:($reason|select(.!="") // null), ms:$ms,
+        threshold:($threshold|tonumber), prompt:$prompt, final:$final}' \
+      >> "$PROSE_LOG"; } 2>/dev/null || note "decision log write failed: $PROSE_LOG"
+}
+
+is_imperative_by_verbs() {
   local p="$1" first words
   first=$(printf '%s' "$p" | awk '{print $1}')
-  # A slash command IS an imperative: invoking /how-to-execute-a-plan is an
-  # order, and its first word is never in the verb list.
-  case "$first" in /?*) return 0 ;; esac
   first=$(printf '%s' "$first" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z]//g')
   case " $(printf '%s' "$VERBS" | tr '\n' ' ') " in *" $first "*) [ -n "$first" ] && return 0 ;; esac
   # Bare go-ahead: five words or fewer, matched on WORD boundaries so that
@@ -233,12 +323,18 @@ is_imperative() {
   return 1
 }
 
+# The offer regex runs first so the instruction test, and its network call,
+# only happens on the rare reply that actually ends in an offer.
 if [ -z "$prompt" ]; then
   note "no typed prompt recovered; offer rule skipped"
-elif is_imperative "$prompt"; then
+else
   fs=$(final_sentence "$text")
   if printf '%s' "$fs" | grep -Eqi "$OFFERS"; then
-    block "offer-closer in the final sentence after an imperative prompt (output-styles/edges.md, rules/interaction.md): \"$(head_chars "$fs" 200)\". In scope means do it, otherwise omit it. Drop the offer and reply again. (Prompt: \"$(head_chars "$prompt" 80)\")"
+    if is_instruction "$prompt"; then
+      log_decision block
+      block "offer-closer in the final sentence after an imperative prompt (output-styles/edges.md, rules/interaction.md): \"$(head_chars "$fs" 200)\". In scope means do it, otherwise omit it. Drop the offer and reply again. (Prompt: \"$(head_chars "$prompt" 80)\")"
+    fi
+    log_decision allow
   fi
 fi
 

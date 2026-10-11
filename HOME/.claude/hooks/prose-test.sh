@@ -3,10 +3,12 @@
 #
 # Builds synthetic JSONL transcripts under $TMPDIR and feeds synthetic Stop /
 # SubagentStop payloads through the hook, asserting the expected block/allow for
-# every rule: em-dash, offer-closer (with the imperative and go-ahead prompt
-# gate, the code-span strip and the final-sentence anchor), oversized decision
-# ask, and every pass-through (stop_hook_active, empty text, missing transcript,
-# lagging transcript, agent relay). Exits non-zero on any failure.
+# every rule: em-dash, offer-closer (with the instruction and go-ahead prompt
+# gate, the code-span strip and the final-sentence anchor), the Jev instruction
+# test and its verb-list fallback (canned file:// answers, never the network),
+# oversized decision ask, and every pass-through (stop_hook_active, empty text,
+# missing transcript, lagging transcript, agent relay). Exits non-zero on any
+# failure.
 #
 # Transcript shapes matter here and are the point of several cases:
 #   flushed   ... user, assistant(text == payload)   -> prompt is current
@@ -79,11 +81,44 @@ stop_payload() {  # stop_payload <transcript> <text>
     '{hook_event_name:"Stop",stop_hook_active:false,session_id:"t",transcript_path:$t,last_assistant_message:$m}'
 }
 
+# Instruction-test fixtures: canned Jev answers served from file:// URLs, so the
+# Jev path is exercised offline.
+T_VERBQ="$ROOT/verbq.jsonl"   # verb-initial question: the verb list's false block
+{ arec "an earlier reply"; urec "do we have separate worktrees?"; } > "$T_VERBQ"
+jev_answer() {  # jev_answer <name> <noul>: write a canned Jev response, print its URL
+  jq -nc --argjson p "$2" '{model:"jev-1.13.0",answers:{instruction:{type:"noul",noul:$p}}}' > "$ROOT/$1.json"
+  printf 'file://%s/%s.json' "$ROOT" "$1"
+}
+JEV_LOW=$(jev_answer low 0.05)
+JEV_HIGH=$(jev_answer high 0.95)
+JEV_MID=$(jev_answer mid 0.6)
+printf '{"error":"rate limited"}' > "$ROOT/garbage.json"
+JEV_GARBAGE="file://$ROOT/garbage.json"
+JEV_DOWN="file://$ROOT/never-written.json"
+
+# Settings for each hook run. Default: Jev off, so every case outside the
+# instruction-test section runs the verb-list fallback exactly as before.
+HOOK_ENV=(PROSE_JEV=off)
+# Every run logs here, never to the real ~/.local/state/prose/decisions.jsonl.
+LOG="$ROOT/decisions.jsonl"
+log_lines() { [ -f "$LOG" ] && wc -l < "$LOG" || echo 0; }
+# check_log <label> <jq predicate on the newest record>
+check_log() {
+  if [ -f "$LOG" ] && tail -n1 "$LOG" | jq -e "$2" >/dev/null 2>&1; then
+    pass=$((pass+1)); printf 'PASS  [log] %s\n' "$1"
+  else
+    fail=$((fail+1)); printf 'FAIL  [log] %s\n      -> %s\n' "$1" "$(tail -n1 "$LOG" 2>/dev/null | head -c 200)"
+  fi
+}
+jev_env() {  # jev_env <url> [VAR=val...]: Jev on against a canned answer
+  HOOK_ENV=(PROSE_JEV=on ESCOTE_TYPESAFE_API_KEY=canned "PROSE_JEV_URL=$1" "${@:2}")
+}
+
 # ---------- runner ----------
 pass=0; fail=0
 run() {  # run <expect block|allow> <label> <payload-json>
   local expect="$1" label="$2" payload="$3" out decision
-  out=$(printf '%s' "$payload" | bash "$HOOK" 2>/dev/null)
+  out=$(printf '%s' "$payload" | env "PROSE_LOG=$LOG" "${HOOK_ENV[@]}" bash "$HOOK" 2>/dev/null)
   decision=$(printf '%s' "$out" | jq -r '.decision // "allow"' 2>/dev/null)
   if [ "$decision" = "$expect" ]; then
     pass=$((pass+1)); printf 'PASS  [%s] %s\n' "$expect" "$label"
@@ -126,6 +161,82 @@ run allow "the offer phrase is not the final sentence" \
   "$(stop_payload "$T_PARTIAL" "Want me to keep going was the old closer. It is gone from every reply now.")"
 run block "offer whose sentence carries a dotted filename" \
   "$(stop_payload "$T_PARTIAL" "Rule moved. Want me to update edges.md?")"
+
+echo "=== instruction test: Jev, with verb-list fallback ==="
+run block "Jev off: verb-initial question still blocks (the false block Jev fixes)" \
+  "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+jev_env "$JEV_LOW"
+run allow "Jev p=0.05 on a verb-initial question: not an instruction" \
+  "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+jev_env "$JEV_HIGH"
+run block "Jev p=0.95 on a prompt the verb list misses" \
+  "$(stop_payload "$T_NEITHER" "Done. Want me to run it?")"
+jev_env "$JEV_LOW"
+run block "slash command blocks without asking Jev (Jev says 0.05)" \
+  "$(stop_payload "$T_SLASH" "Both PRs are green. Want me to merge them?")"
+jev_env "$JEV_LOW"
+run allow "Jev consulted only on an offer: no offer, no block" \
+  "$(stop_payload "$T_PARTIAL" "Done. The test passes.")"
+jev_env "$JEV_MID"
+run block "Jev p=0.6 meets the default 0.5 threshold" \
+  "$(stop_payload "$T_NEITHER" "Done. Want me to run it?")"
+jev_env "$JEV_MID" PROSE_JEV_THRESHOLD=0.7
+run allow "Jev p=0.6 under a raised 0.7 threshold" \
+  "$(stop_payload "$T_NEITHER" "Done. Want me to run it?")"
+jev_env "$JEV_DOWN"
+run block "Jev unreachable: verb list decides (verb-initial blocks)" \
+  "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+jev_env "$JEV_GARBAGE"
+run block "Jev answers an unknown shape: verb list decides" \
+  "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+run allow "Jev answers an unknown shape: verb list decides (non-verb prompt allows)" \
+  "$(stop_payload "$T_NEITHER" "Done. Want me to run it?")"
+HOOK_ENV=(PROSE_JEV=on ESCOTE_TYPESAFE_API_KEY= "PROSE_JEV_URL=$JEV_LOW")
+run block "Jev on but no key: verb list decides, no call" \
+  "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+jev_env "$JEV_LOW" PROSE_JEV=off
+run block "PROSE_JEV=off kill switch beats a key and a URL" \
+  "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+HOOK_ENV=(PROSE_JEV=off)
+
+echo "=== decision log (one record per instruction test, either verdict) ==="
+jev_env "$JEV_LOW"
+run allow "log: Jev allow" "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+check_log "allow recorded with source jev, p 0.05, no reason, the prompt and final sentence" \
+  '.verdict=="allow" and .source=="jev" and .p==0.05 and .reason==null and .threshold==0.5
+   and .prompt=="do we have separate worktrees?" and .final=="Want me to run it" and .event=="Stop"'
+jev_env "$JEV_HIGH"
+run block "log: Jev block" "$(stop_payload "$T_NEITHER" "Done. Want me to run it?")"
+check_log "block recorded too (the transcript drops stderr on a block)" \
+  '.verdict=="block" and .source=="jev" and .p==0.95'
+jev_env "$JEV_DOWN"
+run block "log: unreachable" "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+check_log "unreachable names curl's exit code (37: file not found)" \
+  '.source=="verbs" and .reason=="curl-exit-37" and .p==null'
+jev_env "$JEV_GARBAGE"
+run block "log: bad answer" "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+check_log "unknown answer shape is bad-answer" '.source=="verbs" and .reason=="bad-answer"'
+HOOK_ENV=(PROSE_JEV=on ESCOTE_TYPESAFE_API_KEY= "PROSE_JEV_URL=$JEV_LOW")
+run block "log: no key" "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+check_log "missing key is no-key" '.source=="verbs" and .reason=="no-key" and .ms==0'
+HOOK_ENV=(PROSE_JEV=off)
+run block "log: kill switch" "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+check_log "kill switch is off" '.source=="verbs" and .reason=="off"'
+jev_env "$JEV_LOW"
+run block "log: slash" "$(stop_payload "$T_SLASH" "Both PRs are green. Want me to merge them?")"
+check_log "slash command is source slash, no p" '.source=="slash" and .p==null and .verdict=="block"'
+before=$(log_lines)
+run allow "log: no offer" "$(stop_payload "$T_PARTIAL" "Done. The test passes.")"
+if [ "$(log_lines)" -eq "$before" ]; then
+  pass=$((pass+1)); echo "PASS  [log] no offer, no instruction test, no record"
+else
+  fail=$((fail+1)); echo "FAIL  [log] a reply with no offer wrote a record"
+fi
+jev_env "$JEV_LOW" "PROSE_LOG=/proc/prose-test/decisions.jsonl"
+run allow "unwritable log never changes the verdict" "$(stop_payload "$T_VERBQ" "Done. Want me to run it?")"
+jev_env "$JEV_HIGH" "PROSE_LOG=/proc/prose-test/decisions.jsonl"
+run block "unwritable log never changes a block either" "$(stop_payload "$T_NEITHER" "Done. Want me to run it?")"
+HOOK_ENV=(PROSE_JEV=off)
 
 echo "=== decision ask over 20 lines (rules/interaction.md) ==="
 LONG_REC=$(printf 'The problem\n%s\nRec: A\n' "$(for i in $(seq 1 22); do echo "- bullet $i"; done)")
