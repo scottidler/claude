@@ -5,6 +5,10 @@ link:
     HOME/.claude/skills: $HOME/.claude/skills
     HOME/.claude/agents: $HOME/.claude/agents
     HOME/.claude/output-styles: $HOME/.claude/output-styles
+    # Linked whole: ba21860 moved cli.md and logging.md from rules/ to refs/ and
+    # the per-file links went stale (dangling in rules/, absent in refs/).
+    HOME/repos/.claude/rules: $HOME/repos/.claude/rules
+    HOME/repos/.claude/refs: $HOME/repos/.claude/refs
     # pi resource dirs are linked whole so new prompts/extensions/themes appear
     # without re-running manifest. AGENTS.md, APPEND_SYSTEM.md, and settings.json
     # ride the recursive file link above. `~/.pi/agent/` itself stays a real dir:
