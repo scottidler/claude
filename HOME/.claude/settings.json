@@ -1093,7 +1093,7 @@
   },
   "outputStyle": "Edges",
   "sandbox": {
-    "enabled": true,
+    "enabled": false,
     "network": {
       "allowedDomains": [
         "api.anthropic.com",
