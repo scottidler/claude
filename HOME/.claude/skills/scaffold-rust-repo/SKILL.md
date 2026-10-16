@@ -78,4 +78,5 @@ Git identity (name, email, signing key) was already configured by `clone` in ste
 Produces a ready-to-develop Rust CLI project at `~/repos/scottidler/mytool` with:
 - GitHub repo with README, Rust .gitignore, MIT license
 - Scaffolded Rust CLI (clap, eyre, env_logger, serde_yaml, colored)
+- `.github/workflows/mutants.yml` caller and an `.otto.yml` `mutants:` task (diff-scoped mutation testing on PRs)
 - Initial commit pushed to `main`
