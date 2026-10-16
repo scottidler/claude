@@ -1,0 +1,23 @@
+{
+  "skill_name": "download-yt-audio",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "grab the audio from https://www.youtube.com/watch?v=RKSeJK5Uv_4&list=RD1HCZ1JmUtM8&index=2 no video",
+      "expected_output": "One native-format audio file (no playlist) in ~/Downloads/yt-audio, reported with its size and path from the script's ok line.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I need these as mp3s for the car: https://www.youtube.com/watch?v=1HCZ1JmUtM8 https://youtu.be/Aorl-_OoHqk",
+      "expected_output": "Two .mp3 files from a single `get --format mp3` call, each reported with size and path.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "is everything installed so I can rip youtube audio on this box?",
+      "expected_output": "Runs `check` only, reports each dependency line, and lists the fix command for anything missing. Downloads nothing.",
+      "files": []
+    }
+  ]
+}
