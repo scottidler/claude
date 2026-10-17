@@ -7,8 +7,9 @@
 
   download_yt_audio.py get <url> [<url> ...] [--format native|opus|m4a|mp3] [--out-dir DIR]
       Run `check`, then download each URL as a single video (never its playlist).
-      Retry once after 10s on HTTP 403. Print one `ok <size> <path>` or `fail <url> <reason>`
-      line per URL. Exit 0 only if every URL succeeded.
+      Retry once after 10s on HTTP 403. Slugify each file name (`title-id.ext`, lowercase ASCII
+      and dashes). Print one `ok <size> <path>` or `fail <url> <reason>` line per URL.
+      Exit 0 only if every URL succeeded.
 
 --debug logs this script's own steps to stderr. It never passes -v to yt-dlp: verbose
 yt-dlp runs go through Scott's signed-in cookies and need his explicit permission.
@@ -21,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -168,6 +170,24 @@ def yt_dlp_command(url: str, audio_format: str, out_dir: Path) -> list[str]:
     return [*command, url]
 
 
+def slugify(stem: str) -> str:
+    ascii_stem = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_stem.lower()).strip("-")
+
+
+def slug_rename(path: Path) -> Path:
+    """Rename `Title [id].ext` to `title-id.ext`; leaves the file alone if the slug is taken."""
+    target = path.with_name(f"{slugify(path.stem)}{path.suffix.lower()}")
+    if target == path:
+        return path
+    if target.exists():
+        log.warning("slug_rename: %s exists, keeping %s", target, path.name)
+        return path
+    path.rename(target)
+    log.debug("slug_rename: %s -> %s", path.name, target.name)
+    return target
+
+
 def download_one(url: str, audio_format: str, out_dir: Path) -> tuple[Path | None, str]:
     log.debug("download_one: url=%s format=%s out_dir=%s", url, audio_format, out_dir)
     command = yt_dlp_command(url, audio_format, out_dir)
@@ -178,7 +198,7 @@ def download_one(url: str, audio_format: str, out_dir: Path) -> tuple[Path | Non
             path = Path(lines[-1]) if lines else None
             if path is not None and path.is_file():
                 log.debug("download_one: url=%s attempt=%d path=%s", url, attempt, path)
-                return path, ""
+                return slug_rename(path), ""
             return None, f"yt-dlp exited 0 but printed no file (stdout: {result.stdout.strip()[:200]!r})"
         error_lines = [line for line in result.stderr.splitlines() if "ERROR" in line]
         reason = error_lines[-1] if error_lines else f"yt-dlp exit {result.returncode}"

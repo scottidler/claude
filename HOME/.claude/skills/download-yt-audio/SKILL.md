@@ -27,6 +27,7 @@ The default output dir is `~/Downloads/yt-audio`. Use `--out-dir` only when Scot
 ## What the script handles, so you don't
 
 - **Single video only.** The script always passes `--no-playlist`, so a `list=RD...` mix param never pulls the whole playlist. Scott wants the one video. Do not strip URL params by hand.
+- **Slug file names.** Each file is renamed to lowercase ASCII with dashes, ending in the video ID: `puddles-pity-party-come-sail-away-let-it-go-smoosh-up-styx-frozen-cover-jdlpcadw2mi.opus`. Do not rename files by hand.
 - **Dependencies.** `get` runs `check` first. If `yt-dlp`, `ffmpeg`, `ffprobe`, or `deno` is missing, it prints `MISS` lines with a `fix:` install command and downloads nothing. Show Scott those lines; do not install anything without his go-ahead.
 - **Soft warnings.** A yt-dlp build over 90 days old or a missing `~/.config/yt-dlp/config` prints a `warn` line, and the download still runs. Stale yt-dlp caused widespread 403s in September 2026. If downloads then fail with 403, relay the warning and ask before running `uv tool upgrade yt-dlp`.
 - **403 retry.** On `HTTP Error 403` the script waits 10 seconds and retries once. Intermittent 403s run about 6% in borg, so one failure is not a reason to change anything.
