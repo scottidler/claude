@@ -106,10 +106,10 @@ type SessionFacts = {
 ### API Design
 
 - Plugin `self`, tool `session`, so the model sees `mcp__self__session`.
-- Description, verbatim: "This session's id, cwd, project root, git repo, context-window fill, cost, prompt count and start time. Context figures are from the last API response, so they miss the current turn, and are absent right after a compaction. Pass breakdown (summary: local estimate, free | full: counted like /context, slower) for the per-category split; its percentage is against the compaction window. From a subagent, context figures are the main conversation's."
+- Description, verbatim: "This session's id, cwd, project root, git repo, context-window fill, cost, prompt count and start time. Context figures are from the last API response, so they miss the current turn, and are absent right after a compaction. Pass breakdown (summary: local estimate, free | full: counted like /context, slower) for the per-category split; its percentage is against the compaction window. From a subagent, context figures are the main conversation's. costUsd leaves out the response that made this call: it is priced only once that response ends."
 - Input schema: `{ type: "object", properties: { breakdown: { type: "string", enum: ["summary", "full"] } }, additionalProperties: false }`.
-- The hook re-checks `breakdown` and denies any other value, loudly: Phase 0 (g) showed core does not enforce the schema (the hook received `"bogus"` and ran), so this check is the only one. The input arrives flat on the event: `e.breakdown`, not `e.input.breakdown`.
-- Errors: any `$.session` rejection -> `{ deny: "<method>: <message>" }`. No partial object; a half-filled answer reads as a true one.
+- The hook re-checks `breakdown` and denies any other value, loudly: Phase 0 (g) showed core does not enforce the schema (the hook received `"bogus"` and ran), so the hook must not rely on it. `$.session.usage()` also validates its own argument (`takes breakdown "summary" or "full"`), so without the hook check a bad value would still fail closed, with engine text; the hook check runs first and names the input. The input arrives flat on the event: `e.breakdown`, not `e.input.breakdown`.
+- Errors: any `$.session` rejection -> `{ deny: "<method>: <message>" }`, where `<message>` is the rejection's error message as the engine words it. Live, that is `<plugin>: $.session.<method>: <reason>`, so the model reads e.g. `usage: self: $.session.usage: <reason>`. Kept as-is, not stripped: parsing the engine's wording would break when it changes. No partial object; a half-filled answer reads as a true one.
 - A requested `breakdown` that does not come back ("present only when the call passed `breakdown`, and only with a session bound", types file) -> `{ deny: "breakdown: not returned" }`. Same rule: asked for and missing is a failure, not an absence.
 - The `tool.call` registration carries the guard `.catch`: `on(...).catch(($, e, next) => ({ deny: `self: ${next.error.message}` }))`. Without it a thrown hook is skipped (`reference.md:79`), nobody answers, and the model gets a generic failure.
 
@@ -192,6 +192,7 @@ Rulings:
 - 2026-10-16, Scott: one grouped tool, not one per fact.
 - 2026-10-16, Scott: rate limits out; cwd, root, repo, cost, turns, startedAt in.
 - 2026-10-16, author: home is `HOME/.claude/skills/self/` in this repo, copying `rails`. No marketplace, no settings edit.
+- 2026-10-17, author, from the implementation audit (`~/.cache/review-panel/runs/mWGXuphR/synthesis.md`): unknown input keys (`{"breakdwon":"full"}`) are accepted, not denied. The engine puts its own keys flat on the same event (`tool`, `tool_use_id`, `agentId`), so rejecting unknown keys needs an allowlist of engine keys, and the next key the engine adds would deny every call. A typo costs a missing `breakdown`, which the model sees. Scott can overrule.
 
 ## Alternatives Considered
 

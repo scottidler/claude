@@ -52,3 +52,22 @@ Each named test fails alone or with others when its guarded line is broken, and 
 
 ### Acceptance
 AC1-AC4 observed values are recorded under each AC in the design doc. `otto ci` rc=0, `rg -c 'skills/self' .otto.yml` = 4. Nothing left running.
+
+## Implementation audit fold (round 1, Mode 2)
+
+Synthesis: `~/.cache/review-panel/runs/mWGXuphR/synthesis.md`. 0 must-fix, 3 cheap wins, 1 marked defer.
+
+### Design decisions
+- Unknown input keys accepted, recorded in the doc's Resolved Decisions with the reason (an engine-key allowlist breaks on the engine's next key).
+- Deny text kept as the engine words the rejection, documented in API Design rather than stripped in `named()` (`index.ts:named`): stripping parses engine wording.
+
+### Deviations
+- Supersedes Phase 1 Deviations bullet 1: the `takes breakdown "summary" or "full"` text is `$.session.usage`'s own argument validation, present in the live engine too, not a kit-only schema check. Live core still does not enforce the tool's input schema (Phase 0 (g)). Test 5 stands: it asserts the hook's wording and that `usage` was never asked.
+- Supersedes Phase 1 Deviations bullet 2: the inner `<plugin>: $.session.<method>:` prefix comes from the engine, live and in the kit, not from the kit alone.
+- Tool description (`index.ts:DESCRIPTION`) gains the costUsd lag: the calling response is priced only at its `message_delta` stop, after the tool runs (audit probe: first call 0, second call 0.005277, run total 0.006396).
+
+### Tradeoffs
+None.
+
+### Open questions
+None.

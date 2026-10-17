@@ -15,7 +15,8 @@ const DESCRIPTION = "This session's id, cwd, project root, git repo, context-win
     + 'Context figures are from the last API response, so they miss the current turn, and are absent right after a compaction. '
     + 'Pass breakdown (summary: local estimate, free | full: counted like /context, slower) for the per-category split; '
     + 'its percentage is against the compaction window. '
-    + "From a subagent, context figures are the main conversation's."
+    + "From a subagent, context figures are the main conversation's. "
+    + 'costUsd leaves out the response that made this call: it is priced only once that response ends.'
 
 const INPUT_SCHEMA = {
     type: 'object',
