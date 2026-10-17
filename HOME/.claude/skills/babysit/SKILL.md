@@ -60,8 +60,8 @@ background fleet, no per-PR agents, no cache, no sentinels, no scheduled ticks.
 4. **Human review comments:** fix the mechanical ones and reply on the thread.
    Anything that is a judgment call about scope or design goes to the user with
    the options, not answered on their behalf under their name.
-5. **Re-check** until CI is green and threads are clear, or until something needs
-   the user.
+5. **Re-arm the watcher** (see "Waiting") until CI is green and threads are clear,
+   or until something needs the user.
 
 ## The exit gate: what you are allowed to report
 
@@ -77,18 +77,32 @@ are the reason to keep the loop alive, not to hand the PR back. The only legitim
 early stop is a decision that genuinely needs the user (an approving review, a
 scope call, a 2-strike blocker), and the report says exactly which.
 
-**Do not hand-poll the user's patience.** If work remains and it is only a matter
-of waiting, put it on a timer yourself before the turn ends. Pick the interval to
-the thing you're actually waiting on, not one default for everything:
+## Waiting: arm the watcher, never a `/loop`
 
-- **Waiting on CodeRabbit** (rollup still `PENDING`, no review posted yet): it
-  usually comes back in 2-3 minutes. Use `/loop 2m /babysit <pr-url>` (or 3m).
-- **Waiting on CI** (builds, tests, other checks still running) or on a human
-  review: those run longer and nobody's refreshing every two minutes. Use
-  `/loop 10m /babysit <pr-url>`.
+Waiting is not model work. A `/loop` tick re-reads the whole session context (170-550K
+tokens) twice to learn "still pending"; measured in the logs, that is most of babysit's
+cost. The wait lives in a background process instead:
 
-Never end a turn with "I'll check back" and no timer armed, and never make the
-user ask twice for a step already written above.
+```
+~/.claude/skills/babysit/bin/babysit.sh <pr-url>
+```
+
+- Run it as its own Bash call with `run_in_background`, bare: no `&&`, no env prefix.
+  Its exit wakes this session once.
+- It polls GitHub every 30s and exits on the first thing that needs you. Read `event=`:
+  - `ci-failed`: `failed=` names the checks. Pull the log, fix, push, re-arm.
+  - `threads`: `unresolved=` is the count. Work them per step 3, re-arm.
+  - `coderabbit-silent`: its check is terminal but it never reviewed this head. Post
+    `@coderabbitai review`, re-arm.
+  - `settled`: no pending checks, no unresolved threads, CodeRabbit reviewed the head.
+    Run the exit gate, then report.
+  - `merged` | `closed`: stop and report (merged: see "It merged").
+  - `timeout` | `error`: the wait itself failed. Report the `reason=` line, never re-arm blind.
+- After a push the head SHA changes: re-arm. The script reads the new head's checks.
+- One watcher per named PR. Several PRs means several background calls, still no `/loop`.
+- Never end a turn with "I'll check back" and no watcher armed. Never make the user ask
+  twice for a step already written above.
+- Turns between events cost nothing. Do not poll `gh` by hand while it runs.
 
 ## Check the base before saying one word about mergeability
 
@@ -131,8 +145,8 @@ owns the async wait in its own context:
   CodeRabbit has not reviewed the current head.
 - **Never** write a message to a human colleague under the user's name. Draft it
   and let them send it.
-- **Never** add cadence. If the user wants this on a timer they wrap it
-  themselves: `/loop 15m /babysit`.
+- **Never** arm a `/loop` or any model-turn timer for babysit. The only wait is
+  `bin/babysit.sh` in the background.
 
 ## Report
 
