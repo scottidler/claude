@@ -1,0 +1,10 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "session",
+  "version": "0.1.0",
+  "description": "registers one model-callable tool, mcp__session__info: the session's id, cwd, project root, git repo, context-window fill, cost, prompt count and start time, all read from $.session",
+  "author": {
+    "name": "Scott A. Idler",
+    "email": "scott.a.idler@gmail.com"
+  }
+}

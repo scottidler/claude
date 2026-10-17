@@ -1,12 +1,12 @@
 /**
- * `self`, end to end through the engine's own chain (`claude plugin test`).
+ * `session`, end to end through the engine's own chain (`claude plugin test`).
  * The test's `on` hooks sit beneath the plugin and stand for the engine: each
  * `$.session` read and `$.tool.register` is answered here, from memory.
  */
 import { describe, expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-const TOOL = 'mcp__self__session'
+const TOOL = 'mcp__session__info'
 const SESSION = '6a932ade-8d54-4b60-8795-207c6b659279'
 const STARTED_MS = Date.UTC(2026, 9, 16, 12, 30, 45, 123)
 
@@ -72,14 +72,14 @@ function facts(r: { result?: unknown }): any {
     return JSON.parse(r.result as string)
 }
 
-describe('self: mcp__self__session', () => {
-    test('registers mcp__self__session at session.start, not deferred', async ($, on) => {
+describe('session: mcp__session__info', () => {
+    test('registers mcp__session__info at session.start, not deferred', async ($, on) => {
         const w = world(on)
         expect(w.registered.length).toBe(0)
         await $.session.start({ cwd: '/r', surface: null, isInteractive: false })
         expect(w.registered.length).toBe(1)
         const spec = w.registered[0] as { name: string; isDeferred?: boolean; description: string }
-        expect(spec.name).toBe('session')
+        expect(spec.name).toBe('info')
         expect(spec.isDeferred).toBe(false)
         expect(spec.description).toContain("From a subagent, context figures are the main conversation's")
     })
@@ -139,9 +139,9 @@ describe('self: mcp__self__session', () => {
         const w = world(on)
         w.failing = 'usage'
         const usage = denied(await $.tool.call({ tool: TOOL }))
-        expect(usage).toBe('usage: self: $.session.usage: forced usage')
+        expect(usage).toBe('usage: session: $.session.usage: forced usage')
         w.failing = 'id'
-        expect(denied(await $.tool.call({ tool: TOOL }))).toBe('id: self: $.session.id: forced id')
+        expect(denied(await $.tool.call({ tool: TOOL }))).toBe('id: session: $.session.id: forced id')
     })
 
     test('denies when a requested breakdown does not come back', async ($, on) => {

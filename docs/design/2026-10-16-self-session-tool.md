@@ -3,6 +3,8 @@
 **Author:** Scott Idler
 **Date:** 2026-10-16
 **Status:** Implemented
+> **Renamed 2026-10-17 (Scott):** plugin `self` -> `session`, tool `mcp__self__session` -> `mcp__session__info`, folder `HOME/.claude/skills/self/` -> `HOME/.claude/skills/session/`, ID `session@skills-dir`. The body below keeps the original names as written at design time.
+
 **Review Passes Completed:** 5/5
 
 ## Summary
@@ -189,6 +191,7 @@ Rulings:
 
 ## Resolved Decisions
 
+- 2026-10-17, Scott: renamed `self` -> `session`, tool `info` ("i hate the name", option B). AC4's count pattern becomes `rg -c 'skills/session(/|$)' .otto.yml` == 4, since a bare `skills/session` also matches `session-recall`.
 - 2026-10-16, Scott: one grouped tool, not one per fact.
 - 2026-10-16, Scott: rate limits out; cwd, root, repo, cost, turns, startedAt in.
 - 2026-10-16, author: home is `HOME/.claude/skills/self/` in this repo, copying `rails`. No marketplace, no settings edit.

@@ -1,7 +1,7 @@
 import type { Register, SessionContextBreakdown } from 'claude-code'
 
 /**
- * self: one tool, `mcp__self__session`, that answers with the session's facts.
+ * session: one tool, `mcp__session__info`, that answers with the session's facts.
  *
  * The answer is a JSON string: core rejects an object `tool.call` result
  * (Phase 0 (b), docs/design/2026-10-16-self-session-tool.md). Core does not
@@ -9,7 +9,7 @@ import type { Register, SessionContextBreakdown } from 'claude-code'
  * here and an unknown value is denied.
  */
 
-const TOOL = 'session'
+const TOOL = 'info'
 
 const DESCRIPTION = "This session's id, cwd, project root, git repo, context-window fill, cost, prompt count and start time. "
     + 'Context figures are from the last API response, so they miss the current turn, and are absent right after a compaction. '
@@ -68,7 +68,7 @@ export const register: Register = (on) => {
         $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).then(() => next(e)),
     )
 
-    on('tool.call', { tool: 'mcp__self__session' }, async ($, e) => {
+    on('tool.call', { tool: 'mcp__session__info' }, async ($, e) => {
         const unknown = Object.keys(e).filter(k => !ENGINE_KEYS.has(k) && !INPUT_KEYS.has(k))
         if (unknown.length > 0) {
             return { deny: 'input: unknown key ' + unknown.map(k => JSON.stringify(k)).join(', ') + '; the only input is "breakdown"' }
@@ -118,5 +118,5 @@ export const register: Register = (on) => {
         if (usage.cost?.usd !== undefined) { facts.costUsd = usage.cost.usd }
 
         return { result: JSON.stringify(facts) }
-    }).catch(($, e, next) => ({ deny: 'self: ' + next.error.message }))
+    }).catch(($, e, next) => ({ deny: 'session: ' + next.error.message }))
 }

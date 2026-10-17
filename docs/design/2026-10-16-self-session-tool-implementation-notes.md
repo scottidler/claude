@@ -86,3 +86,18 @@ None.
 
 ### Open questions
 None.
+
+## Rename: `self` -> `session` (Scott)
+
+### Design decisions
+- Plugin `session`, tool `info` (`mcp__session__info`), folder `HOME/.claude/skills/session/` (git mv). The guard `.catch` prefix and the engine's deny prefix both follow the plugin name, so test 7 now expects `usage: session: $.session.usage: forced usage`.
+- `.otto.yml` count pattern anchored: `skills/session(/|$)`, because `skills/session-recall/SKILL.md` also matches the bare prefix (5 lines vs 4).
+
+### Deviations
+None.
+
+### Tradeoffs
+- Kept the design doc and notes filenames (`2026-10-16-self-session-tool*`): they are point-in-time records; the doc carries a rename banner.
+
+### Open questions
+None.
