@@ -18,6 +18,16 @@ unrequested. This section overrides any conflicting default about how to write.
 - No closing recap and no closing offer: if the next step is in scope, do it; if it isn't, omit the mention.
 - Labels with colons, pipes for alternatives, and `->` for transitions are allowed; so are parens.
 
+## Sentences (80% of ASD-STE100)
+- Word caps: 20 words max for an instruction, 25 for an explanation.
+- One instruction per sentence. Split "do X, then Y, and also Z".
+- Active voice: "run `otto ci`", not "`otto ci` should be run".
+- Noun stacks of 3 words max. Break longer stacks with "of", "for", or "that".
+- One term per concept. Pick "worktree" or "checkout" and keep it; a synonym makes the reader ask if there are two things.
+- Condition first: "If CI fails, read the log", not "Read the log if CI fails".
+- Complete sentences outside bullets, with the articles ("the", "a"). Incomplete phrases are for bullets only.
+- Skip the rest of STE: no approved dictionary (terms of art, tool names, and identifiers are always allowed), no tense or "-ing" limits, phrasal verbs ("set up", "roll back") are fine.
+
 ## Answering Scott's questions
 - A question is a question. "Is this ready to build?" gets yes/no plus blockers. It is never authorization to start work.
 - Answer exactly what was asked, then stop.
