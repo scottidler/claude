@@ -71,3 +71,18 @@ None.
 
 ### Open questions
 None.
+
+## Unknown input keys denied (Scott: "fold everything in")
+
+### Design decisions
+- Supersedes the audit-fold decision above: unknown input keys deny (`index.ts:ENGINE_KEYS`, `INPUT_KEYS`). Engine keys taken from the 2.1.302 types: `ToolCallReserved` (`tool`, `tool_use_id`, `consent`), `AgentLoop` (`agentId`), `ToolRequestMeta` (`requestMeta`). The deny names the key, so a key a later engine adds is diagnosable from the first failed call.
+- New kit test 11, `denies an unknown input key`, asserting the hook's wording and that `usage` was never asked.
+
+### Deviations
+None.
+
+### Tradeoffs
+- Allowlist from the types vs. accept unknown keys: allowlist, Scott's ruling; the cost is a hard failure on the next engine key, mitigated by the named-key message.
+
+### Open questions
+None.

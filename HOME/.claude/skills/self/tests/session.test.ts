@@ -119,6 +119,13 @@ describe('self: mcp__self__session', () => {
         expect(w.usageAsked).toEqual([])
     })
 
+    test('denies an unknown input key', async ($, on) => {
+        const w = world(on)
+        const reason = denied(await $.tool.call({ tool: TOOL, breakdwon: 'full' } as never))
+        expect(reason).toBe('input: unknown key "breakdwon"; the only input is "breakdown"')
+        expect(w.usageAsked).toEqual([])
+    })
+
     test('strips userinfo from repo.remote', async ($, on) => {
         const w = world(on)
         expect(facts(await $.tool.call({ tool: TOOL })).repo).toEqual({ root: '/r', remote: 'https://host/o/r.git' })

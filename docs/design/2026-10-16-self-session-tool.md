@@ -177,7 +177,7 @@ Rulings:
 - [x] **AC1:** `claude plugin validate --strict HOME/.claude/skills/self` exits 0, and its hooks line lists `session.start` and `tool.call{tool=mcp__self__session}`.
   - Observed on main (`8af68b7`, CC 2.1.302): `File not found: .../HOME/.claude/skills/self`, `✘ Validation failed`, rc=1. Expected: the folder ships in Phase 1. The format holds: on the same export, `rails` prints `./index.ts hooks: ..., tool.call{tool=Bash}, ...`.
   - Observed after Phase 1: `claude plugin validate --strict HOME/.claude/skills/self` rc=0; `./index.ts hooks: session.start, tool.call{tool=mcp__self__session}`, `./index.ts gating hook with .catch: tool.call{tool=mcp__self__session}`, `✔ Validation passed`. (The matcher must be a literal in `index.ts`: a `const` concatenation printed `tool=?`.)
-- [x] **AC2:** `claude plugin test HOME/.claude/skills/self` exits 0, with the 10 tests named in Phase 1 passing.
+- [x] **AC2:** `claude plugin test HOME/.claude/skills/self` exits 0, with the tests named in Phase 1 passing (11 after the audit fold).
   - Observed on main: `claude plugin test: .../HOME/.claude/skills/self: no such plugin folder`, rc=1. Expected before Phase 1.
   - Observed after Phase 1: rc=0, `10 pass`, `0 fail`, `Ran 10 tests across 1 file`; the 10 names are those listed in Phase 1.
 - [x] **AC3:** From a scratch dir, `claude -p --model haiku --output-format stream-json --verbose`, asked to call `mcp__self__session` and print only `sessionId`, prints exactly the `init` event's `session_id`.
@@ -192,7 +192,8 @@ Rulings:
 - 2026-10-16, Scott: one grouped tool, not one per fact.
 - 2026-10-16, Scott: rate limits out; cwd, root, repo, cost, turns, startedAt in.
 - 2026-10-16, author: home is `HOME/.claude/skills/self/` in this repo, copying `rails`. No marketplace, no settings edit.
-- 2026-10-17, author, from the implementation audit (`~/.cache/review-panel/runs/mWGXuphR/synthesis.md`): unknown input keys (`{"breakdwon":"full"}`) are accepted, not denied. The engine puts its own keys flat on the same event (`tool`, `tool_use_id`, `agentId`), so rejecting unknown keys needs an allowlist of engine keys, and the next key the engine adds would deny every call. A typo costs a missing `breakdown`, which the model sees. Scott can overrule.
+- 2026-10-17, Scott ("fold everything in"), superseding the author's call below: unknown input keys are denied, naming the key. The allowlist is the engine's own keys from the 2.1.302 types (`tool`, `tool_use_id`, `consent`, `agentId`, `requestMeta`) plus `breakdown`. A key a later engine adds denies every call with a message naming it, until it is listed in `index.ts:ENGINE_KEYS`. Test 11, `denies an unknown input key`.
+- 2026-10-17, author, from the implementation audit (`~/.cache/review-panel/runs/mWGXuphR/synthesis.md`), SUPERSEDED above: unknown input keys (`{"breakdwon":"full"}`) are accepted, not denied. The engine puts its own keys flat on the same event (`tool`, `tool_use_id`, `agentId`), so rejecting unknown keys needs an allowlist of engine keys, and the next key the engine adds would deny every call. A typo costs a missing `breakdown`, which the model sees. Scott can overrule.
 
 ## Alternatives Considered
 

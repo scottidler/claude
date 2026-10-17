@@ -57,12 +57,22 @@ async function named<T>(method: string, call: Promise<T>): Promise<T> {
     }
 }
 
+// Keys the engine itself puts on a tool.call event (ToolCallReserved, AgentLoop,
+// ToolRequestMeta in the 2.1.302 types). Any other key is model input. A key a
+// later engine adds denies every call until it is listed here, by Scott's ruling.
+const ENGINE_KEYS = new Set(['tool', 'tool_use_id', 'consent', 'agentId', 'requestMeta'])
+const INPUT_KEYS = new Set(['breakdown'])
+
 export const register: Register = (on) => {
     on('session.start', ($, e, next) =>
         $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).then(() => next(e)),
     )
 
     on('tool.call', { tool: 'mcp__self__session' }, async ($, e) => {
+        const unknown = Object.keys(e).filter(k => !ENGINE_KEYS.has(k) && !INPUT_KEYS.has(k))
+        if (unknown.length > 0) {
+            return { deny: 'input: unknown key ' + unknown.map(k => JSON.stringify(k)).join(', ') + '; the only input is "breakdown"' }
+        }
         const asked = (e as { breakdown?: unknown }).breakdown
         if (asked !== undefined && asked !== 'summary' && asked !== 'full') {
             return { deny: 'breakdown: expected "summary" or "full", got ' + JSON.stringify(asked) }
