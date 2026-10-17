@@ -68,15 +68,19 @@ case "$tool" in
   mcp__atlassian__createJiraIssue|mcp__atlassian__editJiraIssue)
     if [ "$tool" = "mcp__atlassian__createJiraIssue" ]; then
       description=$(jq -r '.tool_input.description // "" | if type == "string" then . else tojson end' <<<"$input")
+      project=$(jq -r '.tool_input.projectKey // "" | ascii_upcase' <<<"$input")
     else
       description=$(jq -r '.tool_input.fields.description // "" | if type == "string" then . else tojson end' <<<"$input")
+      project=$(jq -r '.tool_input.issueIdOrKey // "" | ascii_upcase | sub("-[0-9]+$"; "")' <<<"$input")
     fi
-    if grep -qiE "$AC_RE_MCP" <<<"$description"; then
-      deny "Blocked: the description contains an Acceptance Criteria section. Jira Acceptance Criteria live in $AC_FIELD, not the description. $FIX_MCP"
+    # Only projects whose screens carry the field (JIRA_AC_PROJECTS) get the
+    # section denied. Elsewhere the field is not on the screen, so the
+    # description section is the only visible place (BAOP, verified 2026-10-15).
+    if ac_project "$project" && grep -qiE "$AC_RE_MCP" <<<"$description"; then
+      deny "Blocked: the description contains an Acceptance Criteria section. In $project, Jira Acceptance Criteria live in $AC_FIELD, not the description. $FIX_MCP"
     fi
     if [ "$tool" = "mcp__atlassian__createJiraIssue" ]; then
       ac=$(jq -r --arg f "$AC_FIELD" '.tool_input.additional_fields // {} | (.[$f] // .["Acceptance Criteria"] // "") | if type == "string" then . else tojson end' <<<"$input")
-      project=$(jq -r '.tool_input.projectKey // "" | ascii_upcase' <<<"$input")
       issue_type=$(jq -r '.tool_input.issueTypeName // "" | ascii_downcase' <<<"$input")
       if needs_ac "$project" "$issue_type" && [ -z "$(tr -d '[:space:]' <<<"$ac")" ]; then
         deny "Blocked: a $project ${issue_type^} needs Acceptance Criteria in $AC_FIELD, and it is empty. $FIX_MCP"
