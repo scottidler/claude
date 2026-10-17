@@ -94,6 +94,12 @@ def main():
     tool_input = event.get("tool_input") or {}
     command = tool_input.get("command")
     log(f"event={event.get('hook_event_name')} tool={event.get('tool_name')} command={command!r}")
+    # Registered in ~/.gemini/settings.json (user tier: gemini skips a non-root
+    # system-defaults file), so it fires for every gemini session; only the
+    # architect seat, which script.sh marks with ARCHITECT_PATHGLOB=1, is rewritten.
+    if os.environ.get("ARCHITECT_PATHGLOB") != "1":
+        print("{}")
+        return
     if event.get("tool_name") != "run_shell_command" or not isinstance(command, str):
         print("{}")
         return

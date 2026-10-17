@@ -219,15 +219,16 @@ preserve_trace() {
 # non-zero return aborted the script at the call site and NOTHING after it ran.
 # The caller got a banner-only file and no diagnostic: precisely the failure this
 # script exists to prevent. The CALLER owns errexit around this call.
-# GEMINI_CLI_SYSTEM_DEFAULTS_PATH=settings.json: loads the pathglob.py BeforeTool
-# hook for this seat only (lowest settings tier, so ~/.gemini/settings.json and
-# interactive gemini are untouched). gemini-cli treats every shell output as
-# untrusted and, after the policy allows a command, denies it headless when a
-# path argument equals a word from an earlier output; the hook re-spells path
-# arguments as single-match globs so a path the seat listed stays readable.
-# Root cause, repro, and the guard it narrows are in pathglob.py's docstring.
+# ARCHITECT_PATHGLOB=1: switches on the pathglob.py BeforeTool hook, which is
+# registered in ~/.gemini/settings.json and is a no-op without this variable.
+# gemini-cli treats every shell output as untrusted and, after the policy allows
+# a command, denies it headless when a path argument equals a word from an
+# earlier output; the hook re-spells path arguments as single-match globs so a
+# path the seat listed stays readable. It cannot ride GEMINI_CLI_SYSTEM_DEFAULTS_PATH:
+# gemini skips a system settings file that root does not own. Root cause, repro,
+# and the guard it narrows are in pathglob.py's docstring.
 run_attempt() {
-  GEMINI_CLI_SYSTEM_DEFAULTS_PATH="$(realpath "$SCRIPT_DIR")/settings.json" \
+  ARCHITECT_PATHGLOB=1 \
   timeout --kill-after=30s "$WALL_CLOCK" \
     gemini \
     -m gemini-3.1-pro-preview \
