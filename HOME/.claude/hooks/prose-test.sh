@@ -238,15 +238,15 @@ jev_env "$JEV_HIGH" "PROSE_LOG=/proc/prose-test/decisions.jsonl"
 run block "unwritable log never changes a block either" "$(stop_payload "$T_NEITHER" "Done. Want me to run it?")"
 HOOK_ENV=(PROSE_JEV=off)
 
-echo "=== decision ask over 20 lines (rules/interaction.md) ==="
-LONG_REC=$(printf 'The problem\n%s\nRec: A\n' "$(for i in $(seq 1 22); do echo "- bullet $i"; done)")
+echo "=== decision ask over 40 lines (rules/interaction.md) ==="
+LONG_REC=$(printf 'The problem\n%s\nRec: A\n' "$(for i in $(seq 1 42); do echo "- bullet $i"; done)")
 SHORT_REC=$(printf 'The problem\n- one\n- two\n\nA: do it\nB: do not\n\nRec: A\n')
-LONG_Q=$(printf '%s\nWhich one do you want?\n' "$(for i in $(seq 1 22); do echo "- bullet $i"; done)")
-LONG_PLAIN=$(printf '%s\nAll 22 checks are green.\n' "$(for i in $(seq 1 22); do echo "- bullet $i"; done)")
-run block "Rec: line in 25 lines" "$(stop_payload "$T_PARTIAL" "$LONG_REC")"
+LONG_Q=$(printf '%s\nWhich one do you want?\n' "$(for i in $(seq 1 42); do echo "- bullet $i"; done)")
+LONG_PLAIN=$(printf '%s\nAll 42 checks are green.\n' "$(for i in $(seq 1 42); do echo "- bullet $i"; done)")
+run block "Rec: line in 45 lines" "$(stop_payload "$T_PARTIAL" "$LONG_REC")"
 run allow "Rec: line in 8 lines"  "$(stop_payload "$T_PARTIAL" "$SHORT_REC")"
-run block "trailing question in 24 lines" "$(stop_payload "$T_PARTIAL" "$LONG_Q")"
-run allow "24 lines, no Rec: and no trailing question" "$(stop_payload "$T_PARTIAL" "$LONG_PLAIN")"
+run block "trailing question in 44 lines" "$(stop_payload "$T_PARTIAL" "$LONG_Q")"
+run allow "44 lines, no Rec: and no trailing question" "$(stop_payload "$T_PARTIAL" "$LONG_PLAIN")"
 
 echo "=== pass-throughs ==="
 run allow "stop_hook_active true, offending text" \

@@ -21,7 +21,7 @@
 #   offer-closer   the final sentence offers to do more ("Want me to ...")
 #                  AND the last typed prompt was an instruction or a go-ahead
 #                                             (output-styles/edges.md, interaction.md)
-#   decision ask   a "Rec:" line or a trailing question, over 20 lines
+#   decision ask   a "Rec:" line or a trailing question, over 40 lines
 #                                                              (rules/interaction.md)
 #
 # INSTRUCTION TEST (offer rule only, asked only after the offer regex matched):
@@ -340,10 +340,10 @@ fi
 
 # ---- rule 3: oversized decision ask --------------------------------------
 lines=$(printf '%s\n' "$text" | wc -l)
-if [ "$lines" -gt 20 ]; then
+if [ "$lines" -gt 40 ]; then
   last_ne=$(printf '%s\n' "$text" | grep -v '^[[:space:]]*$' | tail -n1)
   if printf '%s\n' "$text" | grep -Eq '^[[:space:]]*Rec:' || printf '%s' "$last_ne" | grep -q '?[[:space:]]*$'; then
-    block "decision ask in $lines lines, over the 20-line limit (rules/interaction.md): \"$(head_chars "$last_ne" 200)\". A decision ask is the ENTIRE message: The problem (3-4 bullets naming symbol and file:line), one line naming the decision, each option a label plus 2-3 bullets of about 10 words, close with Rec: X. Nothing above The problem, nothing below Rec. Cut the bullets that do not change which option he picks and reply again."
+    block "decision ask in $lines lines, over the 40-line limit (rules/interaction.md): \"$(head_chars "$last_ne" 200)\". A decision ask is the ENTIRE message: The problem (3-4 bullets naming symbol and file:line), one line naming the decision, each option a label plus 2-3 bullets of about 10 words, close with Rec: X. Nothing above The problem, nothing below Rec. Cut the bullets that do not change which option he picks and reply again."
   fi
 fi
 
