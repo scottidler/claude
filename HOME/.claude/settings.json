@@ -741,7 +741,7 @@
       "/home/saidler/.config"
     ]
   },
-  "model": "fable",
+  "model": "opus",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
