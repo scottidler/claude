@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { readSeat } from '../hooks/index'
 
 const TOOL = 'mcp__session__info'
 const SESSION = '6a932ade-8d54-4b60-8795-207c6b659279'
@@ -23,6 +24,9 @@ type World = {
     repo: { root: string; remote: string | null; internal: boolean; name: string | null } | null
     failing: string | null
     withBreakdown: boolean
+    probe: string
+    nowMs: number
+    probes: number
 }
 
 const BREAKDOWN = {
@@ -35,6 +39,7 @@ const BREAKDOWN = {
 function world(on: On): World {
     const w: World = {
         registered: [], usageAsked: [], failing: null, withBreakdown: true,
+        probe: 'H ripr\nL pts/0 1792197392\nR 10.10.10.13 ltl-7007.lan\n', nowMs: 1792239458000, probes: 0,
         repo: { root: '/r', remote: 'https://x@host/o/r.git', internal: false, name: null },
     }
         on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -44,6 +49,12 @@ function world(on: On): World {
     on('session.root', () => ({ value: '/r' }))
     on('session.repo', () => ({ value: w.repo }))
     on('session.turns', () => ({ value: 4 }))
+    on('clock.now', () => ({ value: w.nowMs }))
+    on('prompt.submit', ($, e) => ({ text: e.text }))
+    on('process.run', () => {
+        w.probes += 1
+        return { value: { exitCode: 0, stdout: w.probe, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    })
     on('session.usage', ($, e) => {
         if (w.failing === 'usage') { return { deny: 'forced usage' } }
         const asked = (e as { breakdown?: string }).breakdown
@@ -161,5 +172,50 @@ describe('session: mcp__session__info', () => {
         const r = facts(await $.tool.call({ tool: TOOL }))
         expect(r.startedAt).toBe('2026-10-16T12:30:45.123Z')
         expect(r.startedAt).toBe(new Date(STARTED_MS).toISOString())
+    })
+
+    test('seat is null before any prompt, with the peers attached now', async ($, on) => {
+        world(on)
+        const r = facts(await $.tool.call({ tool: TOOL }))
+        expect(r.seat).toEqual({
+            host: 'ripr', promptTypedOnHost: null, promptAt: null,
+            remotePeers: [{ ip: '10.10.10.13', host: 'ltl-7007.lan' }],
+        })
+    })
+
+    test('a prompt typed over SSH reads promptTypedOnHost false', async ($, on) => {
+        const w = world(on)
+        await $.prompt.submit({ text: 'hi' })
+        expect(w.probes).toBe(1)
+        const r = facts(await $.tool.call({ tool: TOOL }))
+        expect(r.seat.promptTypedOnHost).toBe(false)
+        expect(r.seat.promptAt).toBe(new Date(w.nowMs).toISOString())
+    })
+
+    test('a prompt typed at the local terminal reads promptTypedOnHost true', async ($, on) => {
+        const w = world(on)
+        w.probe = 'H ripr\nL pts/0 1792239452\nR 10.10.10.13 ltl-7007.lan\n'
+        await $.prompt.submit({ text: 'hi' })
+        w.probe = 'H ripr\nL pts/0 1792239452\n'
+        const r = facts(await $.tool.call({ tool: TOOL }))
+        expect(r.seat.promptTypedOnHost).toBe(true)
+        expect(r.seat.remotePeers).toEqual([])
+    })
+})
+
+describe('session: readSeat', () => {
+    const SUBMIT_MS = 1792239458500
+
+    test('an atime up to 9 s before submit counts as typed here', () => {
+        expect(readSeat('H ripr\nL pts/0 1792239449\n', SUBMIT_MS).promptTypedOnHost).toBe(true)
+        expect(readSeat('H ripr\nL pts/0 1792239448\n', SUBMIT_MS).promptTypedOnHost).toBe(null)
+    })
+
+    test('an atime after submit does not count', () => {
+        expect(readSeat('H ripr\nL pts/0 1792239461\nR 10.0.0.1\n', SUBMIT_MS).promptTypedOnHost).toBe(false)
+    })
+
+    test('a peer with no name keeps host null', () => {
+        expect(readSeat('H ripr\nR 10.0.0.1\n', null).remotePeers).toEqual([{ ip: '10.0.0.1', host: null }])
     })
 })

@@ -198,6 +198,29 @@ Rulings:
 - 2026-10-17, Scott ("fold everything in"), superseding the author's call below: unknown input keys are denied, naming the key. The allowlist is the engine's own keys from the 2.1.302 types (`tool`, `tool_use_id`, `consent`, `agentId`, `requestMeta`) plus `breakdown`. A key a later engine adds denies every call with a message naming it, until it is listed in `index.ts:ENGINE_KEYS`. Test 11, `denies an unknown input key`.
 - 2026-10-17, author, from the implementation audit (`~/.cache/review-panel/runs/mWGXuphR/synthesis.md`), SUPERSEDED above: unknown input keys (`{"breakdwon":"full"}`) are accepted, not denied. The engine puts its own keys flat on the same event (`tool`, `tool_use_id`, `agentId`), so rejecting unknown keys needs an allowlist of engine keys, and the next key the engine adds would deny every call. A typo costs a missing `breakdown`, which the model sees. Scott can overrule.
 
+## Addendum: `seat` (2026-10-17, Scott)
+
+Scott asked: "can we add a field that can tell the agent ... when I am physically on ripr.lan vs not", then "are you sure there is no way to query and tell ... deterministically?", then "build it". The case behind it: an agent ran `wl-copy` on ripr while Scott was on lappy over SSH, so nothing reached his clipboard.
+
+- **Why the environment cannot tell:** every agent runs in a `herdr server` pane and inherits the server's environment. `SSH_CONNECTION` is empty either way. Two herdr clients can be attached at once: a local `herdr` in ptyxis (`/dev/pts/0`) and a `herdr remote-client-bridge` under `sshd-session`. `herdr api snapshot` and `herdr api schema --json` expose no client identity.
+- **The signal:** the kernel stamps a terminal's atime when it reads a keystroke (what `w` shows as IDLE). A keystroke typed on lappy reaches herdr through the SSH bridge and never touches a local terminal.
+- **Shape:** `seat: { host, promptTypedOnHost: true | false | null, promptAt, remotePeers: [{ ip, host }] }`.
+- **Mechanics:**
+  - A `prompt.submit` hook records `$.clock.now()` and runs the probe while the keystroke is fresh. Prompts with `isMeta` are skipped.
+  - The probe is `sh -c`, run through `$.process.run`. It lists herdr clients not inside a herdr pane. For each one, a remote logind session (`loginctl show-session -p Remote,RemoteHost`, from the `session-N.scope` cgroup) prints a peer; otherwise the client's terminal atime is printed. Outside herdr, it reports this session's own process instead.
+  - `true` means a local terminal's atime is within `[submit - 9 s, submit + 1 s]`, where 9 s covers the kernel's 8-second atime step (`tty_update_time`). Otherwise `false` when a remote peer is attached, else `null`.
+  - `remotePeers` is re-read at each call, because who is attached can change mid-turn.
+- **No reading other processes' environments:** a guard hook denies that, since they hold secrets. The peer comes from logind instead.
+- **Limits:**
+  - A prompt not typed at any keyboard (a `claude -p` run, herdr `pane.send_input`) reads `false` whenever a remote peer is attached.
+  - A hot reload resets `promptTypedOnHost` to `null` until the next prompt.
+- **Acceptance:**
+  - [x] `claude plugin test HOME/.claude/skills/session`: 17 pass, 0 fail. The 6 new tests cover null-before-prompt, an SSH prompt, a local prompt, the 9 s slack edges, an atime after submit, and an unnamed peer.
+    - Observed: `17 pass / 0 fail`.
+  - [x] Live run (`claude -p --plugin-dir`, prompt sent from a pane while Scott was on lappy) returns `promptTypedOnHost: false` and peer `10.10.10.13` / `ltl-7007.lan`.
+    - Observed: `{"host":"ripr","promptTypedOnHost":false,"promptAt":"2026-10-17T12:25:14.910Z","remotePeers":[{"ip":"10.10.10.13","host":"ltl-7007.lan"}]}`.
+  - [ ] A prompt typed on ripr's keyboard returns `promptTypedOnHost: true`. Not yet verified: it needs Scott at ripr.
+
 ## Alternatives Considered
 
 ### Alternative 1: One tool per fact

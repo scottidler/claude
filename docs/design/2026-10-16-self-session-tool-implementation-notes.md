@@ -101,3 +101,21 @@ None.
 
 ### Open questions
 None.
+
+## Addendum: `seat` (Scott, 2026-10-17)
+
+### Design decisions
+- Probe at `prompt.submit`, not at the call (`hooks/index.ts` `register`): the call can come long after submit, and a later keystroke on ripr would read as the prompt's.
+- Remote peers come from logind (`loginctl show-session`), keyed off the bridge's `session-N.scope` cgroup. `sshd-session`'s fds are unreadable (non-dumpable), so `/proc/net/tcp` inode matching could not map the bridge to its socket.
+- A herdr process inside a pane is excluded by ancestry: it descends from `herdr server`. That avoids reading `HERDR_ENV` from another process's environment, which a guard hook denies.
+- The probe is `String.raw` with no `${`, so its sed backslashes reach `sh` unchanged.
+
+### Deviations
+None (new scope, added as a doc addendum).
+
+### Tradeoffs
+- tty atime vs GNOME idle time (`org.gnome.Mutter.IdleMonitor`): atime is checked per prompt with no threshold, while idle time needs a guessed window. Idle time was proposed first and replaced after Scott asked for a deterministic check.
+- The `prompt.submit` hook has no `.catch`: a failing probe is skipped and the prompt goes on, the right default for an observer.
+
+### Open questions
+- The positive case (prompt typed on ripr reads `true`) is unverified until Scott types one at ripr.

@@ -7,6 +7,14 @@ import type { Register, SessionContextBreakdown } from 'claude-code'
  * (Phase 0 (b), docs/design/2026-10-16-self-session-tool.md). Core does not
  * enforce the input schema either (Phase 0 (g)), so `breakdown` is re-checked
  * here and an unknown value is denied.
+ *
+ * `seat` says whether the latest prompt was typed at this host's own keyboard.
+ * Under herdr every pane inherits the server's environment, so SSH_CONNECTION
+ * cannot tell. The kernel stamps a terminal's atime when it reads a keystroke
+ * (what `w` shows as IDLE), so a local herdr client whose terminal was read at
+ * submit time means the prompt was typed here. A remote attach arrives through
+ * `herdr remote-client-bridge` in an sshd login session and reads no local
+ * terminal.
  */
 
 const TOOL = 'info'
@@ -16,7 +24,9 @@ const DESCRIPTION = "This session's id, cwd, project root, git repo, context-win
     + 'Pass breakdown (summary: local estimate, free | full: counted like /context, slower) for the per-category split; '
     + 'its percentage is against the compaction window. '
     + "From a subagent, context figures are the main conversation's. "
-    + 'costUsd leaves out the response that made this call: it is priced only once that response ends.'
+    + 'costUsd leaves out the response that made this call: it is priced only once that response ends. '
+    + "seat.promptTypedOnHost: true when the latest prompt was typed at seat.host's own keyboard, "
+    + 'false when it came over SSH (seat.remotePeers: who is attached that way now), null when unknown.'
 
 const INPUT_SCHEMA = {
     type: 'object',
@@ -41,6 +51,66 @@ export type SessionFacts = {
     costUsd?: number
     turns: number
     startedAt: string
+    seat: Seat
+}
+
+export type Seat = {
+    host: string
+    promptTypedOnHost: boolean | null
+    promptAt: string | null
+    remotePeers: { ip: string; host: string | null }[]
+}
+
+// Prints `H <hostname>`, then per client `L <tty> <atime s>` when it sits on a
+// local terminal or `R <ip> [<name>]` when its logind session is remote. The
+// clients are herdr's when this session runs in a herdr pane (skipping herdr
+// processes inside panes), else this session's own process.
+const SEAT_PROBE = String.raw`echo "H $(hostname)"
+under() { q=$1; while [ "$q" -gt 1 ] 2>/dev/null; do [ "$q" = "$2" ] && return 0; q=$(ps -o ppid= -p "$q" | tr -d ' '); done; return 1; }
+seat() {
+    s=$(sed -n 's/.*session-\([^./]*\)\.scope.*/\1/p' /proc/$1/cgroup)
+    if [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Remote --value)" = yes ]; then
+        ip=$(loginctl show-session "$s" -p RemoteHost --value)
+        echo "R $ip $(getent hosts "$ip" | awk '{print $2}')"
+        return
+    fi
+    t=$(ps -o tty= -p $1 | tr -d ' ')
+    [ -n "$t" ] && [ "$t" != "?" ] && echo "L $t $(stat -c %X /dev/$t)"
+}
+server=$(pgrep -fx '.*herdr server' | head -1)
+if [ -z "$server" ] || ! under $PPID "$server"; then seat $PPID; exit 0; fi
+for p in $(pgrep -x herdr); do
+    [ "$p" = "$server" ] || under "$p" "$server" || seat "$p"
+done
+`
+
+// The kernel moves a terminal's atime once per 8-second window
+// (tty_update_time), so a keystroke at submit can read up to 8 s stale.
+const ATIME_SLACK_S = 9
+
+/** Reads the probe's lines against the prompt's submit time. */
+export function readSeat(stdout: string, promptAtMs: number | null): Seat {
+    const seat: Seat = { host: '', promptTypedOnHost: null, promptAt: null, remotePeers: [] }
+    const atimes: number[] = []
+    for (const line of stdout.split('\n')) {
+        const [kind, a, b] = line.trim().split(/\s+/)
+        if (kind === 'H' && a !== undefined) { seat.host = a }
+        if (kind === 'L' && b !== undefined && /^\d+$/.test(b)) { atimes.push(Number(b)) }
+        if (kind === 'R' && a !== undefined) { seat.remotePeers.push({ ip: a, host: b ?? null }) }
+    }
+    if (promptAtMs === null) { return seat }
+    seat.promptAt = new Date(promptAtMs).toISOString()
+    const submitS = Math.floor(promptAtMs / 1000)
+    if (atimes.some(t => t >= submitS - ATIME_SLACK_S && t <= submitS + 1)) {
+        seat.promptTypedOnHost = true
+    } else if (seat.remotePeers.length > 0) {
+        seat.promptTypedOnHost = false
+    }
+    return seat
+}
+
+function probeSeat($: { process: { run: (argv: readonly string[], init?: { timeoutMs?: number }) => Promise<{ stdout: string }> } }): Promise<string> {
+    return $.process.run(['sh', '-c', SEAT_PROBE], { timeoutMs: 5000 }).then(r => r.stdout)
 }
 
 /** `https://tok@host/x` -> `https://host/x`: a remote URL can carry a token in its userinfo. */
@@ -64,6 +134,21 @@ const ENGINE_KEYS = new Set(['tool', 'tool_use_id', 'consent', 'agentId', 'reque
 const INPUT_KEYS = new Set(['breakdown'])
 
 export const register: Register = (on) => {
+    // The probe runs at submit, while the keystroke's atime is fresh. A reload
+    // starts this over, so the seat reads null until the next prompt.
+    let prompt: { atMs: number; probe: string } | null = null
+
+    on('prompt.submit', async ($, e, next) => {
+        if (e.isMeta !== true) {
+            try {
+                prompt = { atMs: await $.clock.now(), probe: await probeSeat($) }
+            } catch {
+                prompt = null
+            }
+        }
+        return next(e)
+    })
+
     on('session.start', ($, e, next) =>
         $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).then(() => next(e)),
     )
@@ -79,6 +164,7 @@ export const register: Register = (on) => {
         }
         const breakdown = asked as Breakdown | undefined
 
+        const now = probeSeat($).catch(() => '')
         let read
         try {
             read = await Promise.all([
@@ -112,7 +198,10 @@ export const register: Register = (on) => {
             context,
             turns,
             startedAt: new Date(usage.startedAt).toISOString(),
+            seat: readSeat(prompt?.probe ?? await now, prompt?.atMs ?? null),
         }
+        // Who is attached is read now, not at submit: it can change mid-turn.
+        facts.seat.remotePeers = readSeat(await now, null).remotePeers
         const agentId = (e as { agentId?: string }).agentId
         if (agentId !== undefined) { facts.agentId = agentId }
         if (usage.cost?.usd !== undefined) { facts.costUsd = usage.cost.usd }
