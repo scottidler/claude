@@ -2,7 +2,7 @@
 
 **Author:** Scott Idler
 **Date:** 2026-10-16
-**Status:** In Review (panel round 1 folded, nothing open)
+**Status:** Implemented
 **Review Passes Completed:** 5/5
 
 ## Summary
@@ -174,14 +174,18 @@ Rulings:
 
 ## Acceptance Criteria
 
-- [ ] **AC1:** `claude plugin validate --strict HOME/.claude/skills/self` exits 0, and its hooks line lists `session.start` and `tool.call{tool=mcp__self__session}`.
+- [x] **AC1:** `claude plugin validate --strict HOME/.claude/skills/self` exits 0, and its hooks line lists `session.start` and `tool.call{tool=mcp__self__session}`.
   - Observed on main (`8af68b7`, CC 2.1.302): `File not found: .../HOME/.claude/skills/self`, `✘ Validation failed`, rc=1. Expected: the folder ships in Phase 1. The format holds: on the same export, `rails` prints `./index.ts hooks: ..., tool.call{tool=Bash}, ...`.
-- [ ] **AC2:** `claude plugin test HOME/.claude/skills/self` exits 0, with the 10 tests named in Phase 1 passing.
+  - Observed after Phase 1: `claude plugin validate --strict HOME/.claude/skills/self` rc=0; `./index.ts hooks: session.start, tool.call{tool=mcp__self__session}`, `./index.ts gating hook with .catch: tool.call{tool=mcp__self__session}`, `✔ Validation passed`. (The matcher must be a literal in `index.ts`: a `const` concatenation printed `tool=?`.)
+- [x] **AC2:** `claude plugin test HOME/.claude/skills/self` exits 0, with the 10 tests named in Phase 1 passing.
   - Observed on main: `claude plugin test: .../HOME/.claude/skills/self: no such plugin folder`, rc=1. Expected before Phase 1.
-- [ ] **AC3:** From a scratch dir, `claude -p --model haiku --output-format stream-json --verbose`, asked to call `mcp__self__session` and print only `sessionId`, prints exactly the `init` event's `session_id`.
+  - Observed after Phase 1: rc=0, `10 pass`, `0 fail`, `Ran 10 tests across 1 file`; the 10 names are those listed in Phase 1.
+- [x] **AC3:** From a scratch dir, `claude -p --model haiku --output-format stream-json --verbose`, asked to call `mcp__self__session` and print only `sessionId`, prints exactly the `init` event's `session_id`.
   - Observed on main: `init session_id ee084e1c-3280-410a-97de-ac67093b5ca9`, `self tool listed: False`, result `NO-TOOL`, rc=0. The probe harness works; the tool is absent, as expected before Phase 1.
-- [ ] **AC4:** `otto ci` in `scottidler/claude` exits 0, with `rg -c 'skills/self' .otto.yml` printing exactly `4` (lines: the index.ts lint entry, the test lint entry, `claude plugin test`, `claude plugin validate --strict`).
+  - Observed after Phase 1: from `$TMPDIR/ac3`, init `session_id 79dbf03a-179b-4a21-b053-5a4737b7daf2`, `self tool listed: True`, tool result `{"sessionId":"79dbf03a-179b-4a21-b053-5a4737b7daf2","cwd":"/tmp/claude-1000/ac3","root":"/tmp/claude-1000/ac3","repo":null,"context":{"window":1000000,"tokens":34473,"percent":3},"turns":1,"startedAt":"2026-10-17T04:11:49.239Z","costUsd":0}`, model's final text `79dbf03a-179b-4a21-b053-5a4737b7daf2`, rc=0. Exact match.
+- [x] **AC4:** `otto ci` in `scottidler/claude` exits 0, with `rg -c 'skills/self' .otto.yml` printing exactly `4` (lines: the index.ts lint entry, the test lint entry, `claude plugin test`, `claude plugin validate --strict`).
   - Observed on main (`8af68b7`, detached worktree): `[ci] ✅ All CI checks passed!`, rc=0. `rg -c 'skills/self' .otto.yml` prints nothing, rc=1 (zero matching lines). Expected before Phase 1: CI is green today and the self lines don't exist yet. Note: a `git archive` export fails lint with `fatal: not a git repository`, so run this on a git checkout.
+  - Observed after Phase 1: `otto ci` rc=0, `[ci] ✅ All CI checks passed!`; `rg -c 'skills/self' .otto.yml` prints `4`.
 
 ## Resolved Decisions
 

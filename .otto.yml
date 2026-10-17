@@ -24,6 +24,8 @@ tasks:
         HOME/.claude/skills/rails/hooks/rules.spec.ts
         HOME/.claude/skills/rails/tests/routing.test.ts
         HOME/.claude/skills/rails/types/index.d.ts
+        HOME/.claude/skills/self/hooks/index.ts
+        HOME/.claude/skills/self/tests/session.test.ts
         HOME/repos/.claude/rules/git.md
         HOME/repos/.claude/refs/cli.md
         HOME/repos/.claude/refs/process-taste.md
@@ -183,6 +185,10 @@ tasks:
       # The engine's own loader rules (imports, manifest schema); bun cannot see them.
       echo "=== claude plugin validate --strict rails ==="
       claude plugin validate --strict HOME/.claude/skills/rails
+      echo "=== claude plugin test self ==="
+      claude plugin test HOME/.claude/skills/self
+      echo "=== claude plugin validate --strict self ==="
+      claude plugin validate --strict HOME/.claude/skills/self
 
   ci:
     help: "Full CI pipeline (lint + test)"
