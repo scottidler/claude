@@ -68,13 +68,13 @@ The `env GH_TOKEN="$TOKEN"` prefix is **load-bearing**: an ambient `GH_TOKEN` is
 cd ~/repos && clone <owner>/<name>
 ```
 
-**Layout:** `clone` defaults to **bare layout** — it creates a bare container at `~/repos/<owner>/<name>/` (holding `.bare/`) and checks out each branch as a nested worktree. So the working copy you edit is at **`~/repos/<owner>/<name>/main`**, not the container directory itself. `cd` there to start working:
+**Layout:** `clone` produces a **normal flat checkout** at **`~/repos/<owner>/<name>`** (a regular `.git/` directory, `main` checked out in place). This is the default and what this skill delivers. Do NOT convert it to a bare container (`worktree init` / `worktree migrate`) unless the user explicitly asks for the bare-worktree layout. `cd` there to start working:
 
 ```bash
-cd ~/repos/<owner>/<name>/main
+cd ~/repos/<owner>/<name>
 ```
 
-The worktree now holds the README, `.gitignore`, and (if added) `LICENSE` on `main` from the `Initial commit` — ready to go.
+The checkout now holds the README, `.gitignore`, and (if added) `LICENSE` on `main` from the `Initial commit`, ready to go.
 
 ## Examples
 
@@ -82,25 +82,25 @@ The worktree now holds the README, `.gitignore`, and (if added) `LICENSE` on `ma
 ```
 /create-repo mytool --description "A tool that does things"
 ```
-→ creates **public** `github.com/scottidler/mytool` (README, Rust `.gitignore`, MIT LICENSE in first commit) → worktree at `~/repos/scottidler/mytool/main`
+→ creates **public** `github.com/scottidler/mytool` (README, Rust `.gitignore`, MIT LICENSE in first commit) → checkout at `~/repos/scottidler/mytool`
 
 **Work Python repo — private + no license by default (`tatari-tv` slug → work):**
 ```
 /create-repo tatari-tv/data-pipeline --lang Python
 ```
-→ creates **private** `github.com/tatari-tv/data-pipeline` (README, Python `.gitignore`, no LICENSE) → worktree at `~/repos/tatari-tv/data-pipeline/main`
+→ creates **private** `github.com/tatari-tv/data-pipeline` (README, Python `.gitignore`, no LICENSE) → checkout at `~/repos/tatari-tv/data-pipeline`
 
 **Personal repo, kept private (override the public default), README only:**
 ```
 /create-repo notes --private --lang none
 ```
-→ creates **private** `github.com/scottidler/notes` (README + MIT only) → worktree at `~/repos/scottidler/notes/main`
+→ creates **private** `github.com/scottidler/notes` (README + MIT only) → checkout at `~/repos/scottidler/notes`
 
 **Work repo published publicly (override the private default):**
 ```
 /create-repo tatari-tv/public-sdk --public --lang Go
 ```
-→ creates **public** `github.com/tatari-tv/public-sdk` (README, Go `.gitignore`, no LICENSE) → worktree at `~/repos/tatari-tv/public-sdk/main`
+→ creates **public** `github.com/tatari-tv/public-sdk` (README, Go `.gitignore`, no LICENSE) → checkout at `~/repos/tatari-tv/public-sdk`
 
 ## Relationship to other skills
 
