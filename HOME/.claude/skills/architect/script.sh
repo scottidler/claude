@@ -276,6 +276,14 @@ while :; do
   attempt=$((attempt + 1))
 done
 
+# gemini's untrusted-context guard denies with a bare "Tool execution denied by
+# policy." and the seat carries on blind. pathglob.py narrows the guard; any
+# denial left is counted here so it is never silent.
+DENIED=$(jq -Rr 'fromjson? | select(.type=="tool_result" and .error.type=="policy_violation") | .tool_id' "$TRACE" 2>/dev/null | wc -l)
+if [ "$DENIED" -gt 0 ]; then
+  echo "architect: warning: $DENIED tool call(s) denied by gemini's policy guard (see pathglob.py)." >&2
+fi
+
 if [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; then
   echo "error: gemini exceeded the ${WALL_CLOCK} wall-clock limit and was killed. No complete review." >&2
   echo "       Over 10m means it hung, not that it's slow. Retry rather than waiting longer." >&2
