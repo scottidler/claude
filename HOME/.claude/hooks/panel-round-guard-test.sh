@@ -63,6 +63,12 @@ run() { # run <expect deny|allow> <label> <prompt> [<want substring in the reaso
   if [ -z "$out" ]; then
     decision="allow"
     reason=""
+    # An allowed dispatch runs, so Claude Code fires PostToolUse, which is what
+    # records the round. NO_POST=1 models a dispatch denied after this hook
+    # (the auto-mode classifier), which never reaches PostToolUse.
+    [ -n "${NO_POST:-}" ] || jq -n --arg s "$SUB" --arg p "$prompt" --arg d "$REPO" \
+      '{hook_event_name:"PostToolUse",tool_name:"Agent",tool_input:{subagent_type:$s,prompt:$p},cwd:$d}' \
+      | bash "$HOOK" >/dev/null 2>&1
   else
     decision=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "malformed"')
     reason=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
@@ -112,6 +118,11 @@ check 'entry name is a sha256' 64 "${#entry}"
 check 'entry carries path=' "path=$ALPHA" "$(sed -n '1p' "$CACHE/$entry")"
 check 'entry carries mode=' 'mode=1' "$(sed -n '2p' "$CACHE/$entry")"
 check 'entry carries rounds=' 'rounds=3' "$(sed -n '3p' "$CACHE/$entry")"
+
+echo "=== a dispatch that never reaches PostToolUse leaves no counter ==="
+NO_POST=1 run allow 'beta denied after the hook, attempt 1' "Design Review of $BETA"
+NO_POST=1 run allow 'beta denied after the hook, attempt 2' "Design Review of $BETA"
+check 'still one entry: beta was never counted' 1 "$(ls "$CACHE" | wc -l)"
 
 echo "=== two docs are counted independently (AC6) ==="
 run allow 'beta round 1 while alpha is capped' "Design Review of $BETA"
@@ -298,7 +309,7 @@ rel_payload=$(jq -n --arg s "$SUB" --arg p "Design Review of $ALPHA" --arg d "$R
 REL_HOME="$ROOT/relhome"
 mkdir -p "$REL_HOME"
 rel_out=$( cd "$REL_WORK" \
-  && printf '%s' "$rel_payload" \
+  && printf '%s' "$rel_payload" | jq -c '.hook_event_name = "PostToolUse"' \
   | HOME="$REL_HOME" PANEL_ROUND_CACHE_DIR=relbin bash "$HOOK" 2>&1 >/dev/null )
 check 'the refusal fell back under the redirected HOME' 1 \
   "$(find "$REL_HOME" -type f | wc -l)"

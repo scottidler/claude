@@ -988,6 +988,15 @@
             "command": "~/.claude/hooks/slack-post-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/panel-round-guard.sh"
+          }
+        ]
       }
     ],
     "Stop": [

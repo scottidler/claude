@@ -63,6 +63,14 @@
 # line each, outside fences. Scott's door counts as a reason. The cap stops
 # overruns; the gate stops rounds with no job. See the gate's own comment below.
 #
+# COUNT ON POSTTOOLUSE (2026-10-17): the same script is registered twice. On
+# PreToolUse it only CHECKS the cap and the reason gate; on PostToolUse(Agent),
+# which fires only for a dispatch that actually ran, it INCREMENTS. Counting at
+# PreToolUse charged rounds that never happened: hooks run before the auto-mode
+# classifier, so two dispatches the classifier denied on
+# second-brain/docs/design/2026-10-17-claim-judge-full-source.md left the counter
+# at 3 after one real round, and the 4th dispatch was capped.
+#
 # Debug: PANEL_ROUND_GUARD_DEBUG=1 traces every decision to stderr.
 #
 # Emits a PreToolUse "deny" decision (with a reason Claude sees), or nothing.
@@ -233,6 +241,22 @@ if [ -f "$entry" ]; then
   case "$rounds" in ''|*[!0-9]*) rounds=0 ;; esac
 fi
 
+# PostToolUse: the dispatch ran, so this is where the round is recorded. No cap
+# or reason check here; PreToolUse already decided, and this event cannot block.
+# A cache directory that cannot be created or written costs the count, never
+# the dispatch.
+event=$(printf '%s' "$input" | jq -r '.hook_event_name // "PreToolUse"' 2>/dev/null)
+if [ "$event" = "PostToolUse" ]; then
+  if mkdir -p "$CACHE_DIR" 2>/dev/null; then
+    printf 'path=%s\nmode=%s\nrounds=%s\n' "$doc" "$mode" "$((rounds + 1))" > "$entry" 2>/dev/null \
+      || warn "could not write the counter at $entry; this round is uncounted"
+  else
+    warn "could not create the counter directory $CACHE_DIR; this round is uncounted"
+  fi
+  log "recorded: round $((rounds + 1)) on $doc (mode $mode)"
+  exit 0
+fi
+
 # The door: a nonblank line of its own, nothing else on it. See the header for
 # why a word-boundary match anywhere in the prompt is a defect and not a
 # simplification. A trailing CR is stripped so a CRLF prompt is not a silent
@@ -305,14 +329,7 @@ if [ "$this_round" -gt "$cap" ]; then
     "Counter: $shown ($rounds rounds recorded)")"
 fi
 
-# Increment on allow, and only here. A cache directory that cannot be created
-# or written costs the count, never the dispatch.
-if mkdir -p "$CACHE_DIR" 2>/dev/null; then
-  printf 'path=%s\nmode=%s\nrounds=%s\n' "$doc" "$mode" "$this_round" > "$entry" 2>/dev/null \
-    || warn "could not write the counter at $entry; this round is uncounted"
-else
-  warn "could not create the counter directory $CACHE_DIR; this round is uncounted"
-fi
-
-log "allow: round $this_round of $cap recorded"
+# Allow without counting: the PostToolUse branch above records the round once
+# the dispatch has actually run.
+log "allow: round $this_round of $cap (recorded on PostToolUse)"
 exit 0
