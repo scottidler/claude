@@ -125,10 +125,10 @@ These are the bug classes that recurred across every Rust code review (otto, loo
   - `borg_log.rs` -> `borg/log.rs` (or rethink whether `borg` is already the module)
 - This keeps every .rs filename one word and creates natural module boundaries
 
-### Module style: mod.rs vs Rust 2018
+### Module style: Rust 2018, never mod.rs
 - Use the **Rust 2018+ style** throughout: the module entry point is `foo.rs`, submodules live in `foo/` alongside it
-- Never write a `mod.rs`, and never mix styles in one crate. The one exception is `tests/common/mod.rs`, Cargo's convention for shared integration-test helpers (a `tests/common.rs` compiles as its own test target)
-- The pre-2018 `mod.rs` style is valid but creates "sea of `mod.rs` tabs" confusion in editors; migrating away from it is a tree-wide mechanical pass, never mixed into a feature or decomposition refactor
+- Never write a `mod.rs`. The one exception is `tests/common/mod.rs`, Cargo's convention for shared integration-test helpers (a `tests/common.rs` compiles as its own test target)
+- `mod.rs` makes a "sea of `mod.rs` tabs" in editors. Moving an existing crate off it is its own mechanical commit, never mixed into a feature or decomposition refactor
 - When decomposing a large file `foo.rs` into a module: keep `foo.rs` as the entry point, extract submodules into `foo/*.rs`
 
 ### Variable names
