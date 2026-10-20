@@ -121,13 +121,13 @@ These are the bug classes that recurred across every Rust code review (otto, loo
 - If a genuine split is too large to do right now, the correct outcome is to leave the file over the limit and say so, not to fake compliance. An over-limit file with a recorded reason is honest; a `wc -l`-compliant `include!` pile is a lie told to a linter.
 - No underscores in .rs filenames - every source file should be a single word
 - If a name would be compound, decompose it into a module directory with single-word files inside:
-  - `config_loader.rs` -> `config/mod.rs` + `config/loader.rs`
+  - `config_loader.rs` -> `config.rs` + `config/loader.rs`
   - `borg_log.rs` -> `borg/log.rs` (or rethink whether `borg` is already the module)
 - This keeps every .rs filename one word and creates natural module boundaries
 
 ### Module style: mod.rs vs Rust 2018
 - Use the **Rust 2018+ style** throughout: the module entry point is `foo.rs`, submodules live in `foo/` alongside it
-- Do NOT mix styles within the same codebase - consistency matters more than which style is chosen
+- Never write a `mod.rs`, and never mix styles in one crate. The one exception is `tests/common/mod.rs`, Cargo's convention for shared integration-test helpers (a `tests/common.rs` compiles as its own test target)
 - The pre-2018 `mod.rs` style is valid but creates "sea of `mod.rs` tabs" confusion in editors; migrating away from it is a tree-wide mechanical pass, never mixed into a feature or decomposition refactor
 - When decomposing a large file `foo.rs` into a module: keep `foo.rs` as the entry point, extract submodules into `foo/*.rs`
 

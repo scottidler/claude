@@ -45,8 +45,8 @@ src/
 ├── lib.rs     # Core: all business logic, fully testable
 ├── cli.rs     # Clap structs only
 ├── config.rs  # Config validation, defaults
-└── ports/     # Traits for external dependencies
-    ├── mod.rs
+├── ports.rs   # Traits for external dependencies
+└── ports/
     ├── fs.rs
     └── http.rs
 ```

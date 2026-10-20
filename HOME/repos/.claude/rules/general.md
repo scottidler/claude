@@ -29,7 +29,7 @@ load: always
 - The first word becomes the module/package directory, the second word becomes a single-word file inside it
 - This applies to Rust (.rs) and Python (.py) - see language-specific rules for details
 - Example: instead of `config_loader.py` -> `config/__init__.py` + `config/loader.py`
-- Example: instead of `config_loader.rs` -> `config/mod.rs` + `config/loader.rs`
+- Example: instead of `config_loader.rs` -> `config.rs` + `config/loader.rs` (never `config/mod.rs`; see `rust.md`)
 - If you can't name it in one word, it's probably a module boundary, not a longer filename
 
 ### YAML/JSON/config keys
