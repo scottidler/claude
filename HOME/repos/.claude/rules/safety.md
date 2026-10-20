@@ -23,7 +23,7 @@ load: native
 
 ## Formatting
 
-- NEVER use em dashes (the U+2014 character) in any output. Use a colon, parens, a comma, or split the sentence. Replacements per `rules/voice.md`; pick per site, never a blanket substitution.
+- NEVER use em dashes (the U+2014 character) in any output. Use a colon, parens, a comma, or split the sentence. Replacements per `routed/voice.md`; pick per site, never a blanket substitution.
 - **Scope is everything, and SOURCE CODE IS IN SCOPE.** Documentation, code comments (`//`, `///`, `//!`, `#`, docstrings), string literals, Confluence, Jira, Slack, PR titles and bodies, commit messages, config files, and any external system. There is no code exemption.
   - This used to say "documentation, comments, Confluence, Jira, Slack, or any external system" and left code *implicit*. On 2026-07-30 `tatari-tv/clyde` was measured at **373 em-dash occurrences across 79 `.rs` files**, overwhelmingly in comments: the tree had read the silence as an exemption. Scott's call that day: "yes ammend and kill all em-dashes." Hence the explicit enumeration.
 - **A convention with no lint re-accumulates**, which is why enforcement is a CI check and not this file alone. Repos enforce it in the `.otto.yml` `lint` task:

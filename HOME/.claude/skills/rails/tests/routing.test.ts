@@ -369,7 +369,15 @@ describe('rule routing: placement', () => {
         expect(w.status).toContain('rules: stray.md has triggers but sits in rules/, bulk-loaded')
     })
 
-    test('a rules/ scan that fails is logged and leaves routing on', async ($, on) => {
+    test('a broken load: in rules/ is not reported as triggers (implementation audit round 1)', async ($, on) => {
+        const w = world(on)
+        w.bulk['broken.md'] = "---\nload:\n  bash: ['^(']\n---\n# Broken\n"
+        await prompt($, 'hello')
+        await settled(w)
+        expect(w.logs.some((l) => l.includes('broken.md has triggers'))).toBe(false)
+    })
+
+    test('a rules/ scan that fails is logged and leaves routing on',async ($, on) => {
         const w = world(on)
         w.scanFails = true
         expect((await prompt($, 'push the branch')).context).toEqual([FRAMED['git.md']])
@@ -481,7 +489,24 @@ describe('rule routing: the flush latch', () => {
         expect(w.toolCalls).toEqual([])
     })
 
-    test('rule_routing false flushes all four on the first prompt, with no status line', { options: { rule_routing: false } }, async ($, on) => {
+    test('a routed dir that comes back after a pointer is read at the next carrier (implementation audit round 1)', async ($, on) => {
+        const w = world(on)
+        w.routedUnreadable = true
+        expect((await prompt($, 'hello')).context?.[0]).toContain('rails: the rule router is off (')
+        w.routedUnreadable = false
+        expect((await prompt($, 'again')).context).toEqual(ALL_FOUR)
+    })
+
+    test('the pointer is sent again after a compaction that installs', async ($, on) => {
+        const w = world(on)
+        w.routedUnreadable = true
+        expect((await prompt($, 'hello')).context?.length).toBe(1)
+        expect((await prompt($, 'again')).context).toBeUndefined()
+        await $.session.compact({ trigger: 'auto', messages: SUMMARY } as never)
+        expect((await prompt($, 'after compaction')).context?.[0]).toContain('rails: the rule router is off (')
+    })
+
+    test('rule_routing false flushes all four on the first prompt, with no status line',{ options: { rule_routing: false } }, async ($, on) => {
         const w = world(on)
         expect((await prompt($, 'hello')).context).toEqual(ALL_FOUR)
         expect(w.status).toEqual([])

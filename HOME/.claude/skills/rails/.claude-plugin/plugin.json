@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "rails",
   "version": "0.1.0",
-  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA, rm of anything that cannot be regenerated becomes rkvr rmrf, a pkill -f pattern is bracketed so it cannot kill its own shell, and a rule in ~/repos/.claude/rules whose load: names triggers reaches the model when a trigger fires instead of in the bulk load",
+  "description": "function hooks that keep Bash commands on the rails: gh always runs under an explicit GH_PERSONA, rm of anything that cannot be regenerated becomes rkvr rmrf, a pkill -f pattern is bracketed so it cannot kill its own shell, and each rule in ~/repos/.claude/routed (which nothing else loads) reaches the model when the trigger its load: names fires",
   "types": "./types/index.d.ts",
   "author": {
     "name": "Scott A. Idler",

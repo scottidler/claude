@@ -42,12 +42,15 @@ fi
 # Phase 7 the routed rules live in ~/repos/.claude/routed, which nothing but
 # rails loads: rails not running means they never load. Absent keys mean
 # enabled (plugin.json defaults); only an explicit false warns.
+# The engine reads options under the plugin id (`pluginConfigs["rails@skills-dir"]`,
+# its debug log, CC 2.1.304); the bare name is read too, for older settings.
 rails_down=$(jq -r '
+  def opt(k): [.pluginConfigs["rails@skills-dir"].options[k], .pluginConfigs.rails.options[k]] | any(. == false);
   if .enabledPlugins["rails@skills-dir"] == false then "rails@skills-dir is disabled in enabledPlugins"
-  elif .pluginConfigs.rails.options.enabled == false then "pluginConfigs.rails.options.enabled is false"
+  elif opt("enabled") then "pluginConfigs rails options.enabled is false"
   elif (.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS // "") != "1" then "env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is not \"1\""
   else empty end' "$SETTINGS" 2>/dev/null)
-routing_off=$(jq -r 'if .pluginConfigs.rails.options.rule_routing == false then "pluginConfigs.rails.options.rule_routing is false" else empty end' "$SETTINGS" 2>/dev/null)
+routing_off=$(jq -r 'if [.pluginConfigs["rails@skills-dir"].options.rule_routing, .pluginConfigs.rails.options.rule_routing] | any(. == false) then "pluginConfigs rails options.rule_routing is false" else empty end' "$SETTINGS" 2>/dev/null)
 
 if [ "${#missing[@]}" -gt 0 ]; then
   detail=$(printf '%s; ' "${missing[@]}")
@@ -61,7 +64,7 @@ if [ -n "$rails_down" ]; then
 }hooks-preflight: rails will not run ($rails_down), so git, marquee, otto and voice rules never load: they live in ~/repos/.claude/routed, which only rails reads. fix: enable the rails plugin and set env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS to \"1\"; until then read the rule a task needs from that directory"
 elif [ -n "$routing_off" ]; then
   msg="${msg:+$msg
-}hooks-preflight: rule routing is off ($routing_off), so git, marquee, otto and voice rules are flushed whole into each loop at its first prompt or tool call instead of on trigger. fix: set pluginConfigs.rails.options.rule_routing true"
+}hooks-preflight: rule routing is off ($routing_off), so git, marquee, otto and voice rules are flushed whole into each loop at its first prompt or tool call instead of on trigger. fix: set pluginConfigs[\"rails@skills-dir\"].options.rule_routing true"
 fi
 
 if [ ! -d "$ROUTED_DIR" ]; then

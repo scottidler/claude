@@ -817,6 +817,51 @@ describe('register', () => {
     })
 })
 
+describe('a carrier that throws below rails gives its claims back (implementation audit round 1)', () => {
+    type Hook = ($: unknown, e: unknown, next: (e: unknown) => Promise<Record<string, unknown>>) => Promise<Record<string, unknown>>
+    const ROUTED = '/h/repos/.claude/routed'
+    const files: Record<string, string> = {
+        [ROUTED + '/git.md']: "---\nload:\n  prompt: ['\\bpush\\b']\n  bash: ['^git\\b']\n---\n# Git\n",
+        [ROUTED + '/otto.md']: "---\nload:\n  prompt: ['\\botto\\b']\n---\n# Otto\n",
+    }
+    const engine = {
+        env: { get: async (name: string) => (name === 'HOME' ? '/h' : undefined) },
+        session: { id: async () => 's1', version: async () => ({ version: 't' }) },
+        state: { get: async () => ({ value: undefined, version: 0 }), set: async () => ({ isSet: true, version: 1 }) },
+        fs: {
+            exists: async (p: string) => p === ROUTED,
+            list: async (p: string) => (p === ROUTED ? ['git.md', 'otto.md'].map((name) => ({ name, kind: 'file' })) : []),
+            read: async (p: string) => { const t = files[p]; if (t === undefined) { throw new Error('ENOENT ' + p) } return t },
+            stat: async (p: string) => ({ kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: p }),
+            write: async () => undefined,
+        },
+        ui: { log: () => undefined, status: () => undefined },
+        process: { run: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
+    }
+    function hooks(): Record<string, Hook> {
+        const got: Record<string, Hook> = {}
+        const on = (event: string, ...rest: unknown[]): { catch: () => undefined } => {
+            got[event] ??= rest[rest.length - 1] as Hook
+            return { catch: () => undefined }
+        }
+        register(on as never, {})
+        return got
+    }
+    test('prompt.submit: a next() that throws releases the injected rule, so the next prompt carries it', async () => {
+        const submit = hooks()['prompt.submit'] as Hook
+        await expect(submit(engine, { text: 'push it' }, async () => { throw new Error('below') })).rejects.toThrow('below')
+        let seen: unknown
+        await submit(engine, { text: 'push again' }, async (e) => { seen = (e as { context?: string[] }).context; return {} })
+        expect(seen).toEqual(['Contents of ' + ROUTED + '/git.md:\n\n# Git'])
+    })
+    test('tool.call: a next() that throws releases the after rule, so the next call carries it', async () => {
+        const call = hooks()['tool.call'] as Hook
+        await expect(call(engine, { tool: 'Bash', command: 'git log' }, async () => { throw new Error('below') })).rejects.toThrow('below')
+        const r = await call(engine, { tool: 'Bash', command: 'git status' }, async () => ({ result: 'ok' }))
+        expect(r['context']).toEqual(['Contents of ' + ROUTED + '/git.md:\n\n# Git'])
+    })
+})
+
 describe('pointerText', () => {
     test('names why, the rules, the directory, and to read before acting', () => {
         expect(pointerText('tool.call failed: boom', ['git.md', 'voice.md'], '/h/repos/.claude/routed'))

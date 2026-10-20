@@ -43,7 +43,7 @@ e.g. deploying 0.8.50 → 0.8.51 → 0.8.52 without fixing anything). Instead:
 - Get that evidence, or ask Scott, before the next change.
 
 Churning out attempts without a hypothesis reads as flailing and burns his time.
-This is the [root-cause-always](git.md) principle applied to your own loop.
+This is the [root-cause-always](../routed/git.md) principle applied to your own loop.
 
 ## Asking Scott a question: the required shape
 

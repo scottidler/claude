@@ -1670,7 +1670,8 @@ async function scanRules($: EngineInterface, r: Router, home: string, loop: stri
         for (const e of await $.fs.list(dir)) {
             if (!e.name.endsWith('.md')) { continue }
             const fm = frontmatter(await $.fs.read(dir + '/' + e.name))
-            if (fm !== undefined && typeof parseLoad(fm) === 'object') { misplaced.push(e.name) }
+            const load = fm === undefined ? undefined : parseLoad(fm)
+            if (typeof load === 'object' && !(load instanceof Error)) { misplaced.push(e.name) }
         }
         for (const name of misplaced) { say($, r, 'rules: ' + name + ' has triggers but sits in rules/, bulk-loaded', loop) }
         if (misplaced.length > 0) { $.ui.status('rules: ' + misplaced.join(', ') + ' has triggers but sits in rules/, bulk-loaded') }
@@ -1682,11 +1683,13 @@ async function scanRules($: EngineInterface, r: Router, home: string, loop: stri
 /**
  * The routed rules read plainly for a flush: frontmatter cut, no `load:`
  * parse, so the failure that latched cannot stop it. When they cannot be
- * read, a pointer to them instead. Read once per module copy; never rejects.
+ * read, a pointer to them instead. A successful read is kept for the module
+ * copy; a failed one is not, so a directory that comes back (a cutover, a
+ * re-link) is read at the next carrier. Never rejects.
  */
 function flushRules($: EngineInterface, r: Router, loop: string): Promise<Flush> {
     if (r.flush === null) {
-        r.flush = (async (): Promise<Flush> => {
+        const read = (async (): Promise<Flush> => {
             let names: string[] = []
             let dir = '~' + ROUTED_DIR
             try {
@@ -1708,6 +1711,8 @@ function flushRules($: EngineInterface, r: Router, loop: string): Promise<Flush>
                 return { pointer: pointerText(r.off ?? 'unknown', names, dir) }
             }
         })()
+        r.flush = read
+        void read.then((f) => { if ('pointer' in f && r.flush === read) { r.flush = null } })
     }
     return r.flush
 }
@@ -1842,9 +1847,16 @@ export const register: Register = (on, options) => {
         const add = await guarded($, rr, 'prompt.submit', undefined,
             () => promptRules($, rr, e.text), () => promptFlush($, rr))
         if (add === null || add.texts.length === 0) { return next(e) }
-        const r = await next({ ...e, context: [...(e.context ?? []), ...add.texts] })
+        const release = (): Promise<void> => releaseRules($, rr, undefined, add.paths, 'delivered')
+        let r: Awaited<ReturnType<typeof next>>
+        try {
+            r = await next({ ...e, context: [...(e.context ?? []), ...add.texts] })
+        } catch (err) {
+            // The carrier failed below rails: its rules never reached the model.
+            await guarded($, rr, 'prompt.submit', undefined, release, release)
+            throw err
+        }
         if (r.drop !== undefined) {
-            const release = (): Promise<void> => releaseRules($, rr, undefined, add.paths, 'delivered')
             await guarded($, rr, 'prompt.submit', undefined, release, release)
         } else if (add.flush !== undefined) {
             flushedStatus($, rr, add.flush === 'pointer', MAIN_LOOP)
@@ -1865,9 +1877,16 @@ export const register: Register = (on, options) => {
             return { deny: owed.deny }
         }
         if (owed.texts.length === 0) { return next(e) }
-        const r = await next(e)
+        const release = (): Promise<void> => releaseRules($, rr, e.agentId, owed.paths, 'pending')
+        let r: Awaited<ReturnType<typeof next>>
+        try {
+            r = await next(e)
+        } catch (err) {
+            // The carrier failed below rails: its rules never reached the model.
+            await guarded($, rr, 'tool.call', e.agentId, release, release)
+            throw err
+        }
         if (r.deny !== undefined) {
-            const release = (): Promise<void> => releaseRules($, rr, e.agentId, owed.paths, 'pending')
             await guarded($, rr, 'tool.call', e.agentId, release, release)
             return r
         }

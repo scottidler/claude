@@ -105,6 +105,7 @@ fi
 # ---- fixtures: rails not running, so routed rules never load ---------------
 for case in \
   'enabled is false|{"pluginConfigs":{"rails":{"options":{"enabled":false}}}}' \
+  'enabled is false|{"pluginConfigs":{"rails@skills-dir":{"options":{"enabled":false}}}}' \
   'disabled in enabledPlugins|{"enabledPlugins":{"rails@skills-dir":false}}' \
   'CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is not|{"env":{}}'; do
   want="${case%%|*}"; extra="${case#*|}"
@@ -126,6 +127,14 @@ if printf '%s' "$ctx" | rg -q 'rule routing is off \(pluginConfigs.rails.options
   ok "hooks-preflight: warns routed rules are flushed when rule_routing is false"
 else
   bad "hooks-preflight: no flush warning for rule_routing false: $ctx"
+fi
+off="$SCRATCH/routing-off-id.json"
+jq '. + {pluginConfigs:{"rails@skills-dir":{options:{rule_routing:false}}}}' "$good" > "$off"
+ctx=$(HOOKS_PREFLIGHT_SETTINGS="$off" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" bash "$PREFLIGHT")
+if printf '%s' "$ctx" | rg -q 'rule routing is off.*flushed whole'; then
+  ok "hooks-preflight: reads rule_routing under the plugin id too"
+else
+  bad "hooks-preflight: missed rule_routing under rails@skills-dir: $ctx"
 fi
 
 # ---- fixture: the routed rules dir does not resolve --------------------------
