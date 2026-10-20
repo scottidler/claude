@@ -6,12 +6,10 @@
 export type RailsDelivery = 'pending' | 'delivered'
 
 /**
- * One loop's ledger. `kept` maps the real path of every bulk-loaded file the
- * router let through to the fingerprint of the attachment that carried it, so
- * the same attachment asked again (an invalidate) is not its own duplicate.
- * `rules` maps a routed rule's real path to how far it got.
+ * One loop's ledger. `rules` maps a routed rule's real path (or `pointer`, the
+ * text a flush sends when the rules cannot be read) to how far it got.
  */
-export type RailsLoopLedger = { kept: Record<string, string>; rules: Record<string, RailsDelivery> }
+export type RailsLoopLedger = { rules: Record<string, RailsDelivery> }
 
 /** Keyed by loop: a subagent's `agentId`, or `main`. */
 export type RailsRuleLedger = Record<string, RailsLoopLedger>

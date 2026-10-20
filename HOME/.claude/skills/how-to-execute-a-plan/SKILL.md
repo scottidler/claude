@@ -96,7 +96,7 @@ report (CI green, commit SHA present) and before dispatching the next phase:
    `target/`, plus a `until rg ...; do sleep` loop waiting on one of them. Find
    them with `pgrep -af 'otto ci|cargo test'` run **unsandboxed** (the sandbox
    has its own pid namespace and shows nothing), and kill the stale ones.
-   Never touch `~/.otto/` itself (`rules/otto.md`).
+   Never touch `~/.otto/` itself (`routed/otto.md`).
 
 - **Only after accepting.** A red or incomplete report means that worker's
   context is still the cheapest place to fix the phase. Message it back in

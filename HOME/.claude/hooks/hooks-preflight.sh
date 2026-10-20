@@ -17,6 +17,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SETTINGS="${HOOKS_PREFLIGHT_SETTINGS:-$HOME/.claude/settings.json}"
 LIB_SH="${HOOKS_PREFLIGHT_LIB:-$HOME/.claude/hooks/lib.sh}"
+ROUTED_DIR="${HOOKS_PREFLIGHT_ROUTED:-$HOME/repos/.claude/routed}"
 
 # shellcheck source=hooks-resolve-lib.sh
 . "$SCRIPT_DIR/hooks-resolve-lib.sh" 2>/dev/null || exit 0
@@ -37,13 +38,16 @@ if [ ! -r "$LIB_SH" ]; then
   missing+=("~/.claude/hooks/lib.sh (not readable)")
 fi
 
-# rails owns the rule router (docs/design/2026-10-08-rule-routing.md). Absent
-# keys mean enabled (plugin.json defaults); only an explicit false warns.
-rails_off=$(jq -r '
+# rails owns the rule router (docs/design/2026-10-08-rule-routing.md). Since
+# Phase 7 the routed rules live in ~/repos/.claude/routed, which nothing but
+# rails loads: rails not running means they never load. Absent keys mean
+# enabled (plugin.json defaults); only an explicit false warns.
+rails_down=$(jq -r '
   if .enabledPlugins["rails@skills-dir"] == false then "rails@skills-dir is disabled in enabledPlugins"
   elif .pluginConfigs.rails.options.enabled == false then "pluginConfigs.rails.options.enabled is false"
-  elif .pluginConfigs.rails.options.rule_routing == false then "pluginConfigs.rails.options.rule_routing is false"
+  elif (.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS // "") != "1" then "env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is not \"1\""
   else empty end' "$SETTINGS" 2>/dev/null)
+routing_off=$(jq -r 'if .pluginConfigs.rails.options.rule_routing == false then "pluginConfigs.rails.options.rule_routing is false" else empty end' "$SETTINGS" 2>/dev/null)
 
 if [ "${#missing[@]}" -gt 0 ]; then
   detail=$(printf '%s; ' "${missing[@]}")
@@ -52,9 +56,17 @@ if [ "${#missing[@]}" -gt 0 ]; then
   msg="hooks-preflight: unresolved hook(s): ${detail}fix: cd ~/repos/scottidler/claude && manifest -l HOME/.claude/hooks/*.sh HOME/.claude/hooks/*.py | bash"
 fi
 
-if [ -n "$rails_off" ]; then
+if [ -n "$rails_down" ]; then
   msg="${msg:+$msg
-}hooks-preflight: rule routing is off ($rails_off), so git, marquee, otto and voice rules load in bulk instead of on trigger. fix: enable the rails plugin and set pluginConfigs.rails.options.rule_routing true"
+}hooks-preflight: rails will not run ($rails_down), so git, marquee, otto and voice rules never load: they live in ~/repos/.claude/routed, which only rails reads. fix: enable the rails plugin and set env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS to \"1\"; until then read the rule a task needs from that directory"
+elif [ -n "$routing_off" ]; then
+  msg="${msg:+$msg
+}hooks-preflight: rule routing is off ($routing_off), so git, marquee, otto and voice rules are flushed whole into each loop at its first prompt or tool call instead of on trigger. fix: set pluginConfigs.rails.options.rule_routing true"
+fi
+
+if [ ! -d "$ROUTED_DIR" ]; then
+  msg="${msg:+$msg
+}hooks-preflight: $ROUTED_DIR does not resolve to a directory, so the rails rule router has no routed rules and points every loop at them instead. fix: cd ~/repos/scottidler/claude && manifest -l HOME/repos/.claude/routed | bash"
 fi
 
 if [ -n "${msg:-}" ]; then

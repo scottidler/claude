@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { homedir } from 'node:os'
 import { internals, register } from './index.ts'
-import { buildIndex, joinInstructions, splitInstructions } from './rules.ts'
-import type { InstructionPart, RuleIndex } from './rules.ts'
 
 const { ghSpots, headSpots, segment, personaFor, inject, inWorkTree } = internals
 const { splitWords, stageComment, resolvePath, rmRewrite } = internals
@@ -787,28 +785,8 @@ describe('pkillArgs', () => {
 // under `claude plugin test`).
 // ---------------------------------------------------------------------------
 
-const { ruleBody, framed, fingerprint, decideFiles, rejoin } = internals
+const { ruleBody, framed, pointerText } = internals
 const { claimDelivered, claimPending, releaseClaimed, claimGate, promotePending, gateDeny, statements } = internals
-
-const ROUTING_FIXTURES = new URL('./fixtures/', import.meta.url)
-const RECORDED_RULES = '/home/saidler/repos/scottidler/claude/HOME/repos/.claude/rules'
-const LIVE_RULES = new URL('../../../../repos/.claude/rules/', import.meta.url)
-
-/** The live rule files keyed under the dir the fixtures recorded, as rules.spec.ts does. */
-async function recordedIndex(): Promise<RuleIndex> {
-    const names = [...new Bun.Glob('*.md').scanSync(LIVE_RULES.pathname)].sort()
-    const files = await Promise.all(names.map(async (n) => ({
-        path: RECORDED_RULES + '/' + n,
-        text: await Bun.file(new URL(n, LIVE_RULES)).text(),
-    })))
-    return buildIndex(files)
-}
-
-async function fixture<T>(name: string): Promise<T> {
-    return JSON.parse(await Bun.file(new URL(name, ROUTING_FIXTURES)).text()) as T
-}
-
-const base = (p: string): string => p.slice(p.lastIndexOf('/') + 1)
 
 describe('ruleBody and framed', () => {
     test('frontmatter and the blank lines after it go, the body stays', () => {
@@ -825,82 +803,28 @@ describe('ruleBody and framed', () => {
     })
 })
 
-describe('fingerprint', () => {
-    test('stable for the same attachment, different for another text or type', () => {
-        expect(fingerprint('instructions', 'abc')).toBe(fingerprint('instructions', 'abc'))
-        expect(fingerprint('instructions', 'abc')).not.toBe(fingerprint('instructions', 'abd'))
-        expect(fingerprint('instructions', 'abc')).not.toBe(fingerprint('nested_memory', 'abc'))
+describe('register', () => {
+    test('registers no prompt.attachment hook: CC 2.1.304 hands that event past the user tier (Phase 7)', () => {
+        const events: string[] = []
+        const on = (event: string): { catch: () => undefined } => {
+            events.push(event)
+            return { catch: () => undefined }
+        }
+        register(on as never, {})
+        expect(events).not.toContain('prompt.attachment')
+        expect(events).toContain('prompt.submit')
+        expect(events).toContain('tool.call')
     })
 })
 
-describe('decideFiles over the recorded attachments', () => {
-    test('the e9ef7f18 burst: 11 kept, git marquee otto voice dropped as routed', async () => {
-        const index = await recordedIndex()
-        const burst = await fixture<{ rows: { path: string; text: string }[] }>('nested-e9ef7f18.json')
-        const ledger = {}
-        const verdicts = burst.rows.map((row) => {
-            const d = decideFiles(index, ledger, 'main', [{ path: row.path, real: row.path }], fingerprint('nested_memory', row.text))
-            return [base(row.path), d[0]?.verdict]
-        })
-        expect(verdicts.filter(([, v]) => v === 'keep').length).toBe(11)
-        expect(verdicts.filter(([, v]) => v !== 'keep')).toEqual([
-            ['marquee.md', 'routed'], ['otto.md', 'routed'], ['git.md', 'routed'], ['voice.md', 'routed'],
-        ])
+describe('pointerText', () => {
+    test('names why, the rules, the directory, and to read before acting', () => {
+        expect(pointerText('tool.call failed: boom', ['git.md', 'voice.md'], '/h/repos/.claude/routed'))
+            .toBe('rails: the rule router is off (tool.call failed: boom), so these rules are not in context: git.md, voice.md.'
+                + ' Read the one this task needs from /h/repos/.claude/routed/ before acting.')
     })
-
-    test('the 2b8aebe2 blob: the 4 routed sections go, preamble and managed tier stay, the rest is byte for byte', async () => {
-        const index = await recordedIndex()
-        const blob = await fixture<{ text: string }>('instructions-2b8aebe2.json')
-        const parts = splitInstructions(blob.text)
-        const files = parts.flatMap((part) => (part.path === undefined ? [] : [{ part, path: part.path, real: part.path }]))
-        const decisions = decideFiles(index, {}, 'main', files, fingerprint('instructions', blob.text))
-        const dropped = new Set(files.filter((_, i) => decisions[i]?.verdict !== 'keep').map((f) => f.part))
-        expect([...dropped].map((p) => base(p.path ?? ''))).toEqual(['marquee.md', 'otto.md', 'git.md', 'voice.md'])
-        const text = rejoin(blob.text, parts, dropped)
-        expect(text).toBe(joinInstructions(parts.filter((p) => !dropped.has(p))))
-        expect(text.startsWith('Codebase and user instructions are shown below.')).toBe(true)
-        expect(text).toContain('Contents of <managed-settings> (organization-managed policy instructions):')
-        expect(text).not.toContain('/rules/git.md (')
-        expect(blob.text.length - text.length).toBe([...dropped].reduce((n, p) => n + p.header.length + p.body.length, 0))
-    })
-})
-
-describe('decideFiles: duplicates', () => {
-    const index = buildIndex([{ path: '/r/git.md', text: '---\nload:\n  bash: [\'^git\\b\']\n---\n# Git\n' }])
-    test('a real path another attachment kept is a duplicate; the same attachment again is not', () => {
-        const ledger = {}
-        expect(decideFiles(index, ledger, 'main', [{ path: '/a/CLAUDE.md', real: '/x/CLAUDE.md' }], 'one')[0]?.verdict).toBe('keep')
-        expect(decideFiles(index, ledger, 'main', [{ path: '/b/CLAUDE.md', real: '/x/CLAUDE.md' }], 'two')[0]?.verdict).toBe('duplicate')
-        expect(decideFiles(index, ledger, 'main', [{ path: '/a/CLAUDE.md', real: '/x/CLAUDE.md' }], 'one')[0]?.verdict).toBe('keep')
-    })
-    test('one attachment carrying a file twice keeps the first', () => {
-        const d = decideFiles(index, {}, 'main', [{ path: '/a', real: '/x' }, { path: '/b', real: '/x' }], 'one')
-        expect(d.map((x) => x.verdict)).toEqual(['keep', 'duplicate'])
-    })
-    test('loops do not share what they kept', () => {
-        const ledger = {}
-        decideFiles(index, ledger, 'main', [{ path: '/a', real: '/x' }], 'one')
-        expect(decideFiles(index, ledger, 'agent-1', [{ path: '/a', real: '/x' }], 'two')[0]?.verdict).toBe('keep')
-    })
-    test('a routed rule is routed even under a symlink spelling, once resolved', () => {
-        expect(decideFiles(index, {}, 'main', [{ path: '/l/git.md', real: '/r/git.md' }], 'one')[0]?.verdict).toBe('routed')
-    })
-})
-
-describe('rejoin', () => {
-    const blob = 'Pre.\n\nContents of /a.md (p):\n\nA\n\nContents of /b.md (p):\n\nB'
-    const parts = splitInstructions(blob)
-    test('dropping the last section leaves no dangling separator', () => {
-        const last = parts[parts.length - 1] as InstructionPart
-        expect(rejoin(blob, parts, new Set([last]))).toBe('Pre.\n\nContents of /a.md (p):\n\nA')
-    })
-    test('the blob own trailing newline is kept', () => {
-        const withNl = blob + '\n'
-        const p = splitInstructions(withNl)
-        expect(rejoin(withNl, p, new Set([p[p.length - 1] as InstructionPart]))).toBe('Pre.\n\nContents of /a.md (p):\n\nA\n')
-    })
-    test('dropping a middle section keeps the rest byte for byte', () => {
-        expect(rejoin(blob, parts, new Set([parts[1] as InstructionPart]))).toBe('Pre.\n\nContents of /b.md (p):\n\nB')
+    test('with no names it says every .md', () => {
+        expect(pointerText('x', [], '~/r')).toContain('not in context: every .md.')
     })
 })
 
@@ -1114,15 +1038,15 @@ describe('router log (Phase 6)', () => {
     })
     test('failedStatus names where, the first 80 characters of the message, and the log', () => {
         const long = 'm'.repeat(100)
-        expect(failedStatus('prompt.attachment', long, '/h/s.log'))
-            .toBe('rules: router failed (prompt.attachment: ' + 'm'.repeat(80) + '), full load restored; log /h/s.log')
-        expect(failedStatus('tool.call', 'boom', null)).toBe('rules: router failed (tool.call: boom), full load restored; log unavailable')
+        expect(failedStatus('prompt.submit', long, '/h/s.log'))
+            .toBe('rules: router failed (prompt.submit: ' + 'm'.repeat(80) + '), routed rules owed to every loop; log /h/s.log')
+        expect(failedStatus('tool.call', 'boom', null)).toBe('rules: router failed (tool.call: boom), routed rules owed to every loop; log unavailable')
     })
 })
 
 describe('router log: two loaded copies of the module (audit round 2, P4)', () => {
     type Disk = { files: Record<string, string>; writes: number }
-    type Attach = ($: unknown, e: unknown, next: (e: { text: string }) => Promise<{ text: string }>) => Promise<unknown>
+    type Submit = ($: unknown, e: unknown, next: (e: unknown) => Promise<object>) => Promise<unknown>
 
     /** An engine answering from memory; `fs.write` lands its text only after a delay, so writes overlap. */
     function engine(disk: Disk, said: string[]): unknown {
@@ -1150,16 +1074,16 @@ describe('router log: two loaded copies of the module (audit round 2, P4)', () =
         }
     }
 
-    /** One copy of the module, registered as the engine would: its attachment hook. */
-    function loadCopy(): Attach {
-        let attach: Attach | null = null
+    /** One copy of the module, registered as the engine would: its prompt hook. */
+    function loadCopy(): Submit {
+        let submit: Submit | null = null
         const on = (event: string, ...rest: unknown[]): { catch: () => undefined } => {
-            if (event === 'prompt.attachment') { attach = rest[rest.length - 1] as Attach }
+            if (event === 'prompt.submit') { submit = rest[rest.length - 1] as Submit }
             return { catch: () => undefined }
         }
         register(on as never, {})
-        if (attach === null) { throw new Error('no prompt.attachment hook') }
-        return attach
+        if (submit === null) { throw new Error('no prompt.submit hook') }
+        return submit
     }
 
     async function settled(disk: Disk): Promise<void> {
@@ -1178,13 +1102,14 @@ describe('router log: two loaded copies of the module (audit round 2, P4)', () =
         const b = loadCopy()
         const $a = engine(disk, saidA)
         const $b = engine(disk, saidB)
-        const attachment = (name: string): unknown => ({ type: 'nested_memory', text: 'Contents of /h/' + name + ':\n\nbody\n', origin: { kind: 'engine' } })
-        const pass = async (e: { text: string }): Promise<{ text: string }> => ({ text: e.text })
-        await a($a, attachment('a1.md'), pass)
-        await b($b, attachment('b1.md'), pass)
-        await a($a, attachment('a2.md'), pass)
-        await b($b, attachment('b2.md'), pass)
-        await a($a, attachment('a3.md'), pass)
+        // No routed dir on this engine: each copy latches, flushes a pointer, and logs it all.
+        const prompt = (text: string): unknown => ({ text })
+        const pass = async (): Promise<object> => ({})
+        await a($a, prompt('a1'), pass)
+        await b($b, prompt('b1'), pass)
+        await a($a, prompt('a2'), pass)
+        await b($b, prompt('b2'), pass)
+        await a($a, prompt('a3'), pass)
         await settled(disk)
 
         const lines = Object.values(disk.files).join('').split('\n')

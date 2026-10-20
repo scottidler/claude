@@ -1,8 +1,6 @@
 import type { EngineInterface, Register, Settings, ToolCallResult } from 'claude-code'
-import {
-    buildIndex, isRouted, joinInstructions, matchPrompt, matchTool, nestedPath, splitInstructions,
-} from './rules.ts'
-import type { InstructionPart, RuleIndex } from './rules.ts'
+import { buildIndex, frontmatter, matchPrompt, matchTool, parseLoad } from './rules.ts'
+import type { RuleIndex } from './rules.ts'
 import type { RailsLoopLedger, RailsRuleLedger } from '../types/index.d.ts'
 
 /**
@@ -1008,15 +1006,15 @@ function debug($: EngineInterface, enabled: boolean, rule: string, line: string)
 }
 
 /**
- * rails: rule routing (docs/design/2026-10-08-rule-routing.md)
+ * rails: rule routing (docs/design/2026-10-08-rule-routing.md, Phase 7)
  *
- * Every rule in `~/repos/.claude/rules/` declares `load:` (rules.ts parses it).
- * A routed rule is dropped from the engine's bulk load (`instructions` at
- * session start, `nested_memory` mid-session) and injected once per loop when
- * its trigger fires: a prompt, a tool, a Bash statement. A file the bulk load
- * already delivered under one spelling is dropped when it arrives again under
- * another. Any failure sets a latch that turns the router off for the session
- * and re-asks every attachment, which brings back today's full load.
+ * Routed rules live in `~/repos/.claude/routed/`, which the engine never
+ * loads; each declares `load:` (rules.ts parses it) and is injected once per
+ * loop when its trigger fires: a prompt, a tool, a Bash statement. Since CC
+ * 2.1.304 the builtin `cc-plugin-sec-default` holds `prompt.attachment` ahead
+ * of every user-tier hook, so rails cannot drop a rule from the bulk load;
+ * placement does it instead. Any failure sets a latch that flushes: every
+ * routed rule rides each loop's next prompt or gates its next tool call.
  */
 
 /** The ledger's shapes are rails' `$.state` contract, in `types/index.d.ts`. */
@@ -1027,17 +1025,22 @@ const LEDGER = { plugin: 'rails', key: 'ruleLedger' } as const
 const ROUTING_OFF = { plugin: 'rails', key: 'routingOff' } as const
 
 const MAIN_LOOP = 'main'
-/** Where the rule index lives, under $HOME; the per-file symlinks `manifest.yml` lays down. */
+/** The routed rules, under $HOME; `manifest.yml` links the directory whole. */
+const ROUTED_DIR = '/repos/.claude/routed'
+/** The bulk-loaded rules, under $HOME: scanned only for a trigger `load:` that sits in the wrong directory. */
 const RULES_DIR = '/repos/.claude/rules'
-const ROUTED_TYPES = new Set(['instructions', 'nested_memory'])
+/** The ledger key of the pointer a flush sends when the routed rules cannot be read. */
+const POINTER = 'pointer'
 const DRAFT_CLAUSE = 'If your text changes after reading it, show Scott the new draft before sending.'
 
-/** What a routed rule's index entry needs at run time: its body, frontmatter stripped. */
-type Rules = { index: RuleIndex; bodies: Record<string, string> }
+/**
+ * The routed rules at run time: the index, each body with its frontmatter
+ * stripped, and the eager ones (no usable trigger), owed at every first carrier.
+ */
+type Rules = { index: RuleIndex; bodies: Record<string, string>; eager: string[] }
 
-/** One file section of a bulk load and what the router made of it. */
-type Verdict = 'keep' | 'routed' | 'duplicate'
-type FileDecision = { path: string; real: string; verdict: Verdict }
+/** What a flush owes: every routed rule's body, or a pointer when they cannot be read. */
+type Flush = { paths: string[]; bodies: Record<string, string> } | { pointer: string }
 
 function loopOf(agentId: string | undefined): string {
     return agentId ?? MAIN_LOOP
@@ -1065,58 +1068,10 @@ function framed(path: string, body: string): string {
     return 'Contents of ' + path + ':\n\n' + body
 }
 
-/** FNV-1a over the attachment's type and text: which attachment kept a file. */
-function fingerprint(type: string, text: string): string {
-    let h = 0x811c9dc5
-    const s = type + '\u0000' + text
-    for (let i = 0; i < s.length; i += 1) {
-        h ^= s.charCodeAt(i)
-        h = Math.imul(h, 0x01000193) >>> 0
-    }
-    return type + ':' + s.length + ':' + h.toString(16)
-}
-
 function loopLedger(ledger: RuleLedger, loop: string): LoopLedger {
-    const l = ledger[loop] ?? { kept: {}, rules: {} }
+    const l = ledger[loop] ?? { rules: {} }
     ledger[loop] = l
     return l
-}
-
-/**
- * Keep, or drop as routed or as a duplicate, each file of one bulk-load
- * attachment, recording what was kept. Mutates `ledger`.
- *
- * Routed means a rule-index file whose `load:` is a trigger map. Duplicate
- * means a real path some other attachment of this loop already delivered, or
- * one this attachment carries twice; files outside the rule index are never
- * routed but are de-duplicated all the same.
- */
-function decideFiles(
-    index: RuleIndex, ledger: RuleLedger, loop: string,
-    files: readonly { path: string; real: string }[], owner: string,
-): FileDecision[] {
-    const l = loopLedger(ledger, loop)
-    const seen = new Set<string>()
-    return files.map((f): FileDecision => {
-        if (isRouted(index, f.real)) { return { ...f, verdict: 'routed' } }
-        const keeper = l.kept[f.real]
-        if (seen.has(f.real) || (keeper !== undefined && keeper !== owner)) { return { ...f, verdict: 'duplicate' } }
-        seen.add(f.real)
-        l.kept[f.real] = owner
-        return { ...f, verdict: 'keep' }
-    })
-}
-
-/**
- * The `instructions` blob without the dropped sections: every path-less part
- * (the preamble, `<managed-settings>`) kept, the kept sections byte for byte.
- * Dropping the last section would leave its predecessor's separator dangling,
- * so the result ends in exactly the trailing newlines the blob ended in.
- */
-function rejoin(blob: string, parts: readonly InstructionPart[], dropped: ReadonlySet<InstructionPart>): string {
-    const joined = joinInstructions(parts.filter((p) => !dropped.has(p)))
-    const tail = /\n*$/.exec(blob)?.[0] ?? ''
-    return joined.replace(/\n+$/, '') + tail
 }
 
 /**
@@ -1354,6 +1309,10 @@ type Router = {
     ledger: RuleLedger
     off: string | null
     rules: Promise<Rules> | null
+    /** The routed rules read plainly for a flush, once the latch is set; never rejects. */
+    flush: Promise<Flush> | null
+    /** The latch came from a failure, not the toggle: only then does a flush say so on screen. */
+    failed: boolean
     realPaths: Map<string, string>
     log: RouterLog
     started: Promise<void> | null
@@ -1363,8 +1322,8 @@ type Router = {
 
 function newRouter(routing: boolean, verbose: boolean): Router {
     return {
-        routing, verbose, loaded: null, ledger: {}, off: null, rules: null, realPaths: new Map(),
-        log: newRouterLog(), started: null, held: null,
+        routing, verbose, loaded: null, ledger: {}, off: null, rules: null, flush: null, failed: false,
+        realPaths: new Map(), log: newRouterLog(), started: null, held: null,
     }
 }
 
@@ -1513,23 +1472,54 @@ async function persist($: EngineInterface, r: Router): Promise<void> {
 }
 
 /**
- * Turn routing off for the session and re-ask every attachment, so each
- * dropped file comes back (from the next turn on, Phase 0 (h)). Memory
- * first: the latch holds in this process even if the engine calls fail.
- * `status` is the line shown on screen; a toggle turned off shows none.
+ * Persist fresh claims, or undo them and rethrow: a claim never outlives a
+ * carrier that failed. A throwing write after `claimDelivered` used to leave
+ * a rule marked delivered that never reached the model, which a flush would
+ * then skip (Phase 7, panel round 1, must-fix 3).
+ */
+async function persistClaims(
+    $: EngineInterface, r: Router, loop: string, paths: readonly string[], state: 'delivered' | 'pending',
+): Promise<void> {
+    if (paths.length === 0) { return }
+    try {
+        await persist($, r)
+    } catch (err) {
+        releaseClaimed(r.ledger, loop, paths, state)
+        throw err
+    }
+}
+
+/**
+ * Persist a flush's claims, best effort: a flush runs after the router has
+ * already failed, and the in-memory ledger is the working copy, so a state
+ * write that fails too must not stop the rules reaching the model.
+ */
+async function persistQuietly($: EngineInterface, r: Router, loop: string): Promise<void> {
+    try {
+        await persist($, r)
+    } catch (err) {
+        say($, r, 'rules: ledger write failed during a flush: ' + (err instanceof Error ? err.message : String(err)), loop)
+    }
+}
+
+/**
+ * Turn routing off for the session: from now on every routed rule is owed to
+ * every loop, flushed at its next carrier. Memory first: the latch holds in
+ * this process even if the engine calls fail. `status` is the line shown on
+ * screen; a toggle turned off shows none.
  */
 async function latch($: EngineInterface, r: Router, why: string, status: string | null, loop: string): Promise<void> {
     if (r.off !== null) { return }
     r.off = why
+    r.failed = status !== null
     say($, r, 'rules: routing off: ' + why, loop)
     if (status !== null) { $.ui.status(status) }
-    $.ui.invalidate('prompt.attachment')
     await $.state.set(ROUTING_OFF, why)
 }
 
 /** The on-screen line for a router failure: where, the message's first 80 characters, and the log. */
 function failedStatus(where: string, message: string, logPath: string | null): string {
-    return 'rules: router failed (' + where + ': ' + message.slice(0, 80) + '), full load restored; log '
+    return 'rules: router failed (' + where + ': ' + message.slice(0, 80) + '), routed rules owed to every loop; log '
         + (logPath ?? 'unavailable')
 }
 
@@ -1567,16 +1557,28 @@ async function routerFailed($: EngineInterface, r: Router, where: string, err: u
     }
 }
 
-/** Run `fn` unless routing is off; any throw latches and answers null (pass through). */
+/**
+ * Run `on` while routing is on, `off` once it is latched. A throw from `on`
+ * latches and runs `off` on the same carrier, so a failure flushes at once
+ * instead of waiting for the next hook. A throw from `off` answers null
+ * (pass through): the flush path has nowhere further to fall.
+ */
 async function guarded<T>(
-    $: EngineInterface, r: Router, where: string, agentId: string | undefined, fn: () => Promise<T>,
+    $: EngineInterface, r: Router, where: string, agentId: string | undefined,
+    on: () => Promise<T>, off: () => Promise<T>,
 ): Promise<T | null> {
     const loop = loopOf(agentId)
+    let latched: boolean
     try {
-        if (await routingOff($, r, loop)) { return null }
-        return await fn()
+        latched = await routingOff($, r, loop)
+        if (!latched) { return await on() }
     } catch (err) {
         await routerFailed($, r, where, err, loop)
+    }
+    try {
+        return await off()
+    } catch (err) {
+        say($, r, 'rules: ' + where + ' flush failed: ' + (err instanceof Error ? err.message : String(err)), loop)
         return null
     }
 }
@@ -1604,91 +1606,150 @@ async function ruleIndex($: EngineInterface, r: Router, loop: string): Promise<R
     return r.rules
 }
 
-/** The rule index from `~/repos/.claude/rules`, keyed by real path, with each rule's body. */
-async function buildRules($: EngineInterface, r: Router, loop: string): Promise<Rules> {
+/** `$HOME`, or a throw naming what could not be found without it. */
+async function homeDir($: EngineInterface, what: string): Promise<string> {
     const home = await $.env.get('HOME')
-    if (home === undefined || home === '') { throw new Error('HOME is unset, so ~' + RULES_DIR + ' cannot be found') }
-    void pruneLogs($, r, home, loop)
-    const dir = home + RULES_DIR
-    if (!(await $.fs.exists(dir))) {
-        say($, r, 'rules: no rule index at ' + dir + ', nothing to route', loop)
-        return { index: { rules: [] }, bodies: {} }
-    }
+    if (home === undefined || home === '') { throw new Error('HOME is unset, so ~' + what + ' cannot be found') }
+    return home
+}
+
+/** The `.md` files of a directory, sorted by name; a throw when it holds none. */
+async function mdNames($: EngineInterface, dir: string): Promise<string[]> {
+    if (!(await $.fs.exists(dir))) { throw new Error('no routed rules: ' + dir + ' does not exist') }
     const names = (await $.fs.list(dir)).filter((e) => e.name.endsWith('.md')).map((e) => e.name).sort()
+    if (names.length === 0) { throw new Error('no routed rules: ' + dir + ' holds no .md file') }
+    return names
+}
+
+/**
+ * The rule index from `~/repos/.claude/routed`, keyed by real path, with each
+ * rule's body. Fails loud: a missing or empty directory, an entry that leads
+ * to no file, or a read that fails throws, which latches and flushes. With no
+ * bulk load behind them, a skipped rule would be a rule silently missing
+ * (Phase 7, panel round 1, must-fix 4).
+ */
+async function buildRules($: EngineInterface, r: Router, loop: string): Promise<Rules> {
+    const home = await homeDir($, ROUTED_DIR)
+    void pruneLogs($, r, home, loop)
+    void scanRules($, r, home, loop)
+    const dir = home + ROUTED_DIR
     const files: { path: string; text: string }[] = []
-    for (const name of names) {
+    for (const name of await mdNames($, dir)) {
         const path = dir + '/' + name
-        // A link left behind when its rule moved (cli.md, logging.md went to
-        // refs/ in ba21860) loads nothing for the engine either: not a rule.
         const stat = await $.fs.stat(path, { resolve: true }).catch(() => undefined)
-        if (stat?.realPath === undefined || stat.kind !== 'file') {
-            say($, r, 'rules: skip ' + name + ' (leads to no file) ' + path, loop)
-            continue
-        }
+        if (stat?.realPath === undefined || stat.kind !== 'file') { throw new Error(name + ' in ' + dir + ' leads to no file') }
         r.realPaths.set(path, stat.realPath)
         files.push({ path: stat.realPath, text: await $.fs.read(path) })
     }
     const built = buildIndex(files)
     const bodies: Record<string, string> = {}
     for (const f of files) { bodies[f.path] = ruleBody(f.text) }
-    const broken = built.rules.filter((rule) => rule.error !== undefined)
-    for (const rule of broken) { say($, r, 'rules: ' + baseName(rule.path) + ' load: unusable (' + rule.error + '), kept as always', loop) }
-    if (broken.length > 0) {
-        $.ui.status('rules: load: unusable in ' + broken.map((rule) => baseName(rule.path)).join(', ') + ', kept as always')
+    const eager = built.rules.filter((rule) => rule.triggers === undefined)
+    for (const rule of eager) {
+        say($, r, 'rules: ' + baseName(rule.path) + ' has no usable trigger ('
+            + (rule.error ?? 'load: ' + String(rule.load)) + '), injected at every first carrier', loop)
+    }
+    if (eager.length > 0) {
+        $.ui.status('rules: no usable trigger in ' + eager.map((rule) => baseName(rule.path)).join(', ')
+            + ', injected at every first carrier')
     }
     say($, r, 'rules: index of ' + built.rules.length + ' files, routed '
         + built.rules.filter((rule) => rule.triggers !== undefined).map((rule) => baseName(rule.path)).join(' '), loop)
-    return { index: built, bodies }
+    return { index: built, bodies, eager: eager.map((rule) => rule.path) }
 }
 
-function logDecisions($: EngineInterface, r: Router, decisions: readonly FileDecision[], loop: string): void {
-    for (const d of decisions) {
-        const verb = d.verdict === 'keep' ? 'keep' : 'drop'
-        const reason = d.verdict === 'keep' ? 'bulk' : d.verdict
-        say($, r, 'rules: ' + verb + ' ' + baseName(d.path) + ' (' + reason + ') ' + d.real, loop)
+/**
+ * Name every rule in `~/repos/.claude/rules` whose `load:` is a trigger map:
+ * the engine bulk-loads it, so it is never injected, and it sits in the wrong
+ * directory. Diagnostic only: never throws, never latches.
+ */
+async function scanRules($: EngineInterface, r: Router, home: string, loop: string): Promise<void> {
+    try {
+        const dir = home + RULES_DIR
+        const misplaced: string[] = []
+        for (const e of await $.fs.list(dir)) {
+            if (!e.name.endsWith('.md')) { continue }
+            const fm = frontmatter(await $.fs.read(dir + '/' + e.name))
+            if (fm !== undefined && typeof parseLoad(fm) === 'object') { misplaced.push(e.name) }
+        }
+        for (const name of misplaced) { say($, r, 'rules: ' + name + ' has triggers but sits in rules/, bulk-loaded', loop) }
+        if (misplaced.length > 0) { $.ui.status('rules: ' + misplaced.join(', ') + ' has triggers but sits in rules/, bulk-loaded') }
+    } catch (err) {
+        say($, r, 'rules: rules/ scan failed: ' + (err instanceof Error ? err.message : String(err)), loop)
     }
 }
 
 /**
- * What to answer for one bulk-load attachment: `pass` to hand it on
- * unchanged, `{ text: null }` to leave it out, or the rewritten text.
+ * The routed rules read plainly for a flush: frontmatter cut, no `load:`
+ * parse, so the failure that latched cannot stop it. When they cannot be
+ * read, a pointer to them instead. Read once per module copy; never rejects.
  */
-async function routeAttachment(
-    $: EngineInterface, r: Router, type: string, text: string, agentId: string | undefined,
-): Promise<'pass' | { text: string | null }> {
-    const loop = loopOf(agentId)
-    const { index } = await ruleIndex($, r, loop)
-    const owner = fingerprint(type, text)
-    if (type === 'nested_memory') {
-        const path = nestedPath(text)
-        if (path === undefined) { throw new Error('nested_memory: no `Contents of <path>:` header') }
-        const decisions = decideFiles(index, r.ledger, loop, [{ path, real: await realPathOf($, r, path) }], owner)
-        await persist($, r)
-        logDecisions($, r, decisions, loop)
-        return decisions[0]?.verdict === 'keep' ? 'pass' : { text: null }
+function flushRules($: EngineInterface, r: Router, loop: string): Promise<Flush> {
+    if (r.flush === null) {
+        r.flush = (async (): Promise<Flush> => {
+            let names: string[] = []
+            let dir = '~' + ROUTED_DIR
+            try {
+                const home = await homeDir($, ROUTED_DIR)
+                dir = home + ROUTED_DIR
+                names = await mdNames($, dir)
+                const paths: string[] = []
+                const bodies: Record<string, string> = {}
+                for (const name of names) {
+                    const path = dir + '/' + name
+                    const text = await $.fs.read(path)
+                    const real = await realPathOf($, r, path)
+                    paths.push(real)
+                    bodies[real] = ruleBody(text)
+                }
+                return { paths, bodies }
+            } catch (err) {
+                say($, r, 'rules: routed rules unreadable for a flush: ' + (err instanceof Error ? err.message : String(err)), loop)
+                return { pointer: pointerText(r.off ?? 'unknown', names, dir) }
+            }
+        })()
     }
-    const parts = splitInstructions(text)
-    const files: { part: InstructionPart; path: string; real: string }[] = []
-    for (const part of parts) {
-        if (part.path !== undefined) { files.push({ part, path: part.path, real: await realPathOf($, r, part.path) }) }
-    }
-    const decisions = decideFiles(index, r.ledger, loop, files, owner)
-    await persist($, r)
-    logDecisions($, r, decisions, loop)
-    const dropped = new Set(files.filter((_, i) => decisions[i]?.verdict !== 'keep').map((f) => f.part))
-    return dropped.size === 0 ? 'pass' : { text: rejoin(text, parts, dropped) }
+    return r.flush
 }
 
-/** Rules owed to the model, as real paths and their framed text. */
-type Owed = { paths: string[]; texts: string[] }
+/** What a flush sends when the routed rules cannot be read: where they are, and to read them first. */
+function pointerText(why: string, names: readonly string[], dir: string): string {
+    return 'rails: the rule router is off (' + why + '), so these rules are not in context: '
+        + (names.length > 0 ? names.join(', ') : 'every .md') + '. Read the one this task needs from '
+        + dir + '/ before acting.'
+}
 
-/** The framed rules a prompt triggers, marked delivered for the main loop. */
+/** After a carrier that carried a flush went out: say so on screen, unless the toggle turned routing off. */
+function flushedStatus($: EngineInterface, r: Router, pointer: boolean, loop: string): void {
+    say($, r, 'rules: ' + (pointer ? 'pointer sent' : 'routed rules flushed') + ' (' + loop + ')', loop)
+    if (!r.failed) { return }
+    $.ui.status(pointer ? 'rules: routed rules unreadable, pointer sent (' + loop + ')' : 'rules: routed rules flushed (' + loop + ')')
+}
+
+/** Rules owed to the model, as real paths and their framed text; `flush` marks a carrier that carries the flush. */
+type Owed = { paths: string[]; texts: string[]; flush?: 'rules' | 'pointer' }
+
+/** The framed rules a prompt triggers, plus the eager ones, marked delivered for the main loop. */
 async function promptRules($: EngineInterface, r: Router, text: string): Promise<Owed> {
-    const { index, bodies } = await ruleIndex($, r, MAIN_LOOP)
-    const paths = claimDelivered(r.ledger, MAIN_LOOP, matchPrompt(index, text))
-    if (paths.length > 0) { await persist($, r) }
+    const { index, bodies, eager } = await ruleIndex($, r, MAIN_LOOP)
+    const paths = claimDelivered(r.ledger, MAIN_LOOP, [...matchPrompt(index, text), ...eager])
+    await persistClaims($, r, MAIN_LOOP, paths, 'delivered')
     for (const p of paths) { say($, r, 'rules: inject ' + baseName(p) + ' (prompt) ' + p) }
     return { paths, texts: paths.map((p) => framed(p, bodies[p] ?? '')) }
+}
+
+/** Latched: every routed rule the main loop lacks rides this prompt. */
+async function promptFlush($: EngineInterface, r: Router): Promise<Owed> {
+    const f = await flushRules($, r, MAIN_LOOP)
+    if ('pointer' in f) {
+        const paths = claimDelivered(r.ledger, MAIN_LOOP, [POINTER])
+        await persistQuietly($, r, MAIN_LOOP)
+        return { paths, texts: paths.length > 0 ? [f.pointer] : [], flush: 'pointer' }
+    }
+    const paths = claimDelivered(r.ledger, MAIN_LOOP, f.paths)
+    await persistQuietly($, r, MAIN_LOOP)
+    for (const p of paths) { say($, r, 'rules: flush ' + baseName(p) + ' (prompt) ' + p) }
+    return { paths, texts: paths.map((p) => framed(p, f.bodies[p] ?? '')), flush: 'rules' }
 }
 
 /** What one tool call owes: a deny carrying its gate rules, or rules to append to its result. */
@@ -1696,20 +1757,44 @@ async function toolRules(
     $: EngineInterface, r: Router, tool: string, input: unknown, agentId: string | undefined,
 ): Promise<Owed & { deny?: string }> {
     const loop = loopOf(agentId)
-    const { index, bodies } = await ruleIndex($, r, loop)
+    const { index, bodies, eager } = await ruleIndex($, r, loop)
     const m = matchTool(index, tool, input, statements)
-    if (m.gate.length === 0 && m.after.length === 0) { return { paths: [], texts: [] } }
+    const after = [...m.after, ...eager]
+    if (m.gate.length === 0 && after.length === 0) { return { paths: [], texts: [] } }
     const { fresh, waiting } = claimGate(r.ledger, loop, m.gate)
     if (fresh.length > 0 || waiting.length > 0) {
-        await persist($, r)
+        await persistClaims($, r, loop, fresh, 'pending')
         for (const p of fresh) { say($, r, 'rules: gate ' + baseName(p) + ' (deny ' + tool + ') ' + p, loop) }
         for (const p of waiting) { say($, r, 'rules: gate ' + baseName(p) + ' (pending, deny ' + tool + ') ' + p, loop) }
         return { deny: gateDeny(fresh.map((p) => ({ path: p, body: bodies[p] ?? '' })), waiting), paths: [], texts: [] }
     }
-    const paths = claimPending(r.ledger, loop, m.after)
-    if (paths.length > 0) { await persist($, r) }
+    const paths = claimPending(r.ledger, loop, after)
+    await persistClaims($, r, loop, paths, 'pending')
     for (const p of paths) { say($, r, 'rules: inject ' + baseName(p) + ' (' + tool + ') ' + p, loop) }
     return { paths, texts: paths.map((p) => framed(p, bodies[p] ?? '')) }
+}
+
+/**
+ * Latched: every routed rule gates every tool. A loop that lacks any of them
+ * has this call denied with all of them, so no tool runs before they are in
+ * its context; a sibling in the same step waits for `turn.step` like any gate.
+ */
+async function toolFlush($: EngineInterface, r: Router, tool: string, agentId: string | undefined): Promise<Owed & { deny?: string }> {
+    const loop = loopOf(agentId)
+    const f = await flushRules($, r, loop)
+    const owed = 'pointer' in f ? [POINTER] : f.paths
+    const { fresh, waiting } = claimGate(r.ledger, loop, owed)
+    if (fresh.length === 0 && waiting.length === 0) { return { paths: [], texts: [] } }
+    await persistQuietly($, r, loop)
+    for (const p of fresh) { say($, r, 'rules: flush ' + baseName(p) + ' (deny ' + tool + ') ' + p, loop) }
+    if ('pointer' in f) {
+        const deny = fresh.length > 0
+            ? f.pointer + '\n\nThis call did not run; retry it after reading the rule it needs.'
+            : 'rails: rule router pointer delivered above, retry after reading it.'
+        return { deny, paths: [], texts: [], flush: fresh.length > 0 ? 'pointer' : undefined }
+    }
+    const deny = gateDeny(fresh.map((p) => ({ path: p, body: f.bodies[p] ?? '' })), waiting)
+    return { deny, paths: [], texts: [], flush: fresh.length > 0 ? 'rules' : undefined }
 }
 
 /** The call or prompt that carried these rules was refused: they never reached the model. */
@@ -1731,7 +1816,7 @@ async function promoteRules($: EngineInterface, r: Router, agentId: string | und
     await persist($, r)
 }
 
-/** This loop's compaction installed: what it kept and was given is gone from context. */
+/** This loop's compaction installed: what it was given is gone from context. */
 async function clearLoop($: EngineInterface, r: Router, agentId: string | undefined): Promise<void> {
     const loop = loopOf(agentId)
     if (r.ledger[loop] === undefined) { return }
@@ -1750,25 +1835,20 @@ export const register: Register = (on, options) => {
 
     // Rule routing. Registered first, so it judges the call the model wrote
     // and its context lands outermost. With the toggle off the hooks still
-    // run: the first one latches routing off and re-asks every attachment.
+    // run: the first one latches routing off, and from then on they flush.
     const rr = newRouter(options['rule_routing'] !== false, verbose)
 
-    on('prompt.attachment', async ($, e, next) => {
-        if (!ROUTED_TYPES.has(e.type)) { return next(e) }
-        const answer = await guarded($, rr, 'prompt.attachment', e.agentId, () => routeAttachment($, rr, e.type, e.text, e.agentId))
-        if (answer === null || answer === 'pass') { return next(e) }
-        if (answer.text === null) { return { text: null } }
-        return next({ ...e, text: answer.text })
-    }).catch(async ($, e, next) => {
-        await caught($, rr, 'prompt.attachment', e.agentId, next.error.kind, next.error.message).catch(() => undefined)
-        return next(e)
-    })
-
     on('prompt.submit', async ($, e, next) => {
-        const add = await guarded($, rr, 'prompt.submit', undefined, () => promptRules($, rr, e.text))
+        const add = await guarded($, rr, 'prompt.submit', undefined,
+            () => promptRules($, rr, e.text), () => promptFlush($, rr))
         if (add === null || add.texts.length === 0) { return next(e) }
         const r = await next({ ...e, context: [...(e.context ?? []), ...add.texts] })
-        if (r.drop !== undefined) { await guarded($, rr, 'prompt.submit', undefined, () => releaseRules($, rr, undefined, add.paths, 'delivered')) }
+        if (r.drop !== undefined) {
+            const release = (): Promise<void> => releaseRules($, rr, undefined, add.paths, 'delivered')
+            await guarded($, rr, 'prompt.submit', undefined, release, release)
+        } else if (add.flush !== undefined) {
+            flushedStatus($, rr, add.flush === 'pointer', MAIN_LOOP)
+        }
         return r
     }).catch(async ($, e, next) => {
         await caught($, rr, 'prompt.submit', undefined, next.error.kind, next.error.message).catch(() => undefined)
@@ -1776,13 +1856,19 @@ export const register: Register = (on, options) => {
     })
 
     on('tool.call', async ($, e, next) => {
-        const owed = await guarded($, rr, 'tool.call', e.agentId, () => toolRules($, rr, String(e.tool), e, e.agentId))
+        const tool = String(e.tool)
+        const owed = await guarded($, rr, 'tool.call', e.agentId,
+            () => toolRules($, rr, tool, e, e.agentId), () => toolFlush($, rr, tool, e.agentId))
         if (owed === null) { return next(e) }
-        if (owed.deny !== undefined) { return { deny: owed.deny } }
+        if (owed.deny !== undefined) {
+            if (owed.flush !== undefined) { flushedStatus($, rr, owed.flush === 'pointer', loopOf(e.agentId)) }
+            return { deny: owed.deny }
+        }
         if (owed.texts.length === 0) { return next(e) }
         const r = await next(e)
         if (r.deny !== undefined) {
-            await guarded($, rr, 'tool.call', e.agentId, () => releaseRules($, rr, e.agentId, owed.paths, 'pending'))
+            const release = (): Promise<void> => releaseRules($, rr, e.agentId, owed.paths, 'pending')
+            await guarded($, rr, 'tool.call', e.agentId, release, release)
             return r
         }
         return { ...r, context: [...(r.context ?? []), ...owed.texts] }
@@ -1791,8 +1877,11 @@ export const register: Register = (on, options) => {
         return next(e)
     })
 
+    // Delivery bookkeeping runs latched or not: a flush is once per context,
+    // so promotion and compaction keep the ledger true (Phase 7, must-fix 2).
     on('turn.step', async function* ($, e, next) {
-        await guarded($, rr, 'turn.step', e.agentId, () => promoteRules($, rr, e.agentId))
+        const promote = (): Promise<void> => promoteRules($, rr, e.agentId)
+        await guarded($, rr, 'turn.step', e.agentId, promote, promote)
         return yield* next(e)
     }).catch(async function* ($, e, next) {
         await caught($, rr, 'turn.step', e.agentId, next.error.kind, next.error.message).catch(() => undefined)
@@ -1803,7 +1892,8 @@ export const register: Register = (on, options) => {
     on('session.compact', async ($, e, next) => {
         const r = await next(e)
         if (e.trigger !== 'precompute' && r.messages !== undefined) {
-            await guarded($, rr, 'session.compact', e.agentId, () => clearLoop($, rr, e.agentId))
+            const clear = (): Promise<void> => clearLoop($, rr, e.agentId)
+            await guarded($, rr, 'session.compact', e.agentId, clear, clear)
         }
         return r
     }).catch(async ($, e, next) => {
@@ -1921,9 +2011,7 @@ export const internals = {
     pkillArgs,
     ruleBody,
     framed,
-    fingerprint,
-    decideFiles,
-    rejoin,
+    pointerText,
     claimDelivered,
     claimPending,
     releaseClaimed,

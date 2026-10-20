@@ -12,7 +12,7 @@
 ## voice
 - Scott's writing-voice profile: `~/Claude/writing/VOICE.md` (real file, copy-deployed by a private repo's manifest; ~/Claude is the Cowork/Syncthing space, so no symlinks there)
 - Read when: drafting prose as Scott (email, Slack, Confluence, design docs, announcements)
-- Always-on trigger rule: `rules/voice.md`
+- Routed rule: `~/repos/.claude/routed/voice.md`, injected on outward prose
 
 ## identity
 - Scott's identity profile: `~/Claude/IDENTITY.md` (canonical in private keep, copy-deployed; companion to VOICE.md: voice is how he writes, identity is who he is and why he works this way)
@@ -77,7 +77,7 @@ Conventions (how I write code & config):
 Tool rules (hard constraints on specific tools):
 - `git`: tag/push/working-dir safety (on trigger)
 - `otto`: task-runner usage (on trigger)
-- Routed rules (git, marquee, otto, voice) arrive on trigger via the rails rule router, declared by each rule's `load:` frontmatter
+- Routed rules (git, marquee, otto, voice) live in `~/repos/.claude/routed/`, which nothing auto-loads; the rails rule router injects each on the trigger its `load:` frontmatter declares. If one is needed and not in context, read it from there
 
 Safety:
 - `safety`: file deletion; applies to all files (path-scoped `**/*`)

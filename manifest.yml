@@ -8,6 +8,9 @@ link:
     # Linked whole: ba21860 moved cli.md and logging.md from rules/ to refs/ and
     # the per-file links went stale (dangling in rules/, absent in refs/).
     HOME/repos/.claude/rules: $HOME/repos/.claude/rules
+    # Routed rules: nothing auto-loads this dir; the rails rule router injects
+    # each on its trigger (docs/design/2026-10-08-rule-routing.md, Phase 7).
+    HOME/repos/.claude/routed: $HOME/repos/.claude/routed
     HOME/repos/.claude/refs: $HOME/repos/.claude/refs
     # pi resource dirs are linked whole so new prompts/extensions/themes appear
     # without re-running manifest. AGENTS.md, APPEND_SYSTEM.md, and settings.json

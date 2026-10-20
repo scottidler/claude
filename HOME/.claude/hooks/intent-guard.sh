@@ -264,7 +264,7 @@ ln_link_entry() {
   printf '%s' "$abs"
 }
 
-GH_DENY='repo/org settings are Scott'"'"'s to change (rules/git.md). Report the blocker; do not change the setting.'
+GH_DENY='repo/org settings are Scott'"'"'s to change (routed/git.md). Report the blocker; do not change the setting.'
 ACLI_DENY='acli delete destroys Jira/Confluence content no local archive can recover. Ask Scott; do not delete it.'
 LN_CYCLE_DENY='this ln -s would make the target an ancestor of its own link, which is the symlink loop that froze the workstation on 2026-07-03. Check the direction of the link.'
 LN_CLAUDE_DENY='~/Claude is the Cowork/Syncthing space and is symlink-free by policy (CLAUDE.md). Copy the file there instead of linking it.'

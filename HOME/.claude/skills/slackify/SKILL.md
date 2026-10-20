@@ -42,7 +42,7 @@ EOF
 Reformatted output goes out under Scott's name. Before rewriting, read
 `~/Claude/writing/VOICE.md` and match the chat register: terse, direct,
 no ceremony. Preserve the content; convert the register. Formatting rules
-live in `rules/safety.md` and `rules/voice.md`; this file does not repeat them.
+live in `rules/safety.md` and `routed/voice.md`; this file does not repeat them.
 
 ## Rules
 

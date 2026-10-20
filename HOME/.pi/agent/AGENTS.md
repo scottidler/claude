@@ -29,7 +29,7 @@ lappy, desk, shipit, bump, sdv, handoff).
 - Writing-voice profile: `~/Claude/writing/VOICE.md` (copied, not symlinked; `~/Claude`
   is the Cowork/Syncthing space)
 - Read when: drafting prose as me (email, Slack, Confluence, design docs, announcements)
-- Always-on trigger rule: `rules/voice.md`
+- Always-on trigger rule: `routed/voice.md`
 
 ## identity
 

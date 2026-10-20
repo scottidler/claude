@@ -1,6 +1,6 @@
 #!/bin/bash
 # git-release-guard.sh -- PreToolUse(Bash) hook enforcing Scott's release rules
-# MECHANICALLY, at the moment of the command. Prose rules (rules/git.md, the
+# MECHANICALLY, at the moment of the command. Prose rules (routed/git.md, the
 # /bump skill, memories, ~/HALL-OF-SHAME.md) provably do not hold deep in a
 # session; this hook is the layer that cannot be forgotten or ignored.
 #
@@ -38,7 +38,7 @@
 #     tag      forever because squash-merge rewrites the SHA
 #   Force-push never --force to main/master without Scott
 #   Gated main no `git commit` on main/master when origin names tatari-tv:
-#              that main is PR-gated (rules/git.md "Pushing to main")
+#              that main is PR-gated (routed/git.md "Pushing to main")
 #   Dirty bump version-committing bump on a dirty tree stages EVERYTHING
 #              (scratch jpgs got committed this way)
 #   Branch tag any tag-creating bump off main (squash-merge burns the SHA)
@@ -109,7 +109,7 @@
 # the door moved into `bump release --standalone` and the verbs exempted
 # 2026-09-26 (scottidler/bump one-release-command);
 # Gate D widened to never-tagged repos 2026-07-13 after okta-auth-py #5/#6.
-# Companion docs: /bump skill (agent-facing flows), rules/git.md (the law),
+# Companion docs: /bump skill (agent-facing flows), routed/git.md (the law),
 # ~/HALL-OF-SHAME.md (the case history).
 
 case "${1:-}" in
@@ -618,7 +618,7 @@ check_stmt() {
     fi
   fi
 
-  # ---- bump: release flow (rules/git.md release section + Scott's workflow) ----
+  # ---- bump: release flow (routed/git.md release section + Scott's workflow) ----
   # `bump` counts ONLY in command position, which is what `cmdword_is bump`
   # decides (leading env-assignments and a path prefix allowed). This is the fix
   # for the substring false-positive that blocked unrelated commands merely

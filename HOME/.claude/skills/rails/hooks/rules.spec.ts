@@ -3,160 +3,94 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { internals } from './index.ts'
 import {
-    buildIndex, frontmatter, isRouted, joinInstructions, matchPrompt, matchTool,
-    nestedPath, normalizeStatement, parseLoad, ruleAt, splitInstructions,
+    buildIndex, frontmatter, matchPrompt, matchTool, misplaced, normalizeStatement, parseLoad, ruleAt,
 } from './rules.ts'
 import type { RuleIndex } from './rules.ts'
 
 const HOME_DIR = resolve(import.meta.dir, '../../../..')
 const RULES_DIR = join(HOME_DIR, 'repos/.claude/rules')
+const ROUTED_DIR = join(HOME_DIR, 'repos/.claude/routed')
 const SETTINGS = join(HOME_DIR, '.claude/settings.json')
 
 /** rails' own statement split, the one the Bash hooks already use. */
 const split = (command: string): string[] => internals.heads(command).map((h) => internals.segment(command, h.at))
 
-type InstructionsFixture = { files: { path: string; type: string }[]; text: string }
-type NestedFixture = { rows: { line: number; path: string; text: string }[] }
+const mdFiles = (dir: string): string[] => readdirSync(dir).filter((f) => f.endsWith('.md')).sort()
+const ruleFiles = mdFiles(RULES_DIR)
+const routedFiles = mdFiles(ROUTED_DIR)
 
-const instructions = JSON.parse(
-    readFileSync(join(import.meta.dir, 'fixtures/instructions-2b8aebe2.json'), 'utf8'),
-) as InstructionsFixture
-const nested = JSON.parse(
-    readFileSync(join(import.meta.dir, 'fixtures/nested-e9ef7f18.json'), 'utf8'),
-) as NestedFixture
-
-const ruleFiles = readdirSync(RULES_DIR).filter((f) => f.endsWith('.md')).sort()
-
-/** The live rule files, keyed under `dir` (the transcripts' real rules dir, or this checkout's). */
-function liveIndex(dir: string): RuleIndex {
-    return buildIndex(ruleFiles.map((f) => ({ path: join(dir, f), text: readFileSync(join(RULES_DIR, f), 'utf8') })))
+/** One directory's rule files, read from this checkout and keyed under `keyDir`. */
+function liveIndex(dir: string, keyDir: string = dir): RuleIndex {
+    return buildIndex(mdFiles(dir).map((f) => ({ path: join(keyDir, f), text: readFileSync(join(dir, f), 'utf8') })))
 }
 
 /*
- * The fixtures were recorded with the repo at /home/saidler/repos/scottidler/claude,
- * so their real paths name that rules dir. The index is built from this
- * checkout's rule text but keyed under the recorded dir, so the fixture tests
- * hold wherever the repo is cloned.
+ * Trigger tests key the index under the dir the live router reads, so a
+ * failure names a path that exists on this machine; any clone reads its own
+ * rule text. Both directories go in, so "never an always or native rule" is
+ * tested against the rules that sit beside the routed ones.
  */
-const RECORDED_RULES_DIR = '/home/saidler/repos/scottidler/claude/HOME/repos/.claude/rules'
-const index = liveIndex(RECORDED_RULES_DIR)
-const rule = (name: string): string => join(RECORDED_RULES_DIR, name + '.md')
+const KEY_ROUTED_DIR = '/home/saidler/repos/scottidler/claude/HOME/repos/.claude/routed'
+const KEY_RULES_DIR = '/home/saidler/repos/scottidler/claude/HOME/repos/.claude/rules'
+const index: RuleIndex = { rules: [...liveIndex(ROUTED_DIR, KEY_ROUTED_DIR).rules, ...liveIndex(RULES_DIR, KEY_RULES_DIR).rules] }
+const rule = (name: string): string => join(KEY_ROUTED_DIR, name + '.md')
 
 const ROUTED = ['git', 'marquee', 'otto', 'voice']
 const ALWAYS = ['general', 'interaction', 'pr', 'recall', 'search', 'secrets', 'taste']
 const NATIVE = ['comments', 'fleet-plugins', 'js-ts', 'python', 'rust', 'safety', 'terraform', 'yaml']
 
-describe('frontmatter', () => {
-    test('the block between the --- lines', () => {
-        expect(frontmatter('---\na: 1\nload: always\n---\n# Body\n')).toBe('a: 1\nload: always\n')
-    })
-    test('no frontmatter', () => {
-        expect(frontmatter('# Body\n')).toBeUndefined()
-    })
-    test('an unclosed block is not frontmatter', () => {
-        expect(frontmatter('---\nload: always\n# Body\n')).toBeUndefined()
-    })
-    test('a --- that is not a whole line does not close it', () => {
-        expect(frontmatter('---\nload: always\n----x\n')).toBeUndefined()
-    })
-})
+function expectLoad(dir: string, f: string): void {
+    const fm = frontmatter(readFileSync(join(dir, f), 'utf8'))
+    expect(fm).toBeDefined()
+    const load = parseLoad(fm as string)
+    if (load instanceof Error) { throw new Error(f + ': ' + load.message) }
+    const name = basename(f, '.md')
+    if (ALWAYS.includes(name)) { expect(load).toBe('always') }
+    if (NATIVE.includes(name)) { expect(load).toBe('native') }
+    if (ROUTED.includes(name)) { expect(typeof load).toBe('object') }
+}
 
-describe('parseLoad', () => {
-    test('always and native', () => {
-        expect(parseLoad('alwaysApply: true\nload: always\n')).toBe('always')
-        expect(parseLoad('paths:\n  - "**/*"\nload: native\n')).toBe('native')
-    })
-    test('a block trigger map with flow items and comments', () => {
-        const fm = [
-            'load:',
-            "  prompt: ['\\bslack\\b', 'it''s']",
-            '  tools:',
-            "    - { match: '^(Write|Edit)$', path: '\\.md$', gate: true }",
-            "    - { match: '^ToolSearch$', query: 'slack' }",
-            '  bash:',
-            "    - '^git\\b'                       # after",
-            "    - { match: '^git push\\b', gate: true } # before",
-            'other: x',
-        ].join('\n')
-        expect(parseLoad(fm)).toEqual({
-            prompt: ['\\bslack\\b', "it's"],
-            tools: [
-                { match: '^(Write|Edit)$', path: '\\.md$', gate: true },
-                { match: '^ToolSearch$', query: 'slack' },
-            ],
-            bash: ['^git\\b', { match: '^git push\\b', gate: true }],
-        })
-    })
-    test('an inline flow map', () => {
-        expect(parseLoad('load: { bash: ["^otto"] }')).toEqual({ bash: ['^otto'] })
-    })
-    test('a missing load: is an error', () => {
-        const r = parseLoad('alwaysApply: true\n')
-        expect(r).toBeInstanceOf(Error)
-        expect((r as Error).message).toBe('no load: key')
-    })
-    test('an unknown scalar is an error', () => {
-        expect(parseLoad('load: sometimes')).toBeInstanceOf(Error)
-    })
-    test('an unknown trigger key is an error', () => {
-        expect((parseLoad("load:\n  files: ['x']") as Error).message).toContain('unknown key files')
-    })
-    test('an unknown tools key is an error', () => {
-        expect((parseLoad("load:\n  tools:\n    - { match: 'x', gates: true }") as Error).message)
-            .toContain('unknown key gates')
-    })
-    test('a regex that does not compile is an error naming it', () => {
-        const r = parseLoad("load:\n  bash:\n    - '^git ('")
-        expect(r).toBeInstanceOf(Error)
-        expect((r as Error).message).toContain('load.bash[0]: regex does not compile')
-    })
-    test('a trigger map with no triggers is an error', () => {
-        expect(parseLoad('load: {}')).toBeInstanceOf(Error)
-    })
-    test('a non-boolean gate is an error', () => {
-        expect((parseLoad("load: { bash: [{ match: 'x', gate: yes }] }") as Error).message)
-            .toContain('gate must be true or false')
-    })
-    test('load: twice is an error', () => {
-        expect(parseLoad('load: always\nload: native')).toBeInstanceOf(Error)
-    })
-    test('a block map item spread over lines is refused, not misread', () => {
-        expect(parseLoad("load:\n  tools:\n    - match: 'x'\n      gate: true")).toBeInstanceOf(Error)
-    })
-    test('an unterminated flow sequence is an error', () => {
-        expect(parseLoad("load:\n  prompt: ['x'")).toBeInstanceOf(Error)
-    })
-    test('an inline value followed by indented lines is an error, not a silent drop (audit round 1)', () => {
-        const r = parseLoad("load: { bash: ['^git'] }\n  tools: [{ match: '^Write$', gate: true }]\n")
-        expect(r).toBeInstanceOf(Error)
-        expect((r as Error).message).toContain('inline value cannot be followed by indented lines')
-    })
-    test('an inline value followed by a blank line and a top-level key is fine', () => {
-        expect(parseLoad("load: { bash: ['^git'] }\n\nother: x\n")).toEqual({ bash: ['^git'] })
-        expect(parseLoad('load: always\n')).toBe('always')
-    })
-})
-
-describe('the live rules dir', () => {
-    test('holds the 19 rules the design classifies', () => {
-        expect(ruleFiles.map((f) => basename(f, '.md'))).toEqual([...ALWAYS, ...NATIVE, ...ROUTED].sort())
+describe('the live rules dir (bulk-loaded)', () => {
+    test('holds the 15 always and native rules the design classifies', () => {
+        expect(ruleFiles.map((f) => basename(f, '.md'))).toEqual([...ALWAYS, ...NATIVE].sort())
     })
     for (const f of ruleFiles) {
-        test(f + ': load: parses and every regex compiles', () => {
-            const fm = frontmatter(readFileSync(join(RULES_DIR, f), 'utf8'))
-            expect(fm).toBeDefined()
-            const load = parseLoad(fm as string)
-            if (load instanceof Error) { throw new Error(f + ': ' + load.message) }
-            const name = basename(f, '.md')
-            if (ALWAYS.includes(name)) { expect(load).toBe('always') }
-            if (NATIVE.includes(name)) { expect(load).toBe('native') }
-            if (ROUTED.includes(name)) { expect(typeof load).toBe('object') }
-        })
+        test(f + ': load: parses and every regex compiles', () => { expectLoad(RULES_DIR, f) })
     }
-    test('the index carries no load: errors and routes exactly git, marquee, otto, voice', () => {
+    test('no rule here carries a trigger map', () => {
         const live = liveIndex(RULES_DIR)
         expect(live.rules.filter((r) => r.error !== undefined)).toEqual([])
-        expect(live.rules.filter((r) => r.triggers !== undefined).map((r) => basename(r.path, '.md'))).toEqual(ROUTED)
+        expect(misplaced(live, 'rules')).toEqual([])
+    })
+})
+
+describe('the live routed dir (injected on trigger)', () => {
+    test('holds exactly git, marquee, otto, voice', () => {
+        expect(routedFiles.map((f) => basename(f, '.md'))).toEqual(ROUTED)
+    })
+    for (const f of routedFiles) {
+        test(f + ': load: parses and every regex compiles', () => { expectLoad(ROUTED_DIR, f) })
+    }
+    test('every rule here carries a trigger map', () => {
+        const live = liveIndex(ROUTED_DIR)
+        expect(live.rules.filter((r) => r.error !== undefined)).toEqual([])
+        expect(misplaced(live, 'routed')).toEqual([])
+    })
+})
+
+describe('placement', () => {
+    const fixture = buildIndex([
+        { path: '/r/trig.md', text: "---\nload: { bash: ['^otto'] }\n---\nbody\n" },
+        { path: '/r/always.md', text: '---\nload: always\n---\nbody\n' },
+        { path: '/r/native.md', text: '---\nload: native\n---\nbody\n' },
+        { path: '/r/empty.md', text: '---\nload: {}\n---\nbody\n' },
+        { path: '/r/none.md', text: '# no frontmatter\n' },
+    ])
+    test('a trigger map in rules/ is misplaced', () => {
+        expect(misplaced(fixture, 'rules').map((r) => r.path)).toEqual(['/r/trig.md'])
+    })
+    test('always, native, an empty map or no frontmatter in routed/ is misplaced', () => {
+        expect(misplaced(fixture, 'routed').map((r) => r.path)).toEqual(['/r/always.md', '/r/native.md', '/r/empty.md', '/r/none.md'])
     })
 })
 
@@ -220,15 +154,16 @@ describe('tools[].match against settings.json', () => {
         expect(names).toContain('mcp__marquee__marquee_publish')
         expect(names).toContain('Write')
     })
-    for (const r of liveIndex(RULES_DIR).rules) {
-        const load = r.load
-        if (typeof load !== 'object') { continue }
-        for (const t of load.tools ?? []) {
-            test(basename(r.path) + ' ' + t.match + ' names a registered tool', () => {
-                const re = new RegExp(t.match, 'i')
-                expect(names.filter((n) => re.test(n)).length).toBeGreaterThan(0)
-            })
-        }
+    const routedTools = liveIndex(ROUTED_DIR).rules.flatMap((r) => typeof r.load === 'object'
+        ? (r.load.tools ?? []).map((t) => ({ r, t })) : [])
+    test('the routed rules name tools to check at all', () => {
+        expect(routedTools.length).toBeGreaterThan(0)
+    })
+    for (const { r, t } of routedTools) {
+        test(basename(r.path) + ' ' + t.match + ' names a registered tool', () => {
+            const re = new RegExp(t.match, 'i')
+            expect(names.filter((n) => re.test(n)).length).toBeGreaterThan(0)
+        })
     }
     test('a wrong server name would fail: mcp__github__ matches nothing', () => {
         expect(names.filter((n) => /^mcp__github__/i.test(n))).toEqual([])
@@ -245,9 +180,9 @@ describe('buildIndex', () => {
         expect(ruleAt(idx, '/r/bad.md')).toMatchObject({ load: 'always' })
         expect(ruleAt(idx, '/r/bad.md')?.error).toContain('regex does not compile')
         expect(ruleAt(idx, '/r/none.md')?.error).toBe('no frontmatter')
-        expect(isRouted(idx, '/r/bad.md')).toBe(false)
-        expect(isRouted(idx, '/r/ok.md')).toBe(true)
-        expect(isRouted(idx, '/r/missing.md')).toBe(false)
+        expect(ruleAt(idx, '/r/bad.md')?.triggers).toBeUndefined()
+        expect(ruleAt(idx, '/r/ok.md')?.triggers).toBeDefined()
+        expect(ruleAt(idx, '/r/missing.md')).toBeUndefined()
     })
 })
 
@@ -406,72 +341,5 @@ describe('matchPrompt', () => {
     })
     test('never returns an always or native rule', () => {
         expect(matchPrompt(index, 'search secrets taste safety rust python')).toEqual([])
-    })
-})
-
-describe('splitInstructions, the 2b8aebe2 instructions blob', () => {
-    const parts = splitInstructions(instructions.text)
-    const sections = parts.filter((p) => p.header !== '')
-    test('one path-less preamble, then 18 file sections (files[] count)', () => {
-        expect(parts.length).toBe(19)
-        expect(parts[0]?.header).toBe('')
-        expect(parts[0]?.path).toBeUndefined()
-        expect(parts[0]?.body.startsWith('Codebase and user instructions are shown below.')).toBe(true)
-        expect(sections.length).toBe(instructions.files.length)
-        expect(sections.length).toBe(18)
-    })
-    test('the section paths are files[] in order; the managed tier has none', () => {
-        expect(sections.map((p) => p.path ?? p.header)).toEqual(instructions.files.map((f) =>
-            f.path === '<managed-settings>'
-                ? 'Contents of <managed-settings> (organization-managed policy instructions):'
-                : f.path))
-        expect(sections.filter((p) => p.path !== undefined).length).toBe(17)
-    })
-    test('join of the split is the blob, byte for byte', () => {
-        expect(joinInstructions(parts)).toBe(instructions.text)
-    })
-    test('dropping the routed sections leaves a blob that splits into the rest', () => {
-        const kept = parts.filter((p) => p.path === undefined || !isRouted(index, p.path))
-        expect(parts.length - kept.length).toBe(4)
-        const again = splitInstructions(joinInstructions(kept))
-        expect(again.map((p) => p.path)).toEqual(kept.map((p) => p.path))
-        expect(joinInstructions(again)).toBe(joinInstructions(kept))
-    })
-    test('a blob with no section header throws', () => {
-        expect(() => splitInstructions('Codebase and user instructions are shown below.')).toThrow('no `Contents of')
-    })
-    test('a Contents of line inside a body, not after a blank line, is body', () => {
-        const blob = 'pre\n\nContents of /a.md (t):\n\nx\nContents of /b.md (t):\ny'
-        expect(splitInstructions(blob).map((p) => p.path)).toEqual([undefined, '/a.md'])
-    })
-    test('a blob that opens on a header has no preamble part', () => {
-        const blob = 'Contents of /a.md (t):\n\nx\n\nContents of /b.md (t):\n\ny'
-        const p = splitInstructions(blob)
-        expect(p.map((x) => x.path)).toEqual(['/a.md', '/b.md'])
-        expect(joinInstructions(p)).toBe(blob)
-    })
-})
-
-describe('nestedPath, the e9ef7f18 nested_memory burst', () => {
-    const paths = nested.rows.map((r) => nestedPath(r.text))
-    test('15 rows, each path read from its text equals the attachment path', () => {
-        expect(nested.rows.length).toBe(15)
-        expect(paths).toEqual(nested.rows.map((r) => r.path))
-    })
-    test('4 of the 15 are routed: git, marquee, otto, voice', () => {
-        const routedHere = (paths as string[]).filter((p) => isRouted(index, p))
-        expect(routedHere.map((p) => basename(p, '.md')).sort()).toEqual(ROUTED)
-    })
-    test('cli, logging and ~/repos/CLAUDE.md are outside the rule index, so kept', () => {
-        const outside = (paths as string[]).filter((p) => ruleAt(index, p) === undefined)
-        expect(outside.map((p) => basename(p))).toEqual(['CLAUDE.md', 'logging.md', 'cli.md'])
-    })
-    test('text that does not open on a header has no path', () => {
-        expect(nestedPath('hello')).toBeUndefined()
-        expect(nestedPath('Contents of relative.md:\n\nx')).toBeUndefined()
-        expect(nestedPath('x\nContents of /a.md:\n')).toBeUndefined()
-    })
-    test('a tier suffix is not part of the path', () => {
-        expect(nestedPath('Contents of /a b/c.md (project instructions):\n\nx')).toBe('/a b/c.md')
     })
 })

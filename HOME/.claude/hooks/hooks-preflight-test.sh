@@ -87,6 +87,10 @@ fi
 # linked ~/.claude/hooks/lib.sh yet.
 good="$SCRATCH/good.json"
 settings_with "$good" '~/.claude/hooks/secret-echo-guard.sh' 'echo'
+# rails runs only with function hooks on (rule routing, Phase 7).
+jq '. + {env:{CLAUDE_CODE_ENABLE_FUNCTION_HOOKS:"1"}}' "$good" > "$good.tmp" && mv "$good.tmp" "$good"
+# The routed rules dir check reads this checkout's copy, not this host's link.
+export HOOKS_PREFLIGHT_ROUTED="$ROOT/HOME/repos/.claude/routed"
 
 out=$("$RESOLVE" --settings "$good" --root "$ROOT" 2>&1); rc=$?
 if [ "$rc" -eq 0 ]; then ok "hooks-resolve: all-present fixture exits 0"; else bad "hooks-resolve: all-present fixture rc=$rc: $out"; fi
@@ -98,21 +102,39 @@ else
   bad "hooks-preflight: all-present fixture printed: $ctx"
 fi
 
-# ---- fixtures: rails / rule_routing switched off ----------------------------
+# ---- fixtures: rails not running, so routed rules never load ---------------
 for case in \
-  'rule_routing|{"pluginConfigs":{"rails":{"options":{"rule_routing":false}}}}' \
-  'enabled|{"pluginConfigs":{"rails":{"options":{"enabled":false}}}}' \
-  'disabled in enabledPlugins|{"enabledPlugins":{"rails@skills-dir":false}}'; do
+  'enabled is false|{"pluginConfigs":{"rails":{"options":{"enabled":false}}}}' \
+  'disabled in enabledPlugins|{"enabledPlugins":{"rails@skills-dir":false}}' \
+  'CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is not|{"env":{}}'; do
   want="${case%%|*}"; extra="${case#*|}"
   off="$SCRATCH/rails-off.json"
   jq --argjson x "$extra" '. + $x' "$good" > "$off"
   ctx=$(HOOKS_PREFLIGHT_SETTINGS="$off" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" bash "$PREFLIGHT")
-  if printf '%s' "$ctx" | rg -q "rule routing is off.*$want"; then
-    ok "hooks-preflight: warns when rails routing is off ($want)"
+  if printf '%s' "$ctx" | rg -q "rails will not run \\([^)]*$want.*rules never load"; then
+    ok "hooks-preflight: warns routed rules never load ($want)"
   else
-    bad "hooks-preflight: no routing warning for $want: $ctx"
+    bad "hooks-preflight: no never-load warning for $want: $ctx"
   fi
 done
+
+# ---- fixture: rule_routing false, so routed rules are flushed --------------
+off="$SCRATCH/routing-off.json"
+jq '. + {pluginConfigs:{rails:{options:{rule_routing:false}}}}' "$good" > "$off"
+ctx=$(HOOKS_PREFLIGHT_SETTINGS="$off" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" bash "$PREFLIGHT")
+if printf '%s' "$ctx" | rg -q 'rule routing is off \(pluginConfigs.rails.options.rule_routing is false\).*flushed whole'; then
+  ok "hooks-preflight: warns routed rules are flushed when rule_routing is false"
+else
+  bad "hooks-preflight: no flush warning for rule_routing false: $ctx"
+fi
+
+# ---- fixture: the routed rules dir does not resolve --------------------------
+ctx=$(HOOKS_PREFLIGHT_SETTINGS="$good" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" HOOKS_PREFLIGHT_ROUTED="$SCRATCH/no-such-routed" bash "$PREFLIGHT")
+if printf '%s' "$ctx" | rg -q "no-such-routed does not resolve to a directory"; then
+  ok "hooks-preflight: warns when the routed rules dir does not resolve"
+else
+  bad "hooks-preflight: no routed-dir warning: $ctx"
+fi
 
 # ---- bin/hooks-resolve with no arguments, against the repo as-is -----------
 out=$("$RESOLVE" 2>&1); rc=$?

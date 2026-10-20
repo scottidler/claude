@@ -1,12 +1,12 @@
 /**
  * rails: rule routing, the pure half (docs/design/2026-10-08-rule-routing.md).
  *
- * Every file in `~/repos/.claude/rules/` declares `load:` in its frontmatter:
- * `always` (stays in the engine's bulk load), `native` (has `paths:`, the engine
- * already loads it at the right time), or a trigger object (dropped from the
- * bulk load, injected when a prompt, tool or Bash statement matches). This file
- * parses that data, splits the engine's attachment text into per-file parts,
- * and matches triggers. It touches no engine noun; `index.ts` wires it.
+ * Every rule declares `load:` in its frontmatter: `always` (stays in the
+ * engine's bulk load of `~/repos/.claude/rules/`), `native` (has `paths:`, the
+ * engine already loads it at the right time), or a trigger object (lives in
+ * `~/repos/.claude/routed/`, which nothing bulk-loads, and is injected when a
+ * prompt, tool or Bash statement matches). This file parses that data and
+ * matches triggers. It touches no engine noun; `index.ts` wires it.
  */
 
 export type ToolTrigger = { match: string; gate?: boolean; query?: string; path?: string }
@@ -28,9 +28,6 @@ export type IndexedRule = {
 }
 
 export type RuleIndex = { rules: IndexedRule[] }
-
-/** One section of an `instructions` blob; `header` + `body` is its exact text. */
-export type InstructionPart = { header: string; path?: string; body: string }
 
 export type ToolMatch = { gate: string[]; after: string[] }
 
@@ -343,7 +340,7 @@ export function parseLoad(frontmatterText: string): Load | Error {
  * The rule index from each rule file's real path and full text.
  *
  * A file whose `load:` is missing or broken is indexed as `always` with the
- * reason in `error`: the rule stays in the bulk load, and the caller says so.
+ * reason in `error`; the caller says so and keeps the rule in context.
  */
 export function buildIndex(files: readonly { path: string; text: string }[]): RuleIndex {
     const rules = files.map((f): IndexedRule => {
@@ -359,71 +356,19 @@ export function buildIndex(files: readonly { path: string; text: string }[]): Ru
     return { rules }
 }
 
+/**
+ * The rules in the wrong directory for their `load:`. Placement is the
+ * classification: `rules/` is bulk-loaded, so a trigger map there is never
+ * injected; `routed/` is loaded by nothing else, so a file there with no
+ * usable trigger would never load at all.
+ */
+export function misplaced(index: RuleIndex, dir: 'rules' | 'routed'): IndexedRule[] {
+    return index.rules.filter((r) => (dir === 'rules') === (r.triggers !== undefined))
+}
+
 /** The indexed rule at this real path, if it is in the rule index at all. */
 export function ruleAt(index: RuleIndex, realPath: string): IndexedRule | undefined {
     return index.rules.find((r) => r.path === realPath)
-}
-
-/** True when the file at this real path is a rule whose `load:` is a trigger map. */
-export function isRouted(index: RuleIndex, realPath: string): boolean {
-    return ruleAt(index, realPath)?.triggers !== undefined
-}
-
-// ---------------------------------------------------------------------------
-// Attachment text
-// ---------------------------------------------------------------------------
-
-/**
- * A file section header in an `instructions` blob, one line:
- * `Contents of <path> (<tier>):`, or `Contents of <managed-settings> (...)`
- * for the managed tier, which has no path (Phase 0 (b)).
- */
-const SECTION = /^Contents of (<[^<>\n]+>|\/[^\n]*?) \(([^()\n]+)\):$/gm
-
-/**
- * An `instructions` attachment's text, cut into its file sections.
- *
- * The text opens with a one-line preamble (`Codebase and user instructions are
- * shown below...`), returned as a part with an empty header and no path. Each
- * section's `body` runs from the end of its header line to the next header, so
- * it carries the blank-line separator; `joinInstructions` is plain
- * concatenation and inverts this byte for byte. A header must start the text
- * or follow a blank line, so a quoted `Contents of` inside a rule is body.
- * Text with no section header at all throws: the engine changed its framing.
- */
-export function splitInstructions(blob: string): InstructionPart[] {
-    const starts: { at: number; header: string; path?: string }[] = []
-    for (const m of blob.matchAll(SECTION)) {
-        const at = m.index as number
-        if (at !== 0 && blob.slice(at - 2, at) !== '\n\n') { continue }
-        const target = m[1] as string
-        const header = m[0]
-        starts.push(target.startsWith('/') ? { at, header, path: target } : { at, header })
-    }
-    if (starts.length === 0) { throw new Error('instructions: no `Contents of <path> (<tier>):` section header') }
-
-    const parts: InstructionPart[] = []
-    const first = starts[0] as { at: number }
-    if (first.at > 0) { parts.push({ header: '', body: blob.slice(0, first.at) }) }
-    starts.forEach((s, i) => {
-        const end = i + 1 < starts.length ? (starts[i + 1] as { at: number }).at : blob.length
-        const part: InstructionPart = { header: s.header, body: blob.slice(s.at + s.header.length, end) }
-        if (s.path !== undefined) { part.path = s.path }
-        parts.push(part)
-    })
-    return parts
-}
-
-/** The inverse of `splitInstructions`: every part's header then body, in order. */
-export function joinInstructions(parts: readonly InstructionPart[]): string {
-    return parts.map((p) => p.header + p.body).join('')
-}
-
-const NESTED = /^Contents of (\/[^\n]*?)(?: \([^()\n]*\))?:(?:\n|$)/
-
-/** The file path a `nested_memory` attachment's text opens with (`Contents of <path>:`). */
-export function nestedPath(text: string): string | undefined {
-    return NESTED.exec(text)?.[1]
 }
 
 // ---------------------------------------------------------------------------

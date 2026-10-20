@@ -37,7 +37,7 @@
       "type": "boolean",
       "default": true,
       "title": "rule routing",
-      "description": "Drop rules whose load: names triggers from the bulk load of ~/repos/.claude/rules, inject each once when its prompt, tool or Bash trigger fires, and drop a file loaded a second time under another path. Turning it off restores the full load from the next turn for the rest of the session. Underscore because the plugin schema rejects hyphens in these keys."
+      "description": "Inject each rule in ~/repos/.claude/routed (which nothing else loads) once per context, when its prompt, tool or Bash trigger fires; gate outward tools until their rule is in context. Turning it off flushes every routed rule whole into each loop at its next prompt or tool call instead. Underscore because the plugin schema rejects hyphens in these keys."
     },
     "debug": {
       "type": "boolean",

@@ -2,7 +2,7 @@
 # branch-name-guard.sh: PreToolUse(Bash) guard: a NEW branch name is a flat
 # lowercase slug.
 #
-# rules/git.md "Branch names": the name is a flat slug (`retire-general-plugin`),
+# routed/git.md "Branch names": the name is a flat slug (`retire-general-plugin`),
 # never a type/scope path (`chore/retire-general-plugin`), never `_`, never
 # uppercase. The conventional-commit type belongs in the PR TITLE. Why it is
 # absolute: branch-pr-title-guard.sh slugifies the title to compare it to the
@@ -92,7 +92,7 @@ judge() { # judge <offered new branch name>
   esac
   slug=$(slugify "$n")
   [ -z "$slug" ] && return 0
-  deny "Blocked: branch '$n'. Branch names are a flat lowercase slug: no \`/\`, no \`_\`, no uppercase. Use \`$slug\`. The conventional-commit type goes in the PR TITLE, never the branch (rules/git.md)."
+  deny "Blocked: branch '$n'. Branch names are a flat lowercase slug: no \`/\`, no \`_\`, no uppercase. Use \`$slug\`. The conventional-commit type goes in the PR TITLE, never the branch (routed/git.md)."
 }
 
 # The NEW name a git statement would create, by argument position. `branch`

@@ -26,7 +26,9 @@ tasks:
         HOME/.claude/skills/rails/types/index.d.ts
         HOME/.claude/skills/session/hooks/index.ts
         HOME/.claude/skills/session/tests/session.test.ts
-        HOME/repos/.claude/rules/git.md
+        HOME/repos/.claude/routed/git.md
+        HOME/repos/.claude/routed/marquee.md
+        HOME/repos/.claude/routed/otto.md
         HOME/repos/.claude/refs/cli.md
         HOME/repos/.claude/refs/process-taste.md
         HOME/repos/.claude/rules/general.md
@@ -36,7 +38,8 @@ tasks:
         HOME/repos/.claude/refs/slack.md
         .otto.yml
         HOME/repos/.claude/rules/safety.md
-        HOME/repos/.claude/rules/voice.md
+        HOME/repos/.claude/routed/voice.md
+        HOME/.pi/agent/extensions/rules/index.ts
         HOME/repos/.claude/rules/interaction.md
         HOME/repos/.claude/rules/secrets.md
         HOME/repos/.claude/rules/recall.md
@@ -124,11 +127,11 @@ tasks:
         echo "Found an em dash in the lint list above."
         exit 1
       fi
-      # Every rules/*.md carries YAML frontmatter as its first line, voice.md
-      # included (alwaysApply: true). A file that loses its leading `---` (e.g.
+      # Every rules/*.md and routed/*.md carries YAML frontmatter as its first
+      # line (routed rules declare their triggers there). A file that loses its leading `---` (e.g.
       # a stray WORKAROUND comment reintroduced above it) still loads, but its
       # always-on or path-scoped status becomes accidental instead of declared.
-      BAD_FRONTMATTER=$(awk 'FNR==1 && $0 != "---" {print FILENAME}' HOME/repos/.claude/rules/*.md)
+      BAD_FRONTMATTER=$(awk 'FNR==1 && $0 != "---" {print FILENAME}' HOME/repos/.claude/rules/*.md HOME/repos/.claude/routed/*.md)
       if [ -n "$BAD_FRONTMATTER" ]; then
         echo "Rules frontmatter check failed, every rule needs frontmatter, got:"
         echo "$BAD_FRONTMATTER"
