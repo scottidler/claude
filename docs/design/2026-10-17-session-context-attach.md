@@ -129,7 +129,7 @@ session `plugin.json` userConfig (snake_case keys, rails precedent: the plugin s
 | key | type | default | effect |
 |---|---|---|---|
 | `jev` | boolean | `true` | off -> deterministic floor only, no request |
-| `jev_model` | string | `jev-latest` | model sent; served model logged |
+| `jev_model` | string | `jev-1.14.0` | model sent; served model logged |
 | `jev_timeout_ms` | number | `1500` | cap on the hook's added wait: the seat probe and the Jev call run together, each raced against it |
 | `threshold_seat` / `_identity` / `_location` / `_usage` | number | set in Phase 4 | attach when `noul >= threshold`; a bundle with no threshold reaching precision 0.8 gets `1.01` (never attached by Jev) |
 
@@ -140,7 +140,7 @@ rails `plugin.json` userConfig: `desktop_over_ssh` boolean, default `true`.
 Jev request (one call, copying second-brain `distillers/src/tags.rs:691-708`):
 
 ```json
-{"model":"jev-latest",
+{"model":"jev-1.14.0",
  "state":"USER PROMPT:\n<prompt head>\n\nPREVIOUS ASSISTANT REPLY (tail):\n<reply tail, 300 chars>",
  "questions":{"seat":{"type":"noul","instructions":"...","criteria":{"true":"..."}}, "identity":{...}, "location":{...}, "usage":{...}}}
 ```

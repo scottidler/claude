@@ -26,7 +26,7 @@
 #
 # INSTRUCTION TEST (offer rule only, asked only after the offer regex matched):
 #   slash command   always an instruction, no call
-#   Jev             one yes/no to TypeSafe's jev-1.13.0, "is this prompt an
+#   Jev             one yes/no to TypeSafe's jev-1.14.0, "is this prompt an
 #                   instruction or go-ahead?", p >= PROSE_JEV_THRESHOLD (0.5)
 #   verb list       the fallback: first word in VERBS, or a bare go-ahead. Used
 #                   when ESCOTE_TYPESAFE_API_KEY is unset, PROSE_JEV=off, or the
@@ -110,7 +110,7 @@ rebase open close resolve address apply deploy babysit shakedown'
 GOAHEAD='(yes|y|ok|okay|go|do it|proceed|ship it|send it)'
 
 JEV_URL="${PROSE_JEV_URL:-https://api.typesafe.ai/v1/systemone}"
-JEV_MODEL="jev-1.13.0"
+JEV_MODEL="jev-1.14.0"
 JEV_TIMEOUT="${PROSE_JEV_TIMEOUT:-3}"
 JEV_THRESHOLD="${PROSE_JEV_THRESHOLD:-0.5}"
 JEV_PROMPT_CHARS=1500
