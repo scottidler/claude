@@ -86,7 +86,7 @@ stop_payload() {  # stop_payload <transcript> <text>
 T_VERBQ="$ROOT/verbq.jsonl"   # verb-initial question: the verb list's false block
 { arec "an earlier reply"; urec "do we have separate worktrees?"; } > "$T_VERBQ"
 jev_answer() {  # jev_answer <name> <noul>: write a canned Jev response, print its URL
-  jq -nc --argjson p "$2" '{model:"jev-1.13.0",answers:{instruction:{type:"noul",noul:$p}}}' > "$ROOT/$1.json"
+  jq -nc --argjson p "$2" '{model:"jev-1.14.0",answers:{instruction:{type:"noul",noul:$p}}}' > "$ROOT/$1.json"
   printf 'file://%s/%s.json' "$ROOT" "$1"
 }
 JEV_LOW=$(jev_answer low 0.05)
