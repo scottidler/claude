@@ -40,6 +40,9 @@ github:
   mvanhorn/last30days-skill:
     link:
       skills/last30days: ~/.claude/skills/last30days
+  cloudflare/security-audit-skill:
+    link:
+      skills/security-audit: ~/.claude/skills/security-audit
 
 # Claude tooling installed as isolated CLIs on PATH.
 pipx:
