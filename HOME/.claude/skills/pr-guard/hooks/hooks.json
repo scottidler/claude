@@ -1,0 +1,3 @@
+{"hooks": {"PreToolUse": [
+  {"matcher": "Bash|Monitor|mcp__.*", "hooks": [{"type": "command", "command": "[ \"${PR_CREATE_ENFORCEMENT:-}\" = on ] || exit 0; exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.py\"", "timeout": 5}]}
+]}}

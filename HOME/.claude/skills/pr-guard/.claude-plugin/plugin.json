@@ -1,0 +1,5 @@
+{
+  "name": "pr-guard",
+  "version": "0.1.0",
+  "description": "Machine-local: denies direct PR creation (gh pr create, gh api, MCP create_pull_request) and points the agent at /pr:create. guard.py is copied from tatari-skills add-pr-guard (40e59369)."
+}
