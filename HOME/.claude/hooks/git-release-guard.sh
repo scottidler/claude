@@ -294,9 +294,7 @@ is_bump_only_ref() {
 # The directory judged is the one the statement RUNS in: the `cd` in effect at
 # the statement (`cd_at`), then git's own global `-C`/`--git-dir`, or bump's
 # directory positionals, resolved against it. git's global options are read
-# only BEFORE the subcommand, which is the line `dash_c_tree` in
-# branch-pr-title-guard.sh draws with a directory-exists test instead: the
-# position is the exact answer, since `git switch -C <branch>` and `git commit
+# only BEFORE the subcommand: the position is the exact answer, since `git switch -C <branch>` and `git commit
 # -C <commit>` put theirs after it.
 #
 # Exempt, because each is legal outside a repo: `git clone`, `git init`, `git

@@ -8,7 +8,7 @@
 # does, in both directions:
 #
 #   - version delta on the branch + `--release rides`  -> git-release-guard.sh
-#     and branch-pr-title-guard.sh both return `{}` (allow).
+#     and pr-title-guard.sh both return `{}` (allow).
 #   - no version delta + a body claiming `rides`       -> Gate D denies, and the
 #     denial text is asserted rather than assumed.
 #
@@ -24,7 +24,7 @@ BIN="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PROPEN="$BIN/pr-open"
 HOOKS="$(cd "$BIN/../hooks" && pwd)"
 RELEASE_GUARD="$HOOKS/git-release-guard.sh"
-TITLE_GUARD="$HOOKS/branch-pr-title-guard.sh"
+TITLE_GUARD="$HOOKS/pr-title-guard.sh"
 
 for f in "$PROPEN" "$RELEASE_GUARD" "$TITLE_GUARD"; do
   [ -r "$f" ] || { echo "MISSING: $f"; exit 1; }
@@ -82,10 +82,10 @@ git commit -qam "fix(fixture): pr open nobump"
 
 echo "=== pr-open: the emitted command ==="
 git checkout -q pr-open-fixture
-CMD=$(cd "$R" && "$PROPEN" --type feat --scope fixture --release rides 2>/dev/null)
+CMD=$(cd "$R" && "$PROPEN" --title "Add the pr open fixture" --release rides 2>/dev/null)
 RC=$?
 [ "$RC" = 0 ] || bad "pr-open exits 0 on a delta branch" "exit $RC"
-want "title is derived from the branch" '--title "feat(fixture): pr open fixture"' "$CMD"
+want "title is the authored title     " '--title "Add the pr open fixture"' "$CMD"
 want "head is the branch"               '--head pr-open-fixture'                   "$CMD"
 want "base is the origin default"       '--base main'                              "$CMD"
 want "persona is explicit"              'GH_PERSONA='                              "$CMD"
@@ -103,13 +103,13 @@ OUT=$(hook "$RELEASE_GUARD" "$R" "$CMD")
 [ "$OUT" = "{}" ] && ok "git-release-guard.sh allows (empty decision)" \
                   || bad "git-release-guard.sh allows (empty decision)" "got: $OUT"
 OUT=$(hook "$TITLE_GUARD" "$R" "$CMD")
-[ "$OUT" = "{}" ] && ok "branch-pr-title-guard.sh allows (empty decision)" \
-                  || bad "branch-pr-title-guard.sh allows (empty decision)" "got: $OUT"
+[ "$OUT" = "{}" ] && ok "pr-title-guard.sh allows (empty decision)" \
+                  || bad "pr-title-guard.sh allows (empty decision)" "got: $OUT"
 
 echo "=== live hooks: DENY direction (no version delta + a rides claim) ==="
 git checkout -q pr-open-nobump
 # pr-open refuses to emit this at all, which is the first half of the criterion.
-ERR=$(cd "$R" && "$PROPEN" --type fix --scope fixture --release rides 2>&1 >/dev/null)
+ERR=$(cd "$R" && "$PROPEN" --title "Fix the pr open fixture" --release rides 2>&1 >/dev/null)
 RC=$?
 [ "$RC" != 0 ] && ok "pr-open refuses --release rides with no version delta" \
                || bad "pr-open refuses --release rides with no version delta" "exit 0, output: $ERR"
@@ -118,7 +118,7 @@ want "and it says why" "no version line changes" "$ERR"
 # The second half: the command SHAPE, carrying a rides claim, put in front of
 # Gate D. Built from pr-open's own output (a `none` run, whose body file is then
 # made to carry the rides claim) so the shape under test is never hand-copied.
-CMD2=$(cd "$R" && "$PROPEN" --type fix --scope fixture --release none --reason "test fixture" 2>/dev/null)
+CMD2=$(cd "$R" && "$PROPEN" --title "Fix the pr open fixture" --release none --reason "test fixture" 2>/dev/null)
 BODY2=$(printf '%s' "$CMD2" | sed -nE 's/.*--body-file ([^ ]+).*/\1/p')
 printf 'work\n\nRelease: rides this PR (v0.1.1)\n' > "$BODY2"
 OUT=$(hook "$RELEASE_GUARD" "$R" "$CMD2")
@@ -130,26 +130,31 @@ want "deny names the missing version delta" "no package version line changes" \
 
 echo "=== pr-open: the refusals ==="
 git checkout -q pr-open-fixture
-ERR=$(cd "$R" && "$PROPEN" --scope fixture --release rides 2>&1 >/dev/null); \
-  want "--type is required" "--type is required" "$ERR"
-ERR=$(cd "$R" && "$PROPEN" --type feat 2>&1 >/dev/null); \
+ERR=$(cd "$R" && "$PROPEN" --release rides 2>&1 >/dev/null); \
+  want "--title is required" "--title is required" "$ERR"
+ERR=$(cd "$R" && "$PROPEN" --title "feat(fixture): pr open fixture" --release rides 2>&1 >/dev/null); \
+  want "refuses a type(scope): title" "type(scope):" "$ERR"
+ERR=$(cd "$R" && "$PROPEN" --title "fix: thing" --release rides 2>&1 >/dev/null); \
+  want "refuses a bare type: title" "type(scope):" "$ERR"
+ERR=$(cd "$R" && "$PROPEN" --title "Add a thing" 2>&1 >/dev/null); \
   want "--release is required" "--release is required" "$ERR"
-ERR=$(cd "$R" && "$PROPEN" --type feat --release none 2>&1 >/dev/null); \
+ERR=$(cd "$R" && "$PROPEN" --title "Add a thing" --release none 2>&1 >/dev/null); \
   want "--release none requires a reason" "requires --reason" "$ERR"
 git checkout -q main
-ERR=$(cd "$R" && "$PROPEN" --type feat --release none --reason x 2>&1 >/dev/null); \
+ERR=$(cd "$R" && "$PROPEN" --title "Add a thing" --release none --reason x 2>&1 >/dev/null); \
   want "refuses on main" "no feature branch" "$ERR"
 git checkout -q -b feature/slashed 2>/dev/null
-ERR=$(cd "$R" && "$PROPEN" --type feat --release none --reason x 2>&1 >/dev/null); \
-  want "refuses a branch no title can match" "can never match any title" "$ERR"
+CMD5=$(cd "$R" && "$PROPEN" --title "Add a thing" --release none --reason x 2>/dev/null)
+want "a slashed branch still gets a command" "--head feature/slashed" "$CMD5"
+want "and a flat body file name" "/feature-slashed.md" "$CMD5"
 
 echo "=== pr-open: persona comes from the remote's org, not the cwd ==="
 git checkout -q pr-open-fixture
 git remote set-url origin git@github.com:tatari-tv/fixture.git
-CMD3=$(cd "$R" && "$PROPEN" --type feat --scope fixture --release rides 2>/dev/null)
+CMD3=$(cd "$R" && "$PROPEN" --title "Add the pr open fixture" --release rides 2>/dev/null)
 want "tatari-tv remote yields the work persona" "GH_PERSONA=work" "$CMD3"
 git remote set-url origin git@github.com:scottidler/fixture.git
-CMD4=$(cd "$R" && "$PROPEN" --type feat --scope fixture --release rides 2>/dev/null)
+CMD4=$(cd "$R" && "$PROPEN" --title "Add the pr open fixture" --release rides 2>/dev/null)
 want "a personal remote yields the home persona" "GH_PERSONA=home" "$CMD4"
 
 echo

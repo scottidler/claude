@@ -857,7 +857,7 @@
           },
           {
             "type": "command",
-            "command": "~/.claude/hooks/branch-pr-title-guard.sh"
+            "command": "~/.claude/hooks/pr-title-guard.sh"
           },
           {
             "type": "command",
@@ -943,7 +943,7 @@
           },
           {
             "type": "command",
-            "command": "~/.claude/hooks/branch-pr-title-guard.sh"
+            "command": "~/.claude/hooks/pr-title-guard.sh"
           },
           {
             "type": "command",

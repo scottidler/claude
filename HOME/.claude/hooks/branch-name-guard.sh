@@ -4,10 +4,8 @@
 #
 # routed/git.md "Branch names": the name is a flat slug (`retire-general-plugin`),
 # never a type/scope path (`chore/retire-general-plugin`), never `_`, never
-# uppercase. The conventional-commit type belongs in the PR TITLE. Why it is
-# absolute: branch-pr-title-guard.sh slugifies the title to compare it to the
-# branch, and slugifying collapses `/` and `.` to `-`, so a slashed branch can
-# never be matched by ANY title and its PR becomes unopenable. Twelve slashed
+# uppercase. A type prefix belongs nowhere: not in the branch, and never in the
+# PR title either (pr-title-guard.sh). Twelve slashed
 # branches were created 2026-06-26 to 2026-09-12 (2026-09-12 audit, item 5),
 # one of them burning four consecutive blocked `gh pr create` attempts. The
 # prose rule landed after the fact with nothing enforcing it; this is the hook.
@@ -57,8 +55,8 @@ deny() {
   exit 0
 }
 
-# branch-pr-title-guard.sh:title_slug, verbatim, so the name this guard OFFERS
-# is a name that guard will accept beside a matching title.
+# Strips a leading `type(scope):` and collapses everything else to a flat slug,
+# so the name this guard OFFERS is itself a legal branch name.
 slugify() {
   printf '%s' "$1" \
     | sed -E 's/^[[:space:]]*[A-Za-z]+(\([^)]*\))?!?:[[:space:]]*//' \
@@ -92,7 +90,7 @@ judge() { # judge <offered new branch name>
   esac
   slug=$(slugify "$n")
   [ -z "$slug" ] && return 0
-  deny "Blocked: branch '$n'. Branch names are a flat lowercase slug: no \`/\`, no \`_\`, no uppercase. Use \`$slug\`. The conventional-commit type goes in the PR TITLE, never the branch (routed/git.md)."
+  deny "Blocked: branch '$n'. Branch names are a flat lowercase slug: no \`/\`, no \`_\`, no uppercase. Use \`$slug\`. No type prefix in a branch name (routed/git.md)."
 }
 
 # The NEW name a git statement would create, by argument position. `branch`
@@ -163,8 +161,7 @@ while IFS= read -r -d '' stmt; do
   # `gh pr create --head <name>` names a branch that USUALLY already exists, and
   # an existing branch is not a new name: judging it would demand a rename of
   # something with commits on it. So this fires only when the name has no local
-  # ref. An `owner:branch` form is split on the LAST `:`, the same as
-  # branch-pr-title-guard.sh does.
+  # ref. An `owner:branch` form is split on the LAST `:`.
   printf '%s' "$masked" | cmdword_is gh || continue
   # Matched on the UNQUOTED copy: `"gh" "pr" create` is the same invocation gh
   # receives, spelled to dodge a matcher (audit CW1).

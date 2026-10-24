@@ -65,8 +65,8 @@ tasks:
         HOME/.claude/hooks/git-release-guard-test.sh
         HOME/.claude/hooks/branch-name-guard.sh
         HOME/.claude/hooks/branch-name-guard-test.sh
-        HOME/.claude/hooks/branch-pr-title-guard.sh
-        HOME/.claude/hooks/branch-pr-title-guard-test.sh
+        HOME/.claude/hooks/pr-title-guard.sh
+        HOME/.claude/hooks/pr-title-guard-test.sh
         HOME/.claude/hooks/rewrite-cd-read.py
         HOME/.claude/hooks/rewrite-cd-read-test.sh
         HOME/.claude/hooks/hooks-preflight.sh

@@ -94,16 +94,13 @@ The verbs enforce the invariants themselves (CI gate, tag on the verified sha,
 PR title and release line by construction). Trust them; do not second-guess their
 gate verdict or re-implement their steps by hand.
 
-**`bump release` builds the PR title from the branch slug, which mangles dotted
-versions.** Slug `pin-jev-1-14-0` became `fix(jev): pin jev 1 14 0` on shepherd#109
-(2026-10-21). The title must still slugify back to the branch (`rules/general.md`,
-Branch names), so the fix is to restore the dots, never to reword. After a gated
-`bump release` opens the PR, read it with `gh pr view <n> --json title`. If a version
-or other dotted token was flattened, run
-`gh pr edit <n> --title "<type>(<scope>): <same words, dots restored>"` (here
-`fix(jev): pin jev-1.14.0`), re-read it, and report the final title. When Scott or the
-caller names the branch, keep dotted tokens out of the slug's way: the slug is lowercase
-words and hyphens, the title carries the dots.
+**A PR title never carries a `type:` / `type(scope):` prefix** (`rules/general.md`,
+PR titles; `pr-title-guard.sh` denies one on `gh pr edit --title`). After a gated
+`bump release` opens the PR, read it with `gh pr view <n> --json title`. If the title
+opens with a prefix, or restates the branch slug (`fix(jev): pin jev 1 14 0` on
+shepherd#109, 2026-10-21), retitle it with `gh pr edit <n> --title "<title>"`: the
+outcome in plain words, sentence case, `KEY: Summary` with a confirmed Jira key, else
+`Summary` (here `Pin jev to 1.14.0`). Re-read it and report the final title.
 
 ## The loop
 

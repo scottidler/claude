@@ -27,7 +27,7 @@ load:
 
 ## Branch names: no slash, mechanically enforced
 
-- See `general.md`'s "Branch names" section for the slug rule and its relationship to the PR title. `branch-name-guard.sh` denies a slashed `git checkout -b` / `git branch` mechanically; there is nothing left here to compensate for.
+- See `general.md`'s "Branch names" section for the slug rule, and "PR titles" for the title rule (no `type(scope):`, ever). `branch-name-guard.sh` denies a slashed `git checkout -b` / `git branch` mechanically; there is nothing left here to compensate for.
 
 ## Branches (opposite of tags: delete merged ones freely, no asking)
 

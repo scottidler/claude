@@ -12,7 +12,7 @@
 # The bug this was written to kill: the old bash release driver ran
 # `gh pr create --fill` as a SUBPROCESS. A subprocess is invisible to
 # PreToolUse, so neither git-release-guard.sh (Gate D: the release-intent line)
-# nor branch-pr-title-guard.sh (title must match the branch) ever saw the PR
+# nor the PR title guard ever saw the PR
 # being opened. Moving that same call inside THIS script would reimplement the
 # bug exactly: what matters is not which script runs `gh`, it is that the text
 # `gh pr create ...` is the body of a Bash tool call the hooks can read.
@@ -20,7 +20,7 @@
 # So the protocol is a hand-back, in two steps, and neither step may be
 # collapsed into a pipe:
 #
-#   1. `pr-open --type feat --release rides` prints ONE line on stdout: the
+#   1. `pr-open --title "..." --release rides` prints ONE line on stdout: the
 #      literal `gh pr create ...` command, every path expanded, nothing
 #      deferred to the caller's shell.
 #   2. The caller runs that line AS ITS OWN command. An agent runs it as its own
@@ -33,9 +33,9 @@
 # this script exists to remove.
 #
 # What it guarantees about the command it prints:
-#   - Title is DERIVED from the branch: `type(scope): <branch words>`, so
-#     `slug(title minus type/scope) == branch` by construction and
-#     branch-pr-title-guard.sh cannot deny it.
+#   - Title is AUTHORED, never derived from the branch, and never opens with a
+#     `type:` / `type(scope):` prefix: the same test pr-title-guard.sh runs, so
+#     a title this script emits is a title the gate accepts.
 #   - Release intent is EXPLICIT (--release rides|none), never defaulted and
 #     never guessed. `rides` is verified against the actual version-line diff vs
 #     the base, which is the same test Gate D runs, so a claim this script emits
@@ -52,13 +52,12 @@
 #     access" rather than "wrong identity".
 #
 # Usage:
-#   pr-open --type <t> [--scope <s>] --release rides|none [--reason "<why>"]
+#   pr-open --title "<title>" --release rides|none [--reason "<why>"]
 #           [--base <branch>] [--body "<text>"]
 #
-#   --type      conventional-commit type (feat|fix|refactor|test|docs|...).
-#               Required: it is the face of the PR and this script will not
-#               guess it.
-#   --scope     optional conventional-commit scope.
+#   --title     the PR title, for a reviewer, sentence case: 'KEY: Summary'
+#               with a Jira key, else 'Summary'. Required: it is the face of
+#               the PR and this script will not guess it.
 #   --release   rides: the version bump is on this branch and rides this PR.
 #               none:  no release rides this PR, and --reason says why.
 #   --reason    required with --release none.
@@ -71,8 +70,7 @@
 #
 set -euo pipefail
 
-TYPE=""
-SCOPE=""
+TITLE=""
 RELEASE=""
 REASON=""
 BASE=""
@@ -82,8 +80,7 @@ usage() { awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -t|--type)    TYPE="${2:?--type needs a conventional-commit type}"; shift ;;
-    -s|--scope)   SCOPE="${2:?--scope needs a value}"; shift ;;
+    -t|--title)   TITLE="${2:?--title needs text}"; shift ;;
     --release)    RELEASE="${2:?--release needs rides|none}"; shift ;;
     --reason)     REASON="${2:?--reason needs text}"; shift ;;
     --base)       BASE="${2:?--base needs a branch}"; shift ;;
@@ -100,9 +97,11 @@ say() { printf '\033[1;36m> %s\033[0m\n' "$*" >&2; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git repo"
 ROOT=$(git rev-parse --show-toplevel)
 
-[ -n "$TYPE" ] || die "--type is required (feat|fix|refactor|test|docs|...). The title is derived from the branch, but the type is yours to state; this script will not guess it."
-printf '%s' "$TYPE" | grep -Eq '^[a-z]+$' || die "--type '$TYPE' must be lowercase letters only: branch-pr-title-guard.sh strips exactly 'type(scope)!:' and anything else slugifies into the title."
-[ -z "$SCOPE" ] || printf '%s' "$SCOPE" | grep -Eq '^[a-z0-9.-]+$' || die "--scope '$SCOPE' must be lowercase alphanumeric, '.' or '-'."
+[ -n "$TITLE" ] || die "--title is required: the outcome for a reviewer, sentence case, 'KEY: Summary' with a Jira key, else 'Summary'."
+# pr-title-guard.sh:has_type_prefix, verbatim.
+if printf '%s' "$TITLE" | grep -Eq '^[[:space:]]*[a-z][a-z0-9_-]*(\([^)]*\))?!?:([[:space:]]|$)'; then
+  die "--title '$TITLE' opens with a 'type(scope):' prefix, which pr-title-guard.sh denies. Write 'KEY: Summary' or 'Summary'."
+fi
 
 case "$RELEASE" in
   rides|none) ;;
@@ -115,12 +114,9 @@ fi
 
 # ---- branch, and the two things that make a branch unusable ------------------
 BRANCH=$(git branch --show-current)
-[ -n "$BRANCH" ] || die "detached HEAD: no branch to derive a title from. Check out the feature branch."
+[ -n "$BRANCH" ] || die "detached HEAD: no branch to open a PR from. Check out the feature branch."
 case "$BRANCH" in
-  main|master) die "on '$BRANCH': there is no feature branch to open a PR from. Create one first (git checkout -b <slug>), which is also what branch-pr-title-guard.sh would tell you." ;;
-esac
-case "$BRANCH" in
-  *[/.]*) die "branch '$BRANCH' can never match any title: slugifying collapses '/' and '.' to '-', so branch-pr-title-guard.sh denies every title. Rename the BRANCH before any PR exists: git branch -m $(printf '%s' "$BRANCH" | tr '/.' '--')" ;;
+  main|master) die "on '$BRANCH': there is no feature branch to open a PR from. Create one first (git checkout -b <slug>)." ;;
 esac
 
 # ---- base branch, both spellings --------------------------------------------
@@ -137,10 +133,6 @@ if [ -z "$BASE" ]; then
 fi
 BASEREF="origin/$BASE"
 git rev-parse --verify --quiet "$BASEREF" >/dev/null || die "$BASEREF does not exist locally. Run 'git fetch origin $BASE' first: the release-intent check compares this branch against it."
-
-# ---- title: derived from the branch, never authored -------------------------
-WORDS=$(printf '%s' "$BRANCH" | tr '-' ' ')
-if [ -n "$SCOPE" ]; then TITLE="$TYPE($SCOPE): $WORDS"; else TITLE="$TYPE: $WORDS"; fi
 
 # ---- release intent, verified the way the gate verifies it ------------------
 # Gate D's `rides` check is: does any version line change in the diff vs the
@@ -165,7 +157,7 @@ fi
 BODY_DIR="${TMPDIR:-/tmp}/pr-open"
 mkdir -p "$BODY_DIR" || die "cannot create $BODY_DIR for the PR body file"
 BODY_DIR=$(cd "$BODY_DIR" && pwd -P)
-BODY_FILE="$BODY_DIR/$BRANCH.md"
+BODY_FILE="$BODY_DIR/$(printf '%s' "$BRANCH" | tr '/' '-').md"
 
 if [ -z "$BODY" ]; then
   BODY=$(git log --reverse --format='- %s' "$BASEREF..HEAD" 2>/dev/null || true)

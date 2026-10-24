@@ -257,7 +257,7 @@ echo "=== flag_value: characterization, NOT a specification ==="
 # for the two defects rows 1 and 4 record. Teaching flag_value the attached form
 # was measured and rejected: it flips rows 2 and 3 from their correct values to
 # 'esting' and 'bad/name', which are allow-to-deny flips in
-# branch-pr-title-guard.sh:145,146,154 and branch-name-guard.sh:172, and it
+# branch-name-guard.sh:172 (and were in the retired branch-match title guard), and it
 # opens row 4 as a fresh bypass. The patched copy passed this whole file 135/0,
 # which is exactly why these rows exist.
 case_flag 'attached short-flag value is INVISIBLE (the -XDELETE gap)' \
