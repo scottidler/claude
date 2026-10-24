@@ -364,7 +364,7 @@ gh_visibility() {
     *[:/]tatari-tv/*) ;;
     *)
       token="${GITHUB_PAT_HOME:-}"
-      [ -n "$token" ] || token=$(manifest age decrypt "$HOME/repos/scottidler/keep/.secrets/github-pat-home.age" 2>/dev/null \
+      [ -n "$token" ] || token=$(manifest age decrypt "$HOME/repos/scottidler/keep/.env/github-pat-home.age" 2>/dev/null \
         | sed -n "s/^export GITHUB_PAT_HOME='\(.*\)'\$/\1/p")
       ;;
   esac

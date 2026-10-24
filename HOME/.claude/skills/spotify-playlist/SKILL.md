@@ -102,7 +102,7 @@ This needs the user to approve in a browser once; after that it's automatic fore
    prints only that path. **Never `cat`/`echo`/paste the token into chat, logs, or
    a transcript.** Encrypt it into the secret store and shred the plaintext:
    ```bash
-   cd ~/repos/scottidler/keep/.secrets
+   cd ~/repos/scottidler/keep/.env
    manifest age encrypt "SPOTIFY_REFRESH_TOKEN=$(cat $HOME/.config/spotify/refresh-token)" -o .
    git add spotify-refresh-token.age && git commit -m "add spotify refresh token"
    shred -u $HOME/.config/spotify/refresh-token

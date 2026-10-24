@@ -40,7 +40,7 @@ echo "=== scoped and exempt invocations allow ==="
 run allow 'manifest -l x'
 run allow 'manifest --link HOME/.claude/hooks/lib.sh'
 run allow 'manifest -l HOME/.claude/hooks/* | bash'
-run allow 'manifest age decrypt /home/saidler/repos/scottidler/keep/.secrets/x.age'
+run allow 'manifest age decrypt /home/saidler/repos/scottidler/keep/.env/x.age'
 run allow 'manifest --help'
 run allow 'manifest -V'
 

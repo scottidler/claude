@@ -9,7 +9,7 @@
 # sent `Basic ` and got 401. Decrypting here makes the launch env irrelevant.
 set -euo pipefail
 
-secret="$HOME/repos/scottidler/keep/.secrets/escote-hindsight-api-basic.age"
+secret="$HOME/repos/scottidler/keep/.env/escote-hindsight-api-basic.age"
 line=$("$HOME/.cargo/bin/manifest" age decrypt --format env "$secret") || {
     echo "hindsight-headers: decrypt failed for $secret" >&2
     exit 1

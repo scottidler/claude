@@ -6,7 +6,8 @@ load: always
 # Secrets and multi-persona credentials
 
 Scott's secrets are age-encrypted, one value per file, in
-`~/repos/scottidler/keep/.secrets/*.age`. Decrypt on demand. NEVER print,
+`~/repos/scottidler/keep/.env/*.age` (env lane) and `~/repos/scottidler/keep/.file/*.age`
+(file lane, deployed to disk, never exported). Decrypt on demand. NEVER print,
 echo, log, or commit a decrypted value, and never write one into a rule, doc,
 config, memory file, or commit message. Companion repo docs:
 `~/repos/scottidler/keep/CLAUDE.md`.
@@ -18,8 +19,9 @@ config, memory file, or commit message. Companion repo docs:
 - Identity key: `~/.config/manifest/identity.txt` (an age key, NOT an SSH key).
   Lose it and every secret is unrecoverable.
 - Decrypt with the `manifest` CLI, never hand-rolled `age`:
-  - one secret: `manifest age decrypt ~/repos/scottidler/keep/.secrets/<name>.age`
-  - all: `manifest age decrypt ~/repos/scottidler/keep/.secrets`
+  - one secret: `manifest age decrypt ~/repos/scottidler/keep/.env/<name>.age`
+  - all env secrets: `manifest -C ~/repos/scottidler/keep/manifest.yml secrets env`
+    (a sweep of keep with `age decrypt <dir>` is refused: it would walk `.file/`)
   - Output is `export NAME='value'` lines; `eval "$(...)"` to load, or capture
     only the single value you need.
 - An interactive shell already `eval`s the full decrypt at startup (via dotfiles),
@@ -27,7 +29,7 @@ config, memory file, or commit message. Companion repo docs:
   may NOT have them, and may have the WRONG ones (see GitHub below). When a call
   fails on a missing or wrong token, decrypt the specific secret explicitly.
 - List available secret names:
-  `ls ~/repos/scottidler/keep/.secrets/*.age | sed 's:.*/::;s:\.age$::'`
+  `ls ~/repos/scottidler/keep/.env/*.age | sed 's:.*/::;s:\.age$::'`
 
 ## GitHub: pick the token by repo org (the recurring trap)
 
@@ -45,7 +47,7 @@ Choose the token from the repo's org under `~/repos/<org>/`:
 Run gh as the home persona on a `scottidler/*` repo:
 
 ```bash
-eval "$(manifest age decrypt ~/repos/scottidler/keep/.secrets/github-pat-home.age)"
+eval "$(manifest age decrypt ~/repos/scottidler/keep/.env/github-pat-home.age)"
 GH_TOKEN="$GITHUB_PAT_HOME" GITHUB_TOKEN= gh <args>   # clear the work token so home wins
 unset GITHUB_PAT_HOME
 ```

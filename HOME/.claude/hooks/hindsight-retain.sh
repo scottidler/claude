@@ -8,7 +8,7 @@ HINDSIGHT_API_URL="${HINDSIGHT_API_URL:-https://hindsight-api.escote.duckdns.org
 # Authelia in front of hindsight-api takes base64 "hindsight-client:<password>".
 # A shell started before the secret existed lacks it, so decrypt on demand.
 if [ -z "${ESCOTE_HINDSIGHT_API_BASIC:-}" ]; then
-  eval "$(manifest age decrypt "$HOME/repos/scottidler/keep/.secrets/escote-hindsight-api-basic.age" 2>/dev/null)"
+  eval "$(manifest age decrypt "$HOME/repos/scottidler/keep/.env/escote-hindsight-api-basic.age" 2>/dev/null)"
 fi
 [ -z "${ESCOTE_HINDSIGHT_API_BASIC:-}" ] && exit 0
 
