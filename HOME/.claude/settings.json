@@ -1084,7 +1084,10 @@
     "squad@tatari-skills": true,
     "spec-lab@tatari-skills": true,
     "marquee@tatari-skills": true,
-    "sec@tatari-skills": true
+    "sec@tatari-skills": true,
+    "watch@claude-video": true,
+    "pr@tatari-skills": true,
+    "panel@tatari-skills": true
   },
   "extraKnownMarketplaces": {
     "understand-anything": {
@@ -1097,6 +1100,12 @@
       "source": {
         "source": "github",
         "repo": "tatari-tv/tatari-skills"
+      }
+    },
+    "claude-video": {
+      "source": {
+        "source": "github",
+        "repo": "bradautomates/claude-video"
       }
     }
   },
