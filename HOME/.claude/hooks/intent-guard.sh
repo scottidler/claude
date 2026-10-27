@@ -270,7 +270,7 @@ LN_CYCLE_DENY='this ln -s would make the target an ancestor of its own link, whi
 LN_CLAUDE_DENY='~/Claude is the Cowork/Syncthing space and is symlink-free by policy (CLAUDE.md). Copy the file there instead of linking it.'
 LN_CWD_DENY='this ln -s has a relative link path and the guard cannot resolve the cwd it would run in, so it cannot tell a loop from a reinstall. Use an absolute link path.'
 INGEST_DENY='bulk vault ingest is Scott'"'"'s call: 164 URLs went in unasked on 2026-06-20. Ask him, or re-run with BULK_INGEST_ORDERED_BY_SCOTT=<n> as a leading assignment. Denied for'
-INGEST_DOOR_DENY='BULK_INGEST_ORDERED_BY_SCOTT must be a non-negative integer. It is a ceiling on ingest occurrences, not a boolean.'
+INGEST_DOOR_DENY='BULK_INGEST_ORDERED_BY_SCOTT must be a non-negative integer. It is a ceiling on ingest targets, not a boolean.'
 
 # The cwd the statements run in. Accumulated across the command's `cd` chain
 # starting from the payload, because lib.sh's cd_last/cd_at REPLACE rather than
@@ -324,6 +324,76 @@ ingest_ops=0
 # text. Spec: "Count <= n allows the STATEMENT and nothing below runs ... the
 # command's verdict is any-deny-wins over the statements that remain in scope."
 ingest_scope=""
+
+# ingest_count <statement text> -- sets ingest_targets to the number of targets
+# the statement's `borg ingest` carries, and ingest_unknown to a reason when that
+# number cannot be known from the text (empty otherwise). Globals, not stdout,
+# so the caller can deny from the main shell.
+#
+# A target is every non-flag operand, URL or path, quoted or not, including
+# everything after `--`. The old count was the `https?://` tokens of the
+# QUOTE-MASKED statement, which had three holes: a file path never counted, a
+# quoted URL never counted, and a URL inside a quoted `--note` value counted as
+# a second target once it was unquoted. `-t`/`--tags` values (greedy, as clap
+# reads `num_args = 0..`) and the `--note` value are not targets. A tag value
+# that is not tag-shaped counts as a target: clap would swallow it as a tag, but
+# a URL or path standing there was meant as one, and counting it fails closed.
+#
+# Unknowable, door or not, because no <n> can be compared to it: a glob, a
+# brace expansion, a `$` expansion (variable or `$(...)`) or backtick in an
+# operand, and stdin (`-`, `--from`, `--stdin`). A URL is exempt from the glob
+# test because `?` is how a query string is spelled.
+ingest_count() {
+  local -a toks=()
+  local t i n start=-1 endopts=0 in_tags=0 skip=0
+  ingest_targets=0
+  ingest_unknown=""
+  # Redirects are stripped before tokenising, the LN and push-refspec pattern:
+  # `args` emits both halves of `2>&1` as bare tokens otherwise.
+  mapfile -t toks < <(printf '%s' "$1" | sed -E 's/[0-9]*>>?&?[[:space:]]*[^[:space:]]*//g' | args)
+  n=${#toks[@]}
+  for ((i = 0; i + 1 < n; i++)); do
+    t="${toks[$i]}"; t="${t##*/}"
+    if [ "$t" = "borg" ] && [ "${toks[$((i + 1))]}" = "ingest" ]; then
+      start=$((i + 2))
+      break
+    fi
+  done
+  [ "$start" -ge 0 ] || return 0
+  for ((i = start; i < n; i++)); do
+    t="${toks[$i]}"
+    if [ "$skip" -eq 1 ]; then skip=0; continue; fi
+    if [ "$endopts" -eq 0 ]; then
+      case "$t" in
+        --) endopts=1; in_tags=0; continue ;;
+        -|--from|--from=*|--stdin)
+          ingest_unknown="a stdin or --from source: the target count is unknowable"
+          return 0 ;;
+        -t|--tags) in_tags=1; continue ;;
+        --tags=*|-t?*) in_tags=0; continue ;;
+        --note) in_tags=0; skip=1; continue ;;
+        --note=*) in_tags=0; continue ;;
+        -*) in_tags=0; continue ;;
+      esac
+      if [ "$in_tags" -eq 1 ]; then
+        case "$t" in
+          *[!A-Za-z0-9_-]*|"") in_tags=0 ;;
+          *) continue ;;
+        esac
+      fi
+    fi
+    case "$t" in
+      *'$'*|*'`'*)
+        ingest_unknown="an operand that is a shell expansion, not a literal target"
+        return 0 ;;
+      http://*|https://*) ;;
+      *[*?[]*|*'{'*','*'}'*|*'{'*'..'*'}'*)
+        ingest_unknown="a glob operand: the target count is unknowable"
+        return 0 ;;
+    esac
+    ingest_targets=$((ingest_targets + 1))
+  done
+}
 git_add_args=""
 # SLEEP's gate. The span scan below reads a copy whose quotes are NOT masked, so
 # it alone would fire on a quoted loop that is data. `stmts` + `cmdword_is` is
@@ -1744,11 +1814,19 @@ while IFS= read -r -d '' stmt; do
   # INGEST's door and its read-only exclusion are the two PER-STATEMENT steps.
   # Everything else about the rule is command-scope, handled after the loop.
   if printf '%s' "$ingest_stmt" | grep -qE '(^|[^-[:alnum:]])borg[[:space:]]+(ingest|reingest|reingest-failed)\b'; then
-    stmt_ops=$(printf '%s' "$ingest_stmt" | grep -oE 'borg[[:space:]]+(ingest|reingest-failed|reingest)' | wc -l)
-    # Same target counting the command-scope clause uses, so the ceiling means
-    # the same thing in both places: `=1` must not admit five URLs.
-    stmt_urls=$(printf '%s' "$ingest_stmt" | grep -oE 'https?://[^[:space:]"]+' | wc -l)
-    [ "$stmt_urls" -gt "$stmt_ops" ] && stmt_ops="$stmt_urls"
+    # `reingest` / `reingest-failed` take no target operand: one op each.
+    stmt_ops=$(printf '%s' "$ingest_stmt" | grep -oE 'borg[[:space:]]+(reingest-failed|reingest)' | wc -l)
+    # `ingest` is counted by TARGET, so `=1` cannot admit five URLs or two
+    # files. Counted on the unmasked statement (the verb gate above already ran
+    # on the masked one), so a quoted operand is a target and a quoted `--note`
+    # value is not. No operand (`--clipboard`) is still one target.
+    if printf '%s' "$ingest_stmt" | grep -qE '(^|[^-[:alnum:]])borg[[:space:]]+ingest\b'; then
+      ingest_count "$verbscan"
+      # Before the door: an unknowable count cannot be compared to any <n>.
+      [ -n "$ingest_unknown" ] && deny "$INGEST_DENY ($ingest_unknown)"
+      [ "$ingest_targets" -lt 1 ] && ingest_targets=1
+      stmt_ops=$((stmt_ops + ingest_targets))
+    fi
     # Read-only operations are DROPPED from the operation list rather than
     # returning an allow for the command. Round 3 wrote this as "always allow"
     # and `sb borg log; sb borg ingest --file urls.txt` then never reached the
@@ -1773,7 +1851,7 @@ while IFS= read -r -d '' stmt; do
           stmt_ops=0
           ingest_exempt=1
         else
-          deny "BULK_INGEST_ORDERED_BY_SCOTT=$door permits $door ingest occurrences and this statement carries $stmt_ops. Raise the ceiling deliberately or split the command."
+          deny "BULK_INGEST_ORDERED_BY_SCOTT=$door permits $door ingest targets and this statement carries $stmt_ops. Raise the ceiling deliberately or split the command."
         fi
       fi
       ingest_ops=$((ingest_ops + stmt_ops))
@@ -1923,41 +2001,21 @@ if [ "$ingest_ops" -gt 0 ]; then
   if printf '%s' "$scan" | grep -qE '<[[:space:]]*[^<[:space:]]'; then
     deny "$INGEST_DENY (a redirect reading a file)"
   fi
-  # An ingest carrying five literal URLs is a bulk ingest of five things, so the
-  # counted unit is TARGETS, not verb occurrences. The doc's rule text says
-  # "occurrences"; counting only those makes `sb borg ingest -- u1 u2 u3 u4 u5`
-  # trip no clause at all, which contradicts the doc's own Phase 4 criterion
-  # that the 5-URL form denies without the door and passes with `=5`. It is also
-  # what makes <n> mean what a reader expects it to mean.
-  url_targets=$(printf '%s' "$scan" | grep -oE 'https?://[^[:space:]"]+' | wc -l)
-  [ "$url_targets" -gt "$ingest_ops" ] && ingest_ops="$url_targets"
+  # Counted by TARGET, not verb occurrence, per statement (ingest_count), so
+  # `sb borg ingest -- u1 u2 u3 u4 u5` is five and <n> means what a reader
+  # expects. One literal target, URL or path, needs no door; two or more do.
   [ "$ingest_ops" -ge 2 ] && deny "$INGEST_DENY ($ingest_ops ingest targets)"
+  # There is no `--file` clause: it called `--file` the CLI's own bulk path,
+  # but `--file` ingests ONE local file, and a path operand is now counted as a
+  # target like any other. Nor a literal-URL clause: it read only the first
+  # operand, and ingest_count now refuses any operand it cannot count.
   case "$scan" in
-    *"ingest --file"*|*"ingest -f "*) deny "$INGEST_DENY (--file is the CLI's own bulk path)" ;;
     # `ingest --all`, not `reingest --all`: the narrower spelling left
     # `sb borg ingest --all` allowed while its sibling denied, and
     # rules/interaction.md names `--all` for BOTH verbs. The pattern still
     # matches `reingest --all`, which contains it.
-    *"ingest --all"*)                 deny "$INGEST_DENY (--all is the largest bulk action available)" ;;
+    *"ingest --all"*) deny "$INGEST_DENY (--all is the largest bulk action available)" ;;
   esac
-  # The literal-URL clause applies to `ingest` ONLY. `reingest` and
-  # `reingest-failed` take no URL operand, so applying it to them would deny
-  # every `reingest-failed --dry-run`.
-  if printf '%s' "$scan" | grep -qE 'borg[[:space:]]+ingest\b'; then
-    operands=$(printf '%s' "$scan" \
-      | sed -n 's/.*borg[[:space:]]\{1,\}ingest[[:space:]]\{1,\}\(.*\)/\1/p' | head -1)
-    case "$operands" in
-      *" -- "*) operands="${operands#*" -- "}" ;;
-      *)        operands=$(printf '%s' "$operands" | tr ' ' '\n' | grep -v '^-' | head -1) ;;
-    esac
-    operands=$(printf '%s' "$operands" | awk '{print $1}')
-    if [ -n "$operands" ]; then
-      case "$operands" in
-        http://*|https://*) : ;;
-        *) deny "$INGEST_DENY (the URL operand is not a literal http(s) token, so the target is not in the command)" ;;
-      esac
-    fi
-  fi
 fi
 
 # PUBLIC-REPO. Runs once per command, after the statement walk, because the

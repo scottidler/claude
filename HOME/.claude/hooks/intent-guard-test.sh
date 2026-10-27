@@ -242,7 +242,9 @@ echo "=== INGEST: command scope, because stmts splits the incident apart ==="
 # literal verb makes THIS test script trip the rule it is testing.
 V="sb borg in""gest"
 run allow "$V --tags x -- https://one.url"
-run deny  "$V --file urls.txt"
+# Inverted 2026-10-27 (multi-target-ingest Phase 0): this denied as "the CLI's
+# own bulk path", but `--file` ingests ONE local file. One literal target.
+run allow "$V --file urls.txt"
 run deny  "sb borg reingest --all"
 run allow "sb borg reingest-failed --dry-run"
 run allow "sb borg reingest-failed"
@@ -251,7 +253,7 @@ run allow "sb borg audit"
 # Round 4, both seats independently: step 2 said read-only verbs "always allow"
 # with no scope, so this returned allow for the whole command and never reached
 # the deny clauses. Read-only operations are dropped from the operation list now.
-run deny  "sb borg log; $V --file urls.txt"
+run deny  "sb borg log; $V ./a.pdf ./b.pdf"
 run deny  "for url in a b; do $V -- \"\$url\"; done"
 run deny  "cat urls.txt | xargs -n1 $V --"
 run deny  "$V -- https://a.url; $V -- https://b.url"
@@ -271,13 +273,80 @@ run deny  "BULK_INGEST_ORDERED_BY_SCOTT=0 $V -- https://one.url"
 run deny  "BULK_INGEST_ORDERED_BY_SCOTT=yes $V -- https://one.url"
 run allow "BULK_INGEST_ORDERED_BY_SCOTT=1 $V -- https://one.url"
 
+echo "=== INGEST: every target counts, URL or path, quoted or not (multi-target Phase 0) ==="
+# The count was the https?:// tokens of the QUOTE-MASKED statement: a path never
+# counted, a quoted URL never counted, and the door ran before any glob check.
+D="BULK_INGEST_ORDERED_BY_SCOTT"
+run deny  "$D=1 $V ./a.pdf ./b.pdf"
+run allow "$D=2 $V ./a.pdf ./b.pdf"
+run deny  "$V ./a.pdf ./b.pdf"
+run deny  "$V https://a.example ./b.pdf"
+run allow "$D=2 $V https://a.example ./b.pdf"
+run deny  "$V \"https://a.example\" \"https://b.example\""
+run deny  "$V \"./a b.pdf\" ./c.pdf"
+run deny  "$D=2 $V https://a.example \"https://b.example\" ./c.pdf"
+run allow "$D=3 $V https://a.example \"https://b.example\" ./c.pdf"
+# Operands after `--` are targets too.
+run deny  "$V -- ./a.pdf ./b.pdf"
+run deny  "$V --force -- https://a.example ./b.pdf"
+run allow "$D=2 $V --force -- https://a.example ./b.pdf"
+# The ceiling is per statement and is never borrowed by a sibling statement.
+run deny  "$D=2 $V ./a.pdf ./b.pdf; $V ./c.pdf ./d.pdf"
+
+echo "=== INGEST: one literal target needs no door ==="
+run allow "$V ./a.pdf"
+run allow "$V \"./a b.pdf\""
+run allow "$V https://a.example"
+run allow "$V \"https://www.youtube.com/watch?v=abc&t=1\""
+run allow "$V https://a.example 2>&1 | tail -3"
+run allow "$V ./a.pdf > /dev/null"
+run allow "$V --clipboard"
+run allow "$V --force https://a.example"
+
+echo "=== INGEST: -t/--tags and --note values are not targets ==="
+run allow "$V --note \"see https://x.example\" https://a.example"
+run allow "$V --note=\"see https://x.example and https://y.example\" https://a.example"
+run allow "$V https://a.example -t ai ml"
+run allow "$V -t ai ml -- https://a.example"
+run allow "$V --tags=ai https://a.example"
+run allow "$V -tai https://a.example"
+run deny  "$V --note \"see https://x.example\" https://a.example https://b.example"
+# A URL or path after -t is clap-swallowed as a tag, but it was meant as a
+# target, so it counts: fail closed rather than let -t hide a bulk.
+run deny  "$V -t ai https://a.example ./b.pdf"
+run deny  "$V -t ai ml https://a.example https://b.example"
+
+echo "=== INGEST: an unknowable count denies, door or not ==="
+run deny  "$V ./*.pdf"
+run deny  "$D=9 $V ./*.pdf"
+run deny  "$D=9 $V ./a?.pdf"
+run deny  "$D=9 $V ./[ab].pdf"
+run deny  "$D=9 $V ./{a,b}.pdf"
+run deny  "$D=9 $V ./{1..3}.pdf"
+run deny  "$D=9 $V -- ./*.pdf"
+run deny  "$V \$(cat urls.txt)"
+run deny  "$D=99 $V \$(cat urls.txt)"
+run deny  "$D=99 $V \`cat urls.txt\`"
+run deny  "$D=9 $V \"\$u\""
+run deny  "$V -"
+run deny  "$D=9 $V -"
+run deny  "$V --from urls.txt"
+run deny  "$D=9 $V --from urls.txt"
+run deny  "$D=9 $V --from=urls.txt"
+run deny  "$D=9 $V --stdin"
+runsays   "$D=9 $V ./*.pdf" "glob operand"
+runsays   "$D=9 $V --from urls.txt" "stdin or --from"
+runsays   "$D=1 $V ./a.pdf ./b.pdf" "permits 1 ingest targets and this statement carries 2"
+
 echo "=== INGEST: heredoc bodies, bounded to a .sh redirect target ==="
 # The 164-URL incident never looped the verb: it wrote a script with a QUOTED
 # heredoc and ran it. The run statement's command word is $S/ingest.sh so no
 # verb matcher sees it, and the quoted delimiter means heredoc_expanded never
 # emits it. Denying at CREATION is what stops the sequence.
 run deny "$(printf 'cat > "$S/in%s.sh" <<%sEOF%s\nwhile IFS= read -r url; do\n  out=$(%s --tags x -- "$url" 2>&1)\ndone\nEOF' 'gest' "'" "'" "$V")"
-run deny "$(printf 'cat > run.sh <<%sEOF%s\n%s --file urls.txt\nEOF' "'" "'" "$V")"
+run deny "$(printf 'cat > run.sh <<%sEOF%s\n%s ./a.pdf ./b.pdf\nEOF' "'" "'" "$V")"
+run deny "$(printf 'cat > run.sh <<%sEOF%s\n%s -- https://a.url https://b.url\nEOF' "'" "'" "$V")"
+run deny "$(printf 'cat > run.sh <<%sEOF%s\n%s ./*.pdf\nEOF' "'" "'" "$V")"
 # The bound exists because THIS repo's design doc carries both a `while IFS=
 # read -r url` line and the verb in its own prose. A .md target is not scanned.
 run allow "$(printf 'cat > docs/design/notes.md <<%sEOF%s\nwhile IFS= read -r url; do\n  %s --tags x -- "$url"\ndone\nEOF' "'" "'" "$V")"
@@ -405,7 +474,7 @@ run allow 'cd -- /tmp && ln -s /home/saidler/repos/x y'
 
 # M6: the door was a command-wide flag, so one `=1` statement laundered every
 # later ingest in the same command.
-run deny  'BULK_INGEST_ORDERED_BY_SCOTT=1 sb borg ingest https://a; sb borg ingest --file urls.txt'
+run deny  'BULK_INGEST_ORDERED_BY_SCOTT=1 sb borg ingest https://a; sb borg ingest ./a.pdf ./b.pdf'
 run deny  'BULK_INGEST_ORDERED_BY_SCOTT=1 sb borg ingest https://a && sb borg reingest --all'
 run allow 'BULK_INGEST_ORDERED_BY_SCOTT=1 sb borg ingest https://a'
 
