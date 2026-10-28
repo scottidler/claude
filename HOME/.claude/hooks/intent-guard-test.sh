@@ -338,6 +338,63 @@ runsays   "$D=9 $V ./*.pdf" "glob operand"
 runsays   "$D=9 $V --from urls.txt" "stdin or --from"
 runsays   "$D=1 $V ./a.pdf ./b.pdf" "permits 1 ingest targets and this statement carries 2"
 
+echo "=== INGEST audit fix-forward: a quoted redirect character is data, not a redirect ==="
+# The redirect strip was a sed run before tokenising, so the `>` inside a quoted
+# --note took the closing quote with it and every later target merged into one
+# unterminated word: the audit's probe below was allow with no door.
+run deny  "$V --note \"a > b\" https://a.example https://b.example https://c.example"
+run deny  "$D=1 $V --note \"a > b\" https://a.example https://b.example"
+run allow "$D=2 $V --note \"a > b\" https://a.example https://b.example"
+run deny  "$V --note \"a < b\" https://a.example https://b.example"
+run deny  "$D=1 $V --note \"a < b\" https://a.example https://b.example"
+run allow "$D=2 $V --note \"a < b\" https://a.example https://b.example"
+run deny  "$V --note \"see 2>&1\" https://a.example https://b.example"
+run deny  "$D=1 $V --note \"see 2>&1\" https://a.example https://b.example"
+run allow "$D=2 $V --note \"see 2>&1\" https://a.example https://b.example"
+run deny  "$V --note 'a > b' ./a.pdf ./b.pdf"
+run allow "$V --note \"a > b\" https://a.example"
+# Real redirects still drop out, operator and target both, so they are not targets.
+run allow "$V https://a.example 2>&1 >out.log"
+run allow "$V https://a.example &>> all.log"
+run allow "$V https://a.example 2>&- >| out.log"
+runsays   "$D=2 $V --note \"a > b\" https://a.example https://b.example https://c.example" "permits 2 ingest targets and this statement carries 3"
+
+echo "=== INGEST audit fix-forward: borg options before the verb do not hide it ==="
+# The verb match required `borg` adjacent to `ingest`, so these skipped INGEST.
+run allow "sb borg -c x.yml in""gest ./a.pdf"
+run deny  "sb borg -c x.yml in""gest ./a.pdf ./b.pdf"
+run allow "$D=2 sb borg -c x.yml in""gest ./a.pdf ./b.pdf"
+run allow "sb borg --log-level warn in""gest https://a.example"
+run deny  "sb borg --log-level warn in""gest https://a.example https://b.example"
+run deny  "$D=1 sb borg --log-level warn in""gest https://a.example https://b.example"
+run allow "$D=2 sb borg --log-level warn in""gest https://a.example https://b.example"
+run deny  "sb borg --config=x.yml -l warn in""gest https://a.example https://b.example"
+run deny  "sb borg -c \"my x.yml\" in""gest https://a.example https://b.example"
+run allow "sb -v borg -l warn in""gest https://a.example"
+run deny  "sb -v borg -l warn in""gest https://a.example https://b.example"
+run deny  "sb -l warn borg -c x.yml in""gest ./a.pdf ./b.pdf"
+# sb's global --log-level is accepted after the verb, and its value is no target.
+run allow "$V -l warn https://a.example"
+run deny  "$V -l warn https://a.example https://b.example"
+# The same verb match gates reingest, so it was blind to the same spelling.
+run deny  "sb borg -c x.yml reingest --all"
+run deny  "sb borg --log-level warn reingest; sb borg reingest-failed"
+run deny  "sb borg -c x.yml in""gest ./*.pdf"
+# A non-option word after borg is another subcommand: still not an ingest.
+run allow "sb borg log --since 1d"
+run allow "sb borg -c x.yml log"
+
+echo "=== INGEST audit fix-forward: a brace operand denies, URL or not ==="
+# The URL exemption ran before the brace test, so this counted 1 and the shell
+# expanded it to 2. Only `?`/`*`/`[` keep the URL carve-out.
+run deny  "$V https://x.example/{a,b}"
+run deny  "$D=9 $V https://x.example/{a,b}"
+run deny  "$D=9 $V https://x.example/p{1..3}"
+run deny  "$D=9 $V ./{a,b}.pdf"
+run deny  "$D=9 sb borg -c x.yml in""gest https://x.example/{a,b}"
+runsays   "$D=9 $V https://x.example/{a,b}" "brace expansion operand"
+run allow "$V \"https://www.youtube.com/watch?v=abc\""
+
 echo "=== INGEST: heredoc bodies, bounded to a .sh redirect target ==="
 # The 164-URL incident never looped the verb: it wrote a script with a QUOTED
 # heredoc and ran it. The run statement's command word is $S/ingest.sh so no

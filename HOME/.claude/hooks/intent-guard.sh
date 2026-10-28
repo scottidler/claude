@@ -309,6 +309,12 @@ cur_cwd="$payload_cwd"
 # here at all, so it is unknown rather than "the payload's".
 [ "$cwd_accumulates" -eq 0 ] && cur_cwd=""
 
+# `borg`, then any of its own options with their values (`-c X`, `--log-level
+# warn`, `-v`), then the verb. The bare `borg[[:space:]]+ingest` this replaces
+# let `sb borg -c X ingest a b` and `sb borg -l warn reingest --all` past every
+# INGEST clause. Matched on quote-masked text, so a quoted value is `""`.
+BORG_VERB_RE='borg([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+'
+
 ingest_ops=0
 # The statements that remain IN SCOPE for INGEST's command-level clauses, each
 # quote-masked. Replaces the old command-wide `door_open` flag and the
@@ -324,6 +330,58 @@ ingest_ops=0
 # text. Spec: "Count <= n allows the STATEMENT and nothing below runs ... the
 # command's verdict is any-deny-wins over the statements that remain in scope."
 ingest_scope=""
+
+# strip_redirects -- stdin to stdout with every UNQUOTED redirect removed,
+# operator and target word both (`2>&1`, `> out.log`, `&>>all`, `<in`, `>|f`),
+# each replaced by a space. Quote-aware, which a `sed` cannot be: a `>` or `<`
+# inside '...' or "..." is data and stays put. A leading fd number goes only
+# when it is a whole word (`2>`), so `x2>y` keeps its `x2`.
+strip_redirects() {
+  LC_ALL=C awk '
+    { s = (NR > 1 ? s "\n" : "") $0 }
+    END {
+      n = length(s); out = ""; q = ""; i = 1
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (q == "\047") { out = out c; if (c == "\047") q = ""; i++; continue }
+        if (q == "\"") {
+          if (c == "\\") { out = out c substr(s, i + 1, 1); i += 2; continue }
+          out = out c; if (c == "\"") q = ""; i++; continue
+        }
+        if (c == "\\") { out = out c substr(s, i + 1, 1); i += 2; continue }
+        if (c == "\047" || c == "\"") { q = c; out = out c; i++; continue }
+        if (c == ">" || c == "<" || (c == "&" && substr(s, i + 1, 1) == ">")) {
+          if (c != "&" && match(out, /[0-9]+$/)) {
+            if (RSTART == 1 || substr(out, RSTART - 1, 1) ~ /[ \t\n]/)
+              out = substr(out, 1, RSTART - 1)
+          }
+          j = i
+          while (j <= n && substr(s, j, 1) ~ /[<>&|]/) j++
+          if (substr(s, j - 1, 1) == "&" && substr(s, j, 1) ~ /[0-9-]/) {
+            while (j <= n && substr(s, j, 1) ~ /[0-9-]/) j++
+          } else {
+            while (j <= n && substr(s, j, 1) ~ /[ \t]/) j++
+            wq = ""
+            while (j <= n) {
+              d = substr(s, j, 1)
+              if (wq == "\047") { if (d == "\047") wq = ""; j++; continue }
+              if (wq == "\"") {
+                if (d == "\\") { j += 2; continue }
+                if (d == "\"") wq = ""; j++; continue
+              }
+              if (d == "\\") { j += 2; continue }
+              if (d == "\047" || d == "\"") { wq = d; j++; continue }
+              if (d ~ /[ \t\n;&|<>()]/) break
+              j++
+            }
+          }
+          out = out " "; i = j; continue
+        }
+        out = out c; i++
+      }
+      printf "%s", out
+    }'
+}
 
 # ingest_count <statement text> -- sets ingest_targets to the number of targets
 # the statement's `borg ingest` carries, and ingest_unknown to a reason when that
@@ -342,22 +400,38 @@ ingest_scope=""
 # Unknowable, door or not, because no <n> can be compared to it: a glob, a
 # brace expansion, a `$` expansion (variable or `$(...)`) or backtick in an
 # operand, and stdin (`-`, `--from`, `--stdin`). A URL is exempt from the glob
-# test because `?` is how a query string is spelled.
+# test because `?` is how a query string is spelled, but NOT from the brace
+# test: `https://x/{a,b}` is two URLs once the shell expands it.
+#
+# `borg`'s own options (`-c X`, `--log-level warn`, sb's global `-v`) may sit
+# between `borg` and `ingest`; requiring adjacency let `sb borg -c X ingest a b`
+# skip the count entirely. A bare word after a flag is that flag's value; the
+# first bare word that is neither is another subcommand, and the walk stops.
 ingest_count() {
   local -a toks=()
-  local t i n start=-1 endopts=0 in_tags=0 skip=0
+  local t i n start=-1 endopts=0 in_tags=0 skip=0 valued=0
   ingest_targets=0
   ingest_unknown=""
-  # Redirects are stripped before tokenising, the LN and push-refspec pattern:
-  # `args` emits both halves of `2>&1` as bare tokens otherwise.
-  mapfile -t toks < <(printf '%s' "$1" | sed -E 's/[0-9]*>>?&?[[:space:]]*[^[:space:]]*//g' | args)
+  # Redirects are stripped before tokenising, because `args` emits both halves
+  # of `2>&1` as bare tokens. strip_redirects honours quotes: the old `sed`
+  # took the `>` inside `--note "a > b"` for a redirect, ate the closing quote,
+  # and every later target merged into one unterminated word.
+  mapfile -t toks < <(printf '%s' "$1" | strip_redirects | args)
   n=${#toks[@]}
   for ((i = 0; i + 1 < n; i++)); do
     t="${toks[$i]}"; t="${t##*/}"
-    if [ "$t" = "borg" ] && [ "${toks[$((i + 1))]}" = "ingest" ]; then
-      start=$((i + 2))
-      break
-    fi
+    [ "$t" = "borg" ] || continue
+    valued=0
+    for ((i = i + 1; i < n; i++)); do
+      t="${toks[$i]}"
+      case "$t" in
+        ingest) start=$((i + 1)); break ;;
+        -*=*) valued=0 ;;
+        -*) valued=1 ;;
+        *) [ "$valued" -eq 1 ] || break; valued=0 ;;
+      esac
+    done
+    break
   done
   [ "$start" -ge 0 ] || return 0
   for ((i = start; i < n; i++)); do
@@ -370,6 +444,8 @@ ingest_count() {
           ingest_unknown="a stdin or --from source: the target count is unknowable"
           return 0 ;;
         -t|--tags) in_tags=1; continue ;;
+        # sb's global `--log-level` is accepted after the subcommand too.
+        -l|--log-level) in_tags=0; skip=1; continue ;;
         --tags=*|-t?*) in_tags=0; continue ;;
         --note) in_tags=0; skip=1; continue ;;
         --note=*) in_tags=0; continue ;;
@@ -386,8 +462,11 @@ ingest_count() {
       *'$'*|*'`'*)
         ingest_unknown="an operand that is a shell expansion, not a literal target"
         return 0 ;;
+      *'{'*','*'}'*|*'{'*'..'*'}'*)
+        ingest_unknown="a brace expansion operand: the target count is unknowable"
+        return 0 ;;
       http://*|https://*) ;;
-      *[*?[]*|*'{'*','*'}'*|*'{'*'..'*'}'*)
+      *[*?[]*)
         ingest_unknown="a glob operand: the target count is unknowable"
         return 0 ;;
     esac
@@ -1813,14 +1892,14 @@ while IFS= read -r -d '' stmt; do
 
   # INGEST's door and its read-only exclusion are the two PER-STATEMENT steps.
   # Everything else about the rule is command-scope, handled after the loop.
-  if printf '%s' "$ingest_stmt" | grep -qE '(^|[^-[:alnum:]])borg[[:space:]]+(ingest|reingest|reingest-failed)\b'; then
+  if printf '%s' "$ingest_stmt" | grep -qE "(^|[^-[:alnum:]])${BORG_VERB_RE}(ingest|reingest|reingest-failed)\\b"; then
     # `reingest` / `reingest-failed` take no target operand: one op each.
-    stmt_ops=$(printf '%s' "$ingest_stmt" | grep -oE 'borg[[:space:]]+(reingest-failed|reingest)' | wc -l)
+    stmt_ops=$(printf '%s' "$ingest_stmt" | grep -oE "${BORG_VERB_RE}(reingest-failed|reingest)" | wc -l)
     # `ingest` is counted by TARGET, so `=1` cannot admit five URLs or two
     # files. Counted on the unmasked statement (the verb gate above already ran
     # on the masked one), so a quoted operand is a target and a quoted `--note`
     # value is not. No operand (`--clipboard`) is still one target.
-    if printf '%s' "$ingest_stmt" | grep -qE '(^|[^-[:alnum:]])borg[[:space:]]+ingest\b'; then
+    if printf '%s' "$ingest_stmt" | grep -qE "(^|[^-[:alnum:]])${BORG_VERB_RE}ingest\\b"; then
       ingest_count "$verbscan"
       # Before the door: an unknowable count cannot be compared to any <n>.
       [ -n "$ingest_unknown" ] && deny "$INGEST_DENY ($ingest_unknown)"
@@ -1982,7 +2061,7 @@ done < <(printf '%s' "$command" | stmts)
 # it and `ingest_ops` stays 0. That is precisely the incident's shape, where the
 # ingest exists ONLY inside the body being written to a .sh file, so counting
 # statements alone let the founding vector through.
-heredoc_ops=$(printf '%s' "$ingest_heredocs" | grep -cE 'borg[[:space:]]+(ingest|reingest-failed|reingest)' || true)
+heredoc_ops=$(printf '%s' "$ingest_heredocs" | grep -cE "${BORG_VERB_RE}(ingest|reingest-failed|reingest)" || true)
 ingest_ops=$((ingest_ops + heredoc_ops))
 
 if [ "$ingest_ops" -gt 0 ]; then
