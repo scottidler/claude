@@ -26,7 +26,6 @@
 #               content no local archive can recover.
 #   LN          `ln -s` shapes that make the target an ancestor of its own link
 #               (the 2026-07-03 workstation freeze), and any link into ~/Claude.
-#   INGEST      bulk `sb borg ingest`, command scope, with a counted door.
 #   PUBLIC-REPO `git commit` / `git push` publishing a sensitive path or a blob
 #               over 1 MB to a public remote.
 #   SLEEP       foreground waiting past 25s, which is the harness's own
@@ -269,8 +268,6 @@ ACLI_DENY='acli delete destroys Jira/Confluence content no local archive can rec
 LN_CYCLE_DENY='this ln -s would make the target an ancestor of its own link, which is the symlink loop that froze the workstation on 2026-07-03. Check the direction of the link.'
 LN_CLAUDE_DENY='~/Claude is the Cowork/Syncthing space and is symlink-free by policy (CLAUDE.md). Copy the file there instead of linking it.'
 LN_CWD_DENY='this ln -s has a relative link path and the guard cannot resolve the cwd it would run in, so it cannot tell a loop from a reinstall. Use an absolute link path.'
-INGEST_DENY='bulk vault ingest is Scott'"'"'s call: 164 URLs went in unasked on 2026-06-20. Ask him, or re-run with BULK_INGEST_ORDERED_BY_SCOTT=<n> as a leading assignment. Denied for'
-INGEST_DOOR_DENY='BULK_INGEST_ORDERED_BY_SCOTT must be a non-negative integer. It is a ceiling on ingest targets, not a boolean.'
 
 # The cwd the statements run in. Accumulated across the command's `cd` chain
 # starting from the payload, because lib.sh's cd_last/cd_at REPLACE rather than
@@ -309,170 +306,6 @@ cur_cwd="$payload_cwd"
 # here at all, so it is unknown rather than "the payload's".
 [ "$cwd_accumulates" -eq 0 ] && cur_cwd=""
 
-# `borg`, then any of its own options with their values (`-c X`, `--log-level
-# warn`, `-v`), then the verb. The bare `borg[[:space:]]+ingest` this replaces
-# let `sb borg -c X ingest a b` and `sb borg -l warn reingest --all` past every
-# INGEST clause. Matched on quote-masked text, so a quoted value is `""`.
-BORG_VERB_RE='borg([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+'
-
-ingest_ops=0
-# The statements that remain IN SCOPE for INGEST's command-level clauses, each
-# quote-masked. Replaces the old command-wide `door_open` flag and the
-# command-wide `masked_all` scan, which between them carried three defects:
-#   - one `=1` statement opened the door for EVERY later ingest in the command
-#   - the clauses read the whole command quote-masked, so an `eval "..."` /
-#     `bash -c "..."` payload was erased and the wrapper allowed
-#   - the op COUNT read the unquoted copy while the clauses read the masked one,
-#     so `echo "sb borg ingest <url>"` counted targets no clause could see and
-#     denied prose (this fired on three of the audit's own commands)
-# `stmts` already emits an eval / `bash -c` payload as its own statement, so
-# accumulating per-statement gets the executable text and only the executable
-# text. Spec: "Count <= n allows the STATEMENT and nothing below runs ... the
-# command's verdict is any-deny-wins over the statements that remain in scope."
-ingest_scope=""
-
-# strip_redirects -- stdin to stdout with every UNQUOTED redirect removed,
-# operator and target word both (`2>&1`, `> out.log`, `&>>all`, `<in`, `>|f`),
-# each replaced by a space. Quote-aware, which a `sed` cannot be: a `>` or `<`
-# inside '...' or "..." is data and stays put. A leading fd number goes only
-# when it is a whole word (`2>`), so `x2>y` keeps its `x2`.
-strip_redirects() {
-  LC_ALL=C awk '
-    { s = (NR > 1 ? s "\n" : "") $0 }
-    END {
-      n = length(s); out = ""; q = ""; i = 1
-      while (i <= n) {
-        c = substr(s, i, 1)
-        if (q == "\047") { out = out c; if (c == "\047") q = ""; i++; continue }
-        if (q == "\"") {
-          if (c == "\\") { out = out c substr(s, i + 1, 1); i += 2; continue }
-          out = out c; if (c == "\"") q = ""; i++; continue
-        }
-        if (c == "\\") { out = out c substr(s, i + 1, 1); i += 2; continue }
-        if (c == "\047" || c == "\"") { q = c; out = out c; i++; continue }
-        if (c == ">" || c == "<" || (c == "&" && substr(s, i + 1, 1) == ">")) {
-          if (c != "&" && match(out, /[0-9]+$/)) {
-            if (RSTART == 1 || substr(out, RSTART - 1, 1) ~ /[ \t\n]/)
-              out = substr(out, 1, RSTART - 1)
-          }
-          j = i
-          while (j <= n && substr(s, j, 1) ~ /[<>&|]/) j++
-          if (substr(s, j - 1, 1) == "&" && substr(s, j, 1) ~ /[0-9-]/) {
-            while (j <= n && substr(s, j, 1) ~ /[0-9-]/) j++
-          } else {
-            while (j <= n && substr(s, j, 1) ~ /[ \t]/) j++
-            wq = ""
-            while (j <= n) {
-              d = substr(s, j, 1)
-              if (wq == "\047") { if (d == "\047") wq = ""; j++; continue }
-              if (wq == "\"") {
-                if (d == "\\") { j += 2; continue }
-                if (d == "\"") wq = ""; j++; continue
-              }
-              if (d == "\\") { j += 2; continue }
-              if (d == "\047" || d == "\"") { wq = d; j++; continue }
-              if (d ~ /[ \t\n;&|<>()]/) break
-              j++
-            }
-          }
-          out = out " "; i = j; continue
-        }
-        out = out c; i++
-      }
-      printf "%s", out
-    }'
-}
-
-# ingest_count <statement text> -- sets ingest_targets to the number of targets
-# the statement's `borg ingest` carries, and ingest_unknown to a reason when that
-# number cannot be known from the text (empty otherwise). Globals, not stdout,
-# so the caller can deny from the main shell.
-#
-# A target is every non-flag operand, URL or path, quoted or not, including
-# everything after `--`. The old count was the `https?://` tokens of the
-# QUOTE-MASKED statement, which had three holes: a file path never counted, a
-# quoted URL never counted, and a URL inside a quoted `--note` value counted as
-# a second target once it was unquoted. `-t`/`--tags` values (greedy, as clap
-# reads `num_args = 0..`) and the `--note` value are not targets. A tag value
-# that is not tag-shaped counts as a target: clap would swallow it as a tag, but
-# a URL or path standing there was meant as one, and counting it fails closed.
-#
-# Unknowable, door or not, because no <n> can be compared to it: a glob, a
-# brace expansion, a `$` expansion (variable or `$(...)`) or backtick in an
-# operand, and stdin (`-`, `--from`, `--stdin`). A URL is exempt from the glob
-# test because `?` is how a query string is spelled, but NOT from the brace
-# test: `https://x/{a,b}` is two URLs once the shell expands it.
-#
-# `borg`'s own options (`-c X`, `--log-level warn`, sb's global `-v`) may sit
-# between `borg` and `ingest`; requiring adjacency let `sb borg -c X ingest a b`
-# skip the count entirely. A bare word after a flag is that flag's value; the
-# first bare word that is neither is another subcommand, and the walk stops.
-ingest_count() {
-  local -a toks=()
-  local t i n start=-1 endopts=0 in_tags=0 skip=0 valued=0
-  ingest_targets=0
-  ingest_unknown=""
-  # Redirects are stripped before tokenising, because `args` emits both halves
-  # of `2>&1` as bare tokens. strip_redirects honours quotes: the old `sed`
-  # took the `>` inside `--note "a > b"` for a redirect, ate the closing quote,
-  # and every later target merged into one unterminated word.
-  mapfile -t toks < <(printf '%s' "$1" | strip_redirects | args)
-  n=${#toks[@]}
-  for ((i = 0; i + 1 < n; i++)); do
-    t="${toks[$i]}"; t="${t##*/}"
-    [ "$t" = "borg" ] || continue
-    valued=0
-    for ((i = i + 1; i < n; i++)); do
-      t="${toks[$i]}"
-      case "$t" in
-        ingest) start=$((i + 1)); break ;;
-        -*=*) valued=0 ;;
-        -*) valued=1 ;;
-        *) [ "$valued" -eq 1 ] || break; valued=0 ;;
-      esac
-    done
-    break
-  done
-  [ "$start" -ge 0 ] || return 0
-  for ((i = start; i < n; i++)); do
-    t="${toks[$i]}"
-    if [ "$skip" -eq 1 ]; then skip=0; continue; fi
-    if [ "$endopts" -eq 0 ]; then
-      case "$t" in
-        --) endopts=1; in_tags=0; continue ;;
-        -|--from|--from=*|--stdin)
-          ingest_unknown="a stdin or --from source: the target count is unknowable"
-          return 0 ;;
-        -t|--tags) in_tags=1; continue ;;
-        # sb's global `--log-level` is accepted after the subcommand too.
-        -l|--log-level) in_tags=0; skip=1; continue ;;
-        --tags=*|-t?*) in_tags=0; continue ;;
-        --note) in_tags=0; skip=1; continue ;;
-        --note=*) in_tags=0; continue ;;
-        -*) in_tags=0; continue ;;
-      esac
-      if [ "$in_tags" -eq 1 ]; then
-        case "$t" in
-          *[!A-Za-z0-9_-]*|"") in_tags=0 ;;
-          *) continue ;;
-        esac
-      fi
-    fi
-    case "$t" in
-      *'$'*|*'`'*)
-        ingest_unknown="an operand that is a shell expansion, not a literal target"
-        return 0 ;;
-      *'{'*','*'}'*|*'{'*'..'*'}'*)
-        ingest_unknown="a brace expansion operand: the target count is unknowable"
-        return 0 ;;
-      http://*|https://*) ;;
-      *[*?[]*)
-        ingest_unknown="a glob operand: the target count is unknowable"
-        return 0 ;;
-    esac
-    ingest_targets=$((ingest_targets + 1))
-  done
-}
 git_add_args=""
 # SLEEP's gate. The span scan below reads a copy whose quotes are NOT masked, so
 # it alone would fire on a quoted loop that is data. `stmts` + `cmdword_is` is
@@ -1066,51 +899,6 @@ loop_spans() {
     printf "FLAT\t1\t-\t%s\n", rem
   }'
 }
-
-# INGEST reads heredoc BODIES, which no other rule here does, because the
-# 164-URL incident never looped `sb borg ingest`: at 00:32:22 it wrote a script
-# with a QUOTED heredoc and at 00:32:40 ran it. The run statement's command word
-# is `$S/ingest.sh`, so no verb matcher sees it, and the quoted delimiter means
-# `heredoc_expanded` never emits it either. Denying at CREATION is what stops
-# the sequence, and creation is only visible in the body.
-#
-# The scan is bounded to a redirect target ending in `.sh`, and the bound is not
-# fussy on purpose. This design document contains both `while IFS= read -r url`
-# and `sb borg ingest` in its own prose, so writing it through a heredoc would
-# deny under an unbounded command-scope scan. That is chunk C's self-reference
-# class. The incident's target is `"$S/ingest.sh"` and is caught; this doc's
-# target is a `.md` path and is not. A script written to an extensionless path
-# and chmodded afterwards is a named residual hole, not a silent one.
-# A single quote is written \047 throughout: embedding one in a single-quoted
-# shell string mangles the awk program, which is how the first version of this
-# extractor silently matched nothing and let the founding incident through.
-ingest_heredocs=$(printf '%s' "$command" | awk '
-  !capture {
-    i = index($0, "<<")
-    if (i > 0) {
-      left = substr($0, 1, i - 1)
-      rest = substr($0, i + 2)
-      sub(/^-/, "", rest)
-      gsub(/[[:space:]]/, "", rest)
-      gsub(/[\047"]/, "", rest)
-      if (rest != "") {
-        # Enter body state for EVERY heredoc, and decide separately whether to
-        # emit. The old form only entered on a `.sh` target, so the body of a
-        # `.md` heredoc was still scanned line by line and any line inside it
-        # that quoted a `.sh` redirect re-armed capture. Writing this very
-        # design document to a `.md` file denied, which is the self-reference
-        # class the `.sh` bound exists to avoid and the opposite of what the
-        # paragraph above claims.
-        delim = rest
-        capture = 1
-        emit = (left ~ /\.sh[\047"]?[[:space:]]*$/) ? 1 : 0
-      }
-    }
-    next
-  }
-  $0 == delim { capture = 0; emit = 0; next }
-  emit { print }
-')
 
 # DELETE-REF. A delete of a path something on this machine still runs or reads
 # is denied, naming the referencing file and line. Founding incident: desk's
@@ -1740,11 +1528,7 @@ delref_check() {
 
 while IFS= read -r -d '' stmt; do
   verbscan=$(printf '%s' "$stmt" | mask_heredoc | mask_comment)
-  # Quote-masked, and kept for INGEST. `stmts` already emits an eval / `bash -c`
-  # payload as its own statement, so accumulating here picks the payload up as
-  # executable text while `echo "..."` prose stays masked out.
-  ingest_stmt=$(printf '%s' "$verbscan" | mask_squote | mask_dquote)
-  ingest_exempt=0
+  masked_stmt=$(printf '%s' "$verbscan" | mask_squote | mask_dquote)
 
   if [ "$sleep_seen" -eq 0 ]; then
     case "$verbscan" in
@@ -1817,7 +1601,7 @@ while IFS= read -r -d '' stmt; do
 
   # GIT-NET, override half: an assignment or export of git's SSH/config env on
   # any statement. Quote-masked text, so `echo "GIT_SSH_COMMAND=x"` is prose.
-  if printf '%s' "$ingest_stmt" | grep -qE '(^|[[:space:]])GIT_(SSH|SSH_COMMAND|SSH_VARIANT|CONFIG_COUNT|CONFIG_KEY_[0-9]+|CONFIG_VALUE_[0-9]+|CONFIG_PARAMETERS|CONFIG_GLOBAL|CONFIG_SYSTEM)='; then
+  if printf '%s' "$masked_stmt" | grep -qE '(^|[[:space:]])GIT_(SSH|SSH_COMMAND|SSH_VARIANT|CONFIG_COUNT|CONFIG_KEY_[0-9]+|CONFIG_VALUE_[0-9]+|CONFIG_PARAMETERS|CONFIG_GLOBAL|CONFIG_SYSTEM)='; then
     deny "$GITNET_OVERRIDE_DENY (a GIT_SSH*/GIT_CONFIG_* environment override)"
   fi
 
@@ -1885,64 +1669,10 @@ while IFS= read -r -d '' stmt; do
     case "$verbscan" in
       *'$('*|*'`'*) deny "$SSHSHAPE_DENY \`ssh\` with command substitution in the remote string" ;;
     esac
-    case "$ingest_stmt" in
+    case "$masked_stmt" in
       *'<'*) deny "$SSHSHAPE_DENY \`ssh\` with a stdin redirect or heredoc" ;;
     esac
   fi
-
-  # INGEST's door and its read-only exclusion are the two PER-STATEMENT steps.
-  # Everything else about the rule is command-scope, handled after the loop.
-  if printf '%s' "$ingest_stmt" | grep -qE "(^|[^-[:alnum:]])${BORG_VERB_RE}(ingest|reingest|reingest-failed)\\b"; then
-    # `reingest` / `reingest-failed` take no target operand: one op each.
-    stmt_ops=$(printf '%s' "$ingest_stmt" | grep -oE "${BORG_VERB_RE}(reingest-failed|reingest)" | wc -l)
-    # `ingest` is counted by TARGET, so `=1` cannot admit five URLs or two
-    # files. Counted on the unmasked statement (the verb gate above already ran
-    # on the masked one), so a quoted operand is a target and a quoted `--note`
-    # value is not. No operand (`--clipboard`) is still one target.
-    if printf '%s' "$ingest_stmt" | grep -qE "(^|[^-[:alnum:]])${BORG_VERB_RE}ingest\\b"; then
-      ingest_count "$verbscan"
-      # Before the door: an unknowable count cannot be compared to any <n>.
-      [ -n "$ingest_unknown" ] && deny "$INGEST_DENY ($ingest_unknown)"
-      [ "$ingest_targets" -lt 1 ] && ingest_targets=1
-      stmt_ops=$((stmt_ops + ingest_targets))
-    fi
-    # Read-only operations are DROPPED from the operation list rather than
-    # returning an allow for the command. Round 3 wrote this as "always allow"
-    # and `sb borg log; sb borg ingest --file urls.txt` then never reached the
-    # deny clauses at all.
-    case "$ingest_stmt" in
-      *--dry-run*) case "$ingest_stmt" in *reingest*) stmt_ops=0 ;; esac ;;
-    esac
-    if [ "$stmt_ops" -gt 0 ]; then
-      # The door, anchored as a LEADING assignment on this statement so it
-      # cannot be smuggled in from a heredoc body or a comment.
-      door=$(printf '%s' "$ingest_stmt" | sed -n 's/^[[:space:]]*BULK_INGEST_ORDERED_BY_SCOTT=\([^[:space:];|&]*\).*/\1/p' | head -1)
-      if [ -n "$door" ]; then
-        case "$door" in
-          ''|*[!0-9]*) deny "$INGEST_DOOR_DENY" ;;
-        esac
-        # <n> is a CEILING and it is compared. Round 3 called it a maximum and
-        # then never compared it, so =0 allowed and =1 allowed five ingests.
-        if [ "$stmt_ops" -le "$door" ]; then
-          # This statement is out of scope now. Its ops are not counted and its
-          # text never reaches the clauses, so a later ingest in the same
-          # command is still judged on its own.
-          stmt_ops=0
-          ingest_exempt=1
-        else
-          deny "BULK_INGEST_ORDERED_BY_SCOTT=$door permits $door ingest targets and this statement carries $stmt_ops. Raise the ceiling deliberately or split the command."
-        fi
-      fi
-      ingest_ops=$((ingest_ops + stmt_ops))
-    fi
-  fi
-
-  # Every executable statement is in INGEST's command-scope window, which is the
-  # named exception in the contract: the measured vector puts the ingest in a
-  # statement stripped of its loop, so `echo while; sb borg ingest -- <url>`
-  # must still deny. Only a door-exempted statement drops out.
-  [ "$ingest_exempt" -eq 0 ] && ingest_scope="$ingest_scope
-$ingest_stmt"
 
   if printf '%s' "$verbscan" | cmdword_is git >/dev/null 2>&1; then
     gtoks=" $(printf '%s' "$verbscan" | args | tr '\n' ' ') "
@@ -2046,56 +1776,6 @@ $ingest_stmt"
     *rm*|*mv*|*uninstall*) delref_check "$verbscan" "$cur_cwd" ;;
   esac
 done < <(printf '%s' "$command" | stmts)
-
-# INGEST's deny clauses are COMMAND scope, which is a deliberate exception to
-# the per-statement contract every other rule follows. `stmts` splits the
-# incident's own loop body so that the statement carrying the ingest holds no
-# loop keyword, no second URL and no file redirect:
-#
-#   while IFS= read -r url; do out=$(sb borg ingest ... "$url"); done < urls.txt
-#     ->  while IFS= read -r url | do | out=$() | rc=$? | done < urls.txt
-#         sb borg ingest --tags x -- "$url" 2> | 1
-#
-# A per-statement predicate does not fire on the shape that actually happened.
-# A heredoc body is not a statement, so the per-statement loop above never sees
-# it and `ingest_ops` stays 0. That is precisely the incident's shape, where the
-# ingest exists ONLY inside the body being written to a .sh file, so counting
-# statements alone let the founding vector through.
-heredoc_ops=$(printf '%s' "$ingest_heredocs" | grep -cE "${BORG_VERB_RE}(ingest|reingest-failed|reingest)" || true)
-ingest_ops=$((ingest_ops + heredoc_ops))
-
-if [ "$ingest_ops" -gt 0 ]; then
-  scan="$ingest_scope$ingest_heredocs"
-  # Word boundaries, not globs. `*"while "*` needs a trailing space and misses
-  # `echo while; sb borg ingest -- https://one.url`, which the design doc names
-  # explicitly as a deny. A glob cannot express "this token, not this substring",
-  # and a substring test would fire on `platform` for `for`.
-  if printf '%s' "$scan" | grep -qE '(^|[^[:alnum:]_])(while|for|select)([^[:alnum:]_]|$)'; then
-    deny "$INGEST_DENY (a loop construct)"
-  fi
-  if printf '%s' "$scan" | grep -qE '(^|[^[:alnum:]_])xargs([^[:alnum:]_]|$)'; then
-    deny "$INGEST_DENY (xargs)"
-  fi
-  # A redirect READING a file. `> out.log` writes and is not a bulk source.
-  if printf '%s' "$scan" | grep -qE '<[[:space:]]*[^<[:space:]]'; then
-    deny "$INGEST_DENY (a redirect reading a file)"
-  fi
-  # Counted by TARGET, not verb occurrence, per statement (ingest_count), so
-  # `sb borg ingest -- u1 u2 u3 u4 u5` is five and <n> means what a reader
-  # expects. One literal target, URL or path, needs no door; two or more do.
-  [ "$ingest_ops" -ge 2 ] && deny "$INGEST_DENY ($ingest_ops ingest targets)"
-  # There is no `--file` clause: it called `--file` the CLI's own bulk path,
-  # but `--file` ingests ONE local file, and a path operand is now counted as a
-  # target like any other. Nor a literal-URL clause: it read only the first
-  # operand, and ingest_count now refuses any operand it cannot count.
-  case "$scan" in
-    # `ingest --all`, not `reingest --all`: the narrower spelling left
-    # `sb borg ingest --all` allowed while its sibling denied, and
-    # rules/interaction.md names `--all` for BOTH verbs. The pattern still
-    # matches `reingest --all`, which contains it.
-    *"ingest --all"*) deny "$INGEST_DENY (--all is the largest bulk action available)" ;;
-  esac
-fi
 
 # PUBLIC-REPO. Runs once per command, after the statement walk, because the
 # commit half needs every `git add` in the whole command and not only the one in
