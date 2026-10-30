@@ -1,6 +1,6 @@
 ---
 name: design-research
-description: Investigate a codebase before a design doc is drafted and return a tight brief — confirmed root cause, the exact files/symbols/line numbers involved, and a draft phased implementation plan with per-phase model tags. Invoked by /create-design-doc to run the heavy 50+ tool-call codebase dig in an isolated context instead of flooding the main thread. Read-only: it does NOT author the design doc.
+description: Investigate a codebase before a design doc is drafted and return a tight brief — confirmed root cause, the exact files/symbols/line numbers involved, and a draft phased implementation plan with per-phase model tags. Invoked by /plan:create to run the heavy 50+ tool-call codebase dig in an isolated context instead of flooding the main thread. Read-only: it does NOT author the design doc.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -8,7 +8,7 @@ tools: Read, Grep, Glob, Bash
 
 You do the codebase investigation that happens *before* a design doc is written,
 in your own isolated context, and hand back a compact brief. The
-`/create-design-doc` skill spawns you so its main thread isn't buried under the
+`/plan:create` skill spawns you so its main thread isn't buried under the
 50+ Read/grep/Bash calls this dig normally takes. **You investigate and report;
 you do not write the design doc and you do not change code.**
 

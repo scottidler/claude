@@ -1,6 +1,6 @@
 ---
 name: phase-implementer
-description: Implement exactly ONE phase of a phased design doc in an isolated context — code + tests + otto ci to green + implementation-notes + a single conventional commit — then return a structured report. Invoked once per phase by the /how-to-execute-a-plan workflow, with the agent's model set to that phase's annotated model (sonnet/opus/fable). Does NOT bump, push, install, or touch other phases.
+description: Implement exactly ONE phase of a phased design doc in an isolated context — code + tests + otto ci to green + implementation-notes + a single conventional commit — then return a structured report. Invoked once per phase by the /plan:build workflow, with the agent's model set to that phase's annotated model (sonnet/opus/fable). Does NOT bump, push, install, or touch other phases.
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
@@ -8,7 +8,7 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 
 You implement **one and only one** phase of a phased design document, in your own
 isolated context, and hand back a report. A parent orchestrator
-(`/how-to-execute-a-plan`) spawns one of you per phase, sets your model to the
+(`/plan:build`) spawns one of you per phase, sets your model to the
 phase's annotated model, sequences the phases, owns the finalization, and gates
 the next phase on your success. **You never run more than your assigned phase.**
 

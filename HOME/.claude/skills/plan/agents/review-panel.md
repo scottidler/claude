@@ -1,6 +1,6 @@
 ---
 name: review-panel
-description: Fan out the Architect (Gemini) and Staff Engineer (Codex) reviewers in PARALLEL on one design doc, monitor both, and write a single reconciled findings list to a run-dir synthesis file. Use whenever a design doc needs cross-model review, after /create-design-doc (Design Review) or after /how-to-execute-a-plan (Implementation Audit), or whenever the user says "get the reviewers on this", "have the panel look at it", or "send it to architect and staff-engineer". Replaces running /architect then /staff-engineer by hand one after the other.
+description: Fan out the Architect (Gemini) and Staff Engineer (Codex) reviewers in PARALLEL on one design doc, monitor both, and write a single reconciled findings list to a run-dir synthesis file. Use whenever a design doc needs cross-model review, after /plan:create (Design Review) or after /plan:build (Implementation Audit), or whenever the user says "get the reviewers on this", "have the panel look at it", or "send it to architect and staff-engineer". Replaces running `/plan:review architect` then `/plan:review staff-engineer` by hand one after the other.
 tools: Bash, Read, Grep, Glob, Edit
 model: opus
 ---

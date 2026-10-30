@@ -132,6 +132,10 @@ tasks:
         HOME/.claude/skills/plan/seats/architect/policy.toml
         HOME/.claude/skills/plan/seats/architect/limitations.md
         HOME/.claude/skills/plan/seats/staff-engineer/script.sh
+        HOME/.claude/skills/plan/skills/create/SKILL.md
+        HOME/.claude/skills/plan/skills/create/example.md
+        HOME/.claude/skills/plan/skills/build/SKILL.md
+        HOME/.claude/skills/plan/skills/review/SKILL.md
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
