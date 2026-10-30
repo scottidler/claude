@@ -25,3 +25,7 @@ load: always
 - Use the `general:babysit-prs` skill for the sweep; wrap it in `/loop 15m /babysit-prs` for a workday cadence when several PRs are in flight.
 - Never hand a red or comment-laden PR back to Scott as "done." If something is genuinely blocked, name the concrete blocker and the evidence -- per the 2-strike / root-cause rules, not another blind retry.
 - Applies to PRs on any repo, ours or work (`tatari-tv/*`).
+
+# Pull Requests: never `gh stack`
+
+- Scott hates GitHub stacked PRs (`gh stack`, the `gh-stack` skill). Never use or suggest them (2026-10-25). Dependent work is plain PRs with chained base branches, opened one at a time.
