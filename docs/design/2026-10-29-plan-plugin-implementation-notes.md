@@ -145,3 +145,68 @@
 
 ### Open questions
 - The gemini repoint on desk and lappy is Scott's; Phase 5's `ARCHITECT_PATHGLOB=1` step needs it done first.
+
+## Phase 5: Live acceptance
+### Design decisions
+- Scratch repo: `git init -b main` under the session scratchpad (`p5/toy`), first commit `334e60e` with a `.otto.yml` whose `ci` task is `bash -n` over every tracked `*.sh` then `echo ok`, and a README. No remote (`git remote -v` empty). Removed with `rkvr rmrf` after the run.
+- Every step ran as its own fresh headless session, `claude -p "<prompt>" --output-format stream-json --verbose`, cwd the scratch repo, Claude Code 2.1.314. Evidence below is read from each captured stream with `jq` and from the files the run left behind.
+- Step 1's open decisions were answered in the initial prompt (one phase, `Model: sonnet`, make every decision, Open Questions `none`), not in a `--resume` turn. The prompt also told `/plan:create` to skip its Step 5 panel, so every panel round on that doc was a deliberate dispatch in Steps 2 and 4 and the count stayed exact.
+- Step 4 ran rounds 2, 3 and 4 in one session, each prompt carrying two `OPEN:` lines (the round-1 must-fix items), so the reason gate passed rounds 2 and 3 and only the cap could deny round 4.
+- Step 5 built a second, hand-written one-phase doc (`docs/plan/2026-10-30-goodbye-script.md`, Open Questions none, an `Observed on main:` line under each AC), committed as `7e935f7` before the build, rather than Step 1's doc: Step 1's doc carried 2 unfolded must-fix findings, and building it would have flipped its Status to Implemented and its counter key to mode 2 mid-test.
+
+### Deviations
+- `/plan:create` ran without its Step 5 review panel (skipped by prompt). Its panel dispatch path is the same `plan:review-panel` dispatch that Steps 2 and 4 exercised live; the skip kept the round count on the doc attributable.
+- The Step 5 build doc was written by hand, not by `/plan:create`. The step needs a ready one-phase `docs/plan/` doc; Step 1 already proved `/plan:create` writes one.
+- No plugin code changed. No step exposed a defect in `HOME/.claude/skills/plan/`.
+
+### Tradeoffs
+- One session for rounds 2-4 vs one session per round: the guard keys on `(doc, mode)` across sessions, so one session proves the same cap with one fewer launch, and the round-4 deny lands in a stream with the two allowed dispatches beside it.
+
+### Live acceptance results
+- Step 1, `/plan:create`: PASS.
+  - cwd `<scratch>/p5/toy`, session `fc58dc98-2b49-479e-b01f-80954b871324`. Command: `claude -p "/plan:create Toy feature for this repo: add bin/hello.sh ... Exactly one implementation phase, annotated **Model:** sonnet ... SKIP Step 5 (the review panel) ... Do not commit." --output-format stream-json --verbose`.
+  - Init event lists `plan:build`, `plan:create`, `plan:release`, `plan:review`.
+  - First tool_use: `{"name":"Agent","subagent_type":"plan:design-research"}`; the subagent ended with `SubagentHandback`.
+  - Doc landed at `docs/plan/2026-10-30-hello-script.md` (`git status`: `?? docs/`), one phase `#### Phase 1: Add bin/hello.sh` / `**Model:** sonnet`, Open Questions `none`, `Review Passes Completed: 4/5`, an `Observed on main:` line under every AC. Nothing under `docs/design/`. Result `success`, `is_error: false`, stderr empty.
+  - Panel rounds charged to the doc by this step: 0.
+- Step 2, `/plan:review <abs doc path>`: PASS on rc files, seat paths and classifier; `ARCHITECT_PATHGLOB=1` sub-check PENDING OPERATOR STEP.
+  - cwd `<scratch>/p5/toy`, session `9742ff01-eec7-4f04-bb8e-f128fd70ef4e`. Command: `claude -p "/plan:review <scratch>/p5/toy/docs/plan/2026-10-30-hello-script.md" --output-format stream-json --verbose`.
+  - Main-session tool_use: one `Agent` with `subagent_type: "plan:review-panel"`. The agent's seat launch, one Bash call:
+    `/home/saidler/.claude/skills/plan/seats/architect/script.sh ".../runs/QiHanEpL/doc-snapshot-r1.md" ".../prompt-r1.txt" "" ".../rc-arch-r1.txt" > ".../arch-r1.out" 2>&1 &`
+    `/home/saidler/.claude/skills/plan/seats/staff-engineer/script.sh ... ".../rc-staff-r1.txt" > ".../staff-r1.out" 2>&1 &` then `wait`.
+  - Run dir `~/.cache/review-panel/runs/QiHanEpL`: `rc-arch-r1.txt` `seat=architect` `rc=0`; `rc-staff-r1.txt` `seat=staff-engineer` `rc=0`; `dispatch-status-r1.txt` `arch rc=0`, `staff rc=0`; outputs 3866 B and 4408 B; `synthesis.md` written (2 must-fix, 3 cheap-win, 1 defer).
+  - Classifier: no auto-mode denial in the stream. The only two `is_error: true` results are `rails: this form deletes through another command` on the agent's Step 1.0 prune (`find ~/.cache/review-panel/runs ... -mtime +14 -exec rm -rf {} +`), a rails hook, not the classifier; the review was unaffected (see Open questions).
+  - Counter after the step: `rounds=1`, mode 1, key `0aad2207...`.
+  - `ARCHITECT_PATHGLOB=1`: the architect seat sets it on every run (`seats/architect/script.sh`), and gemini's hook fired (`arch-r1.out`: `denied by gemini's policy guard (see pathglob.py)`). But `~/.gemini/settings.json:22` on desk still reads `python3 -I "$HOME/.claude/skills/architect/pathglob.py"`, checked before and after the run, so the hook that ran is the old copy, not the repointed one. PENDING OPERATOR STEP (Scott, desk and lappy). Not edited here.
+- Step 3, `/plan:review architect <abs doc path>`: PASS.
+  - cwd `<scratch>/p5/toy`, session `7e3e6d77-7507-433c-a9c2-766f8d7f0e00`. Command: `claude -p "/plan:review architect <scratch>/p5/toy/docs/plan/2026-10-30-hello-script.md" --output-format stream-json --verbose`.
+  - Two tool_use, both Bash: a doc/mode probe, then `/home/saidler/.claude/skills/plan/seats/architect/script.sh docs/plan/2026-10-30-hello-script.md "Review this design docum...` directly. `grep -c '"name":"Agent"'` on the stream: 0. No `plan:review-panel` dispatch, counter unchanged at `rounds=1`.
+  - Result `[ARCHITECT]` review then `[CLAUDE]` take, `is_error: false`, stderr empty. The gemini pathglob guard denied one seat tool call (old hook path, as Step 2).
+- Step 4, round cap on `plan:review-panel`: PASS.
+  - cwd `<scratch>/p5/toy`, session `36a1ae01-ab2e-4587-adde-5bc3915624c0`. One prompt asking for three sequential `plan:review-panel` dispatches on the Step 1 doc, each with `DOC_PATH: <abs>` and two `OPEN:` lines, no door line.
+  - Round 2 and round 3 dispatches: allowed (`Async agent launched successfully`). Run dir `QiHanEpL`: `rc-arch-r2.txt`/`rc-staff-r2.txt` and `-r3` all `rc=0`; synthesis sections `Round 2` and `Round 3`, each `scoped to 2 OPEN items`.
+  - Round 4 dispatch, tool_result `is_error: true`, verbatim:
+    `PreToolUse:Agent hook error: panel-round-guard: this is round 4 on <scratch>/p5/toy/docs/plan/2026-10-30-hello-script.md; the cap is 3 (rules/interaction.md).`
+    `Rounds 1-3 produced findings that belong in the doc, not in another round.`
+    `If the doc still has open findings, fold them in and build; if Scott has`
+    `ordered more rounds, re-dispatch with PANEL_ROUNDS_ORDERED_BY_SCOTT=<n> in the prompt.`
+    `Counter: ~/.cache/review-panel/rounds/0aad220766fd3a7a491ebb51ccb21d16deb6bebc6f51e12d9a02b06da2fda712 (3 rounds recorded)`
+  - Counter file after: `mode=1`, `rounds=3`. Round tally on that doc: Step 1 0, Step 2 1, Step 4 2 more, 4th denied.
+- Step 5, `/plan:build <abs doc path>`: PASS.
+  - cwd `<scratch>/p5/toy` at `7e935f7` (clean tree, 3 commits), session `58e1cec4-eb5e-4db6-9fd0-dcaf4e6ed159`. Command: `claude -p "/plan:build <scratch>/p5/toy/docs/plan/2026-10-30-goodbye-script.md" --output-format stream-json --verbose < /dev/null`.
+  - Main-session tool_use: one `Agent` `subagent_type: "plan:phase-implementer"` (`model: sonnet`, from the doc's annotation); then `Skill` `plan:review` (`scope: implementation audit`) and one `Agent` `plan:review-panel` (the audit).
+  - One new commit: `686d631 feat(bin): add goodbye.sh`, body `Phase 1 of 1: Add bin/goodbye.sh` / `Design doc: docs/plan/2026-10-30-goodbye-script.md`; files `bin/goodbye.sh` (mode 100755), `docs/plan/2026-10-30-goodbye-script-implementation-notes.md`, the doc (Status `Ready` -> `Implemented`). The worker committed `dd148db`; the orchestrator amended it with the audit's cheap win (AC ticks plus post-build observed lines), so `git rev-list --count HEAD` went 3 -> 4.
+  - Notes landed beside the doc in `docs/plan/`, all four buckets. `git status --short` empty after.
+  - `otto ci` in the scratch repo after the build: `[ci] ok`, rc=0. `./bin/goodbye.sh | cmp - <(printf 'goodbye\n')`: rc=0.
+  - Implementation audit: mode 2 round 1 on the goodbye doc (counter `mode=2`, `rounds=1`), run dir `qt5soiM7`, `arch rc=0`, `staff rc=0`, 0 must-fix. A different doc from Step 4's.
+  - Finalization stopped at the confirmation checkpoint ("Reply to approve all, a subset ... or decline."); not approved. No bump, push, tag or install ran.
+- Step 6, `/plan:release` ungated: PENDING SCOTT (the next ungated release he calls).
+- Step 7, `/plan:release` gated: PENDING SCOTT (the next gated release he calls).
+- AC4: PASS. `/plan:review` wrote `rc-arch-r1.txt` and `rc-staff-r1.txt`, both `rc=0`, from `/home/saidler/.claude/skills/plan/seats/{architect,staff-engineer}/script.sh` (Step 2); `/plan:build` on a one-phase `docs/plan/` doc produced one commit (`686d631`) plus `2026-10-30-goodbye-script-implementation-notes.md` beside the doc (Step 5).
+- AC5: PENDING. Needs Steps 6 and 7.
+- Phase 5 success criterion ("AC4 and AC5 pass"): not met yet; AC5 waits on Scott's releases. Phase 6's gate is not open.
+- Processes: after each step `pgrep -af 'claude -p'` and `pgrep -af otto` printed nothing.
+
+### Open questions
+- `plan/agents/review-panel.md` Step 1.0's prune line, `find ~/.cache/review-panel/runs -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} +`, is denied by rails ("deletes through another command") even though the deny text names `~/.cache/review-panel/runs` as an allowed confine. Nothing gets pruned; reviews are unaffected. The old `agents/review-panel.md:88` carries the same line, so it is not a plan-plugin regression. Fix the line in `plan/` (e.g. `rkvr rmrf` over the found dirs), or teach rails the tilde form?
+- The `ARCHITECT_PATHGLOB=1` sub-check stays PENDING until Scott repoints `~/.gemini/settings.json:22` to `skills/plan/seats/architect/pathglob.py` on desk and lappy; re-run one `/plan:review` after.
