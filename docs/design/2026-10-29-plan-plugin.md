@@ -195,7 +195,8 @@ Run 2026-10-29, Claude Code 2.1.314, pi 1.0.4, scratch plugin `plan` at `~/.clau
   - `claude plugin details plan@skills-dir` shows `Skills (4)`
   - `/plan:release` in a scratch git repo with no GitHub remote stops at branch 5 (`Gates: UNKNOWN`) with no new commit (`git rev-list --count HEAD` unchanged) and no agent dispatch
     - Observed on main (2026-10-29), `bump --gates <remote-less scratch repo>`: `Gates:  UNKNOWN (could not verify: not a GitHub remote)`
-  - `rg -n babysit HOME/.claude/skills/plan` prints nothing
+  - `rg -n -w babysit HOME/.claude/skills/plan` prints nothing
+    - Amended in Phase 3: `-w` added. The criterion targets the `/babysit` skill reference; the bare substring also hit "babysitter" in a comment at `seats/{architect,staff-engineer}/script.sh:76`, scripts this doc moves intact.
 
 #### Phase 4: Remaining parallel entries
 **Model:** sonnet
