@@ -7,7 +7,8 @@ Four rules, from the design doc's Phase 6:
    names) plus every enabled plugin's skills (namespaced `plugin:skill`,
    read from `settings.json`'s `enabledPlugins` and
    `plugins/installed_plugins.json`'s resolved `installPath`, never a
-   marketplace-cache heuristic).
+   marketplace-cache heuristic), plus skills-dir plugins (a dir under
+   `~/.claude/skills` with `.claude-plugin/plugin.json`).
 2. Drop `skillOverrides: "off"` entries. Measured (Phase 0b-6): an "off"
    skill does not degrade, it burns the turn on a hard harness error, so
    this is a hard exclusion, not a soft one.
@@ -119,6 +120,30 @@ def plugin_skill_names(settings: dict, installed_plugins: dict) -> set[str]:
     return out
 
 
+def skills_dir_plugin_skill_names(settings: dict, skills_dir: Path = PERSONAL_SKILLS_DIR) -> set[str]:
+    """Namespaced `plugin:skill` names for every skills-dir plugin: a dir under
+    `skills_dir` holding `.claude-plugin/plugin.json`, whose `skills/*/SKILL.md`
+    entries become `<plugin>:<skill>`.
+
+    These never appear in `installed_plugins.json` or `enabledPlugins` unless
+    disabled: measured (plan plugin Phase 0 (j)), `claude plugin disable`
+    writes `enabledPlugins["<name>@skills-dir"] = false` and `enable` removes
+    the key, so an absent key means enabled and only an explicit false skips.
+    """
+    out: set[str] = set()
+    if not skills_dir.is_dir():
+        return out
+    enabled = settings.get("enabledPlugins", {})
+    for manifest in sorted(skills_dir.glob("*/.claude-plugin/plugin.json")):
+        plugin_dir = manifest.parent.parent
+        plugin_name = load_json(manifest).get("name") or plugin_dir.name
+        if enabled.get(f"{plugin_name}@skills-dir") is False:
+            continue
+        for skill_md in plugin_dir.glob("skills/*/SKILL.md"):
+            out.add(f"{plugin_name}:{skill_md.parent.name}")
+    return out
+
+
 def enumerate_skills(
     *,
     skills_dir: Path = PERSONAL_SKILLS_DIR,
@@ -135,7 +160,11 @@ def enumerate_skills(
         settings = load_json(SETTINGS_PATH)
     if installed_plugins is None:
         installed_plugins = load_json(INSTALLED_PLUGINS_PATH)
-    names = personal_skill_names(skills_dir) | plugin_skill_names(settings, installed_plugins)
+    names = (
+        personal_skill_names(skills_dir)
+        | plugin_skill_names(settings, installed_plugins)
+        | skills_dir_plugin_skill_names(settings, skills_dir)
+    )
     logger.debug("enumerate_skills: exit count=%d", len(names))
     return names
 

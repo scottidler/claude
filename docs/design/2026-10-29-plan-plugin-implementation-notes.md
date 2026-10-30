@@ -118,3 +118,30 @@
 ### Open questions
 - The old `shipit`, `bump` and `babysit` descriptions are invalid strict YAML (unquoted `: `), so pi loads none of them today, with no exclusion involved. They are frozen by the rollback baseline and removed in Phase 6, so this is moot for them; `anthropic-usage-report`, `e2e-v3`, `install-skills` and `cargo-install` have the same class of defect outside this doc's scope. Worth a separate fix?
 - `plan/skills/build/SKILL.md` finalization still runs raw `bump release` / `bump finish` rather than calling `/plan:release` (Phase 2 decision, unchanged here). Repoint it, and in which phase?
+
+## Phase 4: Remaining parallel entries
+### Design decisions
+- `hooks/handoff-guard.sh:113`: the exclusion regex is `(^|/)docs/(design|plan)/`; the header comment (`:29`) and the inline comment (`:109-111`) name both dirs. Fixture row 21 in `fixtures/handoff-guard/controls.tsv` is `review docs/plan/2026-10-29-handoff-and-waiting-discipline.md`, a prompt that names a handoff-basename doc under `docs/plan/` and must stay silent. The count assertion, its banner and its failure message in `handoff-guard-test.sh` moved 20 -> 21 in the same commit.
+- `hooks/inline/resolve.py`: new `skills_dir_plugin_skill_names(settings, skills_dir)`, the third enumerator, composed in `enumerate_skills`. It globs `*/.claude-plugin/plugin.json` under the skills dir, takes the plugin name from `plugin.json` (dir name as fallback), and emits `<plugin>:<skill>` for each `skills/*/SKILL.md`. It skips only when `enabledPlugins["<name>@skills-dir"] is False`; an absent key is enabled (Phase 0 (j): `enable` removes the key). No bare alias is emitted.
+- Tests in `inline/resolve_tests.py` (`SkillsDirPluginSkillNamesTest`): enumerate, skip-on-false, absent-key-enabled, explicit-true-enabled, dir-without-manifest, missing dir, and `enumerate_skills` composition with no bare alias. `LiveStateTest.test_plan_create_resolves_to_exactly_the_namespaced_skill` pins `resolve("plan:create") == ["plan:create"]` against the live tree.
+- `AcceptanceCriterionSevenTest` (`kept == 571`) is unchanged and still passes. It guards the matcher's survivor count over frozen fixture tokens, and bare tokens never match a namespaced skill, so adding `plan:*` cannot move it. No live count changed.
+- `skills/rwl-a-plan/SKILL.md:94`: `git add <design-doc-path>` with a note that the doc stays where it lives. `skills/thorough-review/SKILL.md:21`: reads prior docs from `docs/plan/` or `docs/design/`; `:22` and `:79`: deliverables go to `docs/plan/` (new docs follow the writer rule).
+- `rules/general.md` Documentation: `/plan:create` writes `docs/plan/`, `/create-design-doc` writes `docs/design/` until removal, existing docs stay, readers match both. `README.md` layout table gained a `docs/plan/` row.
+- Old pipeline files untouched; the rollback-baseline lint passed in `otto ci`.
+
+### Deviations
+- None. (`thorough-review` `:21` is a reader and names both dirs; `:22,:79` are writers and name only `docs/plan/`, which is the "new docs land in `docs/plan/`" rule.)
+
+### Tradeoffs
+- Plugin name read from `plugin.json` vs the directory name: the harness keys `enabledPlugins` by the manifest name; the dir name is only a fallback for a manifest without `name`.
+- `is False` vs falsy for the skip: a missing or null key must not disable the plugin, per the measured enable behavior.
+
+### Success criteria
+- `handoff-guard-test.sh`: `pass=150 fail=0`. `inline/resolve_tests.py`: 29 tests OK. `resolve("plan:create")` against the live tree: `['plan:create']`. PASS.
+- Bite-proof: with `:113` reverted to `docs/design/` only, `handoff-guard-test.sh` printed `FAIL  control 21: wanted silence, got {` and `pass=149 fail=1`; restored: `pass=150 fail=0`.
+- `otto ci`: exit 0, `All CI checks passed!`.
+- Throwaway launch after the `rules/general.md` edit: `claude -p "reply OK"` from a scratch dir printed `OK`, rc=0.
+- `rg -n 'pathglob' ~/.gemini/settings.json` names `skills/plan/seats/architect/pathglob.py` on desk and lappy: PENDING OPERATOR STEP (Scott's). Observed on desk after this phase: `~/.gemini/settings.json:22` still reads `python3 -I "$HOME/.claude/skills/architect/pathglob.py"`. Lappy not checked.
+
+### Open questions
+- The gemini repoint on desk and lappy is Scott's; Phase 5's `ARCHITECT_PATHGLOB=1` step needs it done first.

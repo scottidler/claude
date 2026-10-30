@@ -31,6 +31,7 @@ manifest -l '*' | bash   # just the link section
 | `bin/` | standalone scripts (e.g. `check-review-panel`) |
 | `docs/` | dated incident/investigation notes (e.g. sandbox filesystem allowlist, release-guard fixes) |
 | `docs/design/` | design docs for features (gating authority, voice-corpus wiring, reviewer preflight guard, per-phase verification) |
+| `docs/plan/` | new phased plan docs written by `/plan:create`, with their `-implementation-notes.md` and `-review-log.md` |
 
 ## Conventions
 

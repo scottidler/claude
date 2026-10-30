@@ -18,8 +18,8 @@ Scripts live in `~/.claude/skills/thorough-review/bin/`. The reviewer prompt is 
 
 - **Repo and commit.** Record `git rev-parse --short HEAD`; every location in the output is anchored to it.
 - **Severity floor.** Default: "a user of the tool can observe the wrong behavior from the command line or in a file the tool writes." Anything else is hygiene. State the floor in the output; the user can move it.
-- **Prior deferred list.** Open questions, deferred items, and "not this doc's" notes from the previous review or remediation doc in `docs/design/`. Hand them to every reviewer so they are not re-raised as new. If there is no prior review, say so.
-- **Where outputs go.** Census and reports go to the scratchpad, never into the reviewed tree. The two deliverables (below) go to `docs/design/` only when the user wants them in the repo.
+- **Prior deferred list.** Open questions, deferred items, and "not this doc's" notes from the previous review or remediation doc in `docs/plan/` or `docs/design/` (check both). Hand them to every reviewer so they are not re-raised as new. If there is no prior review, say so.
+- **Where outputs go.** Census and reports go to the scratchpad, never into the reviewed tree. The two deliverables (below) go to `docs/plan/` only when the user wants them in the repo.
 - **Cargo contention.** If another agent is building in the same tree, run census with `--no-cargo` and note that warnings.txt is empty because of it. Do not compete for the target-dir lock.
 
 ## Procedure
@@ -76,7 +76,7 @@ Apply, in order:
 
 Two documents, always both, so the hygiene tail never becomes a phase list again.
 
-**Findings** (`docs/design/YYYY-MM-DD-<slug>-review.md` when the user wants it in the repo): the severity floor; every bug with its observed repro; the systemic findings; Questions; and a **Proof** section holding the census `summary.md` table, the coverage totals table from `bin/coverage`, the count of reviewers and the model each ran on, and a **Not reviewed** list that must be empty or explicit. This document is the input to `/create-design-doc` for a phased fix, and phases are built from bugs only.
+**Findings** (`docs/plan/YYYY-MM-DD-<slug>-review.md` when the user wants it in the repo): the severity floor; every bug with its observed repro; the systemic findings; Questions; and a **Proof** section holding the census `summary.md` table, the coverage totals table from `bin/coverage`, the count of reviewers and the model each ran on, and a **Not reviewed** list that must be empty or explicit. This document is the input to `/create-design-doc` for a phased fix, and phases are built from bugs only.
 
 **Hygiene ledger** (`docs/hygiene.md`, a standing file, appended under a dated heading, never a phased plan): every hygiene finding and every census row with its confirmation. It is worked opportunistically, one item at a time alongside other changes, and a row is removed when its fix lands. Its length is the tax a codebase of this size carries; it is not a measure of the last remediation's success.
 

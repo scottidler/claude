@@ -218,17 +218,17 @@ else
   bad '--help does not print the documentation block'
 fi
 
-echo "=== AC2 right half: the 20 committed non-handoff controls stay silent ==="
+echo "=== AC2 right half: the 21 committed non-handoff controls stay silent ==="
 controls_n=0
 while IFS= read -r prompt; do
   [ -n "$prompt" ] || continue
   controls_n=$((controls_n + 1))
   silent "control $controls_n" "$prompt"
 done < "$CONTROLS_TSV"
-if [ "$controls_n" -eq 20 ]; then
+if [ "$controls_n" -eq 21 ]; then
   ok
 else
-  bad "controls: expected 20 committed controls, found $controls_n"
+  bad "controls: expected 21 committed controls, found $controls_n"
 fi
 
 echo "=== AC2 left half: the frozen fires corpus artifact is intact ==="

@@ -26,7 +26,7 @@
 # `*handoff*.md`: the design doc that specified this hook is itself named
 # `2026-09-18-handoff-and-waiting-discipline.md`, so a naive predicate injects
 # "invoke the handoff skill in resume mode" into any prompt that reviews it.
-# Two things keep that out. A path under a `docs/design/` directory is a design
+# Two things keep that out. A path under a `docs/design/` or `docs/plan/` directory is a design
 # doc and is excluded mechanically, and the emitted text carries an explicit
 # decline branch, which is `session-recall-guard.sh:121`'s request-versus-
 # reference discrimination reused rather than re-derived.
@@ -106,11 +106,11 @@ if [ -n "$PROMPT" ]; then
   esac
   if [ "$bail" -eq 0 ]; then
     # A path-shaped token ending in .md whose basename carries `handoff`, with
-    # any `docs/design/...` path excluded: this hook's own design doc lives
-    # there and matches the basename test.
+    # any `docs/design/...` or `docs/plan/...` path excluded: design docs live
+    # there and match the basename test.
     fire1_path=$(printf '%s' "$PROMPT" \
       | grep -oiP '(?<![\w/.-])[\w./-]*handoff[\w./-]*\.md\b' \
-      | grep -viP '(^|/)docs/design/' \
+      | grep -viP '(^|/)docs/(design|plan)/' \
       | head -1)
   fi
 fi

@@ -91,7 +91,7 @@ Only after ALL phases complete successfully:
 1. **Update design doc status** - change `**Status:** Draft` to `**Status:** Implemented`
 2. **Commit**:
    ```bash
-   git add docs/design/<design-doc>.md
+   git add <design-doc-path>   # the doc exactly where it lives, docs/plan/ or docs/design/
    git commit -m "docs: mark <feature> design doc as implemented"
    ```
 3. **Bump version** using `/bump` (default patch; use minor/major for breaking changes)

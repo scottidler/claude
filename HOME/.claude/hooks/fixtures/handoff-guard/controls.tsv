@@ -18,3 +18,4 @@ read docs/design/2026-09-13-setup-audit-program.md
 grep for intent-guard in the hooks dir
 what does session-recall-guard.sh do
 add a test for the sleep rule
+review docs/plan/2026-10-29-handoff-and-waiting-discipline.md

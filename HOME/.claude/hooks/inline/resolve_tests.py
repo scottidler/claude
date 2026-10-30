@@ -25,6 +25,7 @@ from inline.resolve import (  # noqa: E402
     plugin_skill_names,
     resolve,
     resolvable_skills,
+    skills_dir_plugin_skill_names,
 )
 
 
@@ -87,6 +88,59 @@ class PluginSkillNamesTest(unittest.TestCase):
             names = plugin_skill_names(settings, installed)
             self.assertEqual(names, {"platform:argocd-ops"})
             self.assertNotIn("argocd-ops", names)
+
+
+def _make_skills_dir_plugin(root: Path, plugin: str, skills: list[str]) -> None:
+    manifest = root / plugin / ".claude-plugin"
+    manifest.mkdir(parents=True)
+    (manifest / "plugin.json").write_text(json.dumps({"name": plugin}))
+    for skill in skills:
+        _make_skill(root / plugin / "skills", skill)
+
+
+class SkillsDirPluginSkillNamesTest(unittest.TestCase):
+    def test_enumerates_namespaced_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_skills_dir_plugin(root, "plan", ["create", "build"])
+            self.assertEqual(skills_dir_plugin_skill_names({}, root), {"plan:create", "plan:build"})
+
+    def test_explicit_false_skips_the_plugin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_skills_dir_plugin(root, "plan", ["create"])
+            settings = {"enabledPlugins": {"plan@skills-dir": False}}
+            self.assertEqual(skills_dir_plugin_skill_names(settings, root), set())
+
+    def test_absent_key_means_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_skills_dir_plugin(root, "plan", ["create"])
+            settings = {"enabledPlugins": {"other@skills-dir": False}}
+            self.assertEqual(skills_dir_plugin_skill_names(settings, root), {"plan:create"})
+
+    def test_explicit_true_is_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_skills_dir_plugin(root, "plan", ["create"])
+            settings = {"enabledPlugins": {"plan@skills-dir": True}}
+            self.assertEqual(skills_dir_plugin_skill_names(settings, root), {"plan:create"})
+
+    def test_dir_without_manifest_is_not_a_plugin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_skill(root / "notaplugin" / "skills", "x")
+            self.assertEqual(skills_dir_plugin_skill_names({}, root), set())
+
+    def test_missing_dir_is_empty(self) -> None:
+        self.assertEqual(skills_dir_plugin_skill_names({}, Path("/nonexistent/does/not/exist")), set())
+
+    def test_enumerate_skills_includes_it_without_a_bare_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_skills_dir_plugin(root, "plan", ["create"])
+            names = enumerate_skills(skills_dir=root, settings={}, installed_plugins={})
+            self.assertEqual(names, {"plan:create"})
 
 
 class EnumerateSkillsTest(unittest.TestCase):
@@ -183,6 +237,9 @@ class LiveStateTest(unittest.TestCase):
 
     def test_babysit_resolves_to_exactly_one_skill(self) -> None:
         self.assertEqual(resolve("babysit"), ["babysit"])
+
+    def test_plan_create_resolves_to_exactly_the_namespaced_skill(self) -> None:
+        self.assertEqual(resolve("plan:create"), ["plan:create"])
 
     def test_run_and_status_resolve_to_nothing(self) -> None:
         self.assertEqual(resolve("run"), [])
