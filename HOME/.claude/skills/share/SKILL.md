@@ -19,7 +19,7 @@ Post one URL to one or more Slack channels, now or at a future time, with 3-5 bu
    ```
 
    The script prints `TYPE:` (`youtube | github | web`), then metadata, then the transcript, README, or page text, capped at 30k characters. Quote the URL, because `&` is a shell operator.
-3. If the fetch fails or returns a login wall or empty text, stop and report the error line. Do not summarize from the URL alone.
+3. If the fetch fails or returns a login wall, empty text, or no speech (a transcript of only `♪` lines), run the `scour` skill to find out what the link is. Pass it the URL, the title and channel from the metadata, and the question "what is this, who made it, why click". Write the bullets from scour's cited findings. If scour finds nothing it can cite, stop and report. Never summarize from the URL alone.
 4. Read `~/Claude/writing/VOICE.md` and write the message in the Slack one-liner register.
 5. Post the same message to every channel through the `slack:write` skill with `--markdown-to-mrkdwn`, so the link and bullets render as Slack mrkdwn. With `--at`, pass it through to `slack:write` so each post is scheduled, not sent.
 6. Report one line per channel: the permalink for a sent post, the scheduled id and send time for a scheduled one. Those lines are the proof of done.
@@ -46,7 +46,8 @@ Post one URL to one or more Slack channels, now or at a future time, with 3-5 bu
 
 ## Limits
 
-- A summary comes only from fetched text. If the transcript is missing or the page is truncated at the cap, say so in a closing bullet.
+- A summary comes only from fetched text or scour's cited findings. If the page is truncated at the cap, say so in a closing bullet.
+- When scour supplied the facts, say so in a closing bullet (the video has no narration, so this comes from research).
 - Summarize once per invocation, then post that one message to each channel. Re-running posts again.
 - If one channel fails, still post to the rest, then report the failure line for that channel.
 - A `--at` time that is not in the future is an error. Report it and post nothing.
