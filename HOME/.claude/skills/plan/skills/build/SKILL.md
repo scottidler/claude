@@ -574,37 +574,37 @@ user declines or does not respond, stop: the per-phase commits are already
 safely in local history and nothing is lost. Run only the actions the user
 approved, in the order below.
 
-### 4-5. Release: `bump release`, then `bump finish` (only if approved)
+### 4-5. Release: invoke `/plan:release` (only if approved)
 
-One command does the bump, the push, the CI wait, the tag, and the install. Run
-it bare, as its own Bash call naming the repo, with
-`run_in_background` (the CI wait runs up to 1800s, past the 600s foreground cap):
+The release is one skill, not an inline sequence. Invoke it with the repo and
+the level step 3 approved:
 
-```bash
-bump release [-m|-M] <repo>     # patch by default; -m/-M only for what the design doc calls breaking
+```
+Skill(plan:release)  with args "[-m|-M] <absolute repo path>"
+                      # patch by default; -m/-M only for what the design doc calls breaking
 ```
 
-The `<repo>` positional ships in the bump release that carries scottidler/bump
-commit eba0468; until `bump release --help` shows `[DIR]`, `cd <repo>` in its own
-Bash call and run the verb bare without it.
+`/plan:release` reads `bump --gates` and routes on the verdict, so the build
+never picks the path itself:
 
-- **Ungated** (main accepts direct pushes): on main, it commits the version,
-  pushes, waits for green CI on that exact sha, tags the sha, pushes the tag by
-  name, installs. Done.
-- **Gated** (main requires a PR): on the feature branch, it commits the version,
-  pushes the branch, opens the PR itself (`Release: rides this PR (vX.Y.Z)`), and
-  stops. **The merge wait belongs to the `plan:release-driver` agent** (via
-  `/plan:release`): hand it the release rather than watching the PR inline with `pr:watch`. After the merge it runs
-  `bump finish` (any worktree): pull, CI wait on the merged sha, tag, push the tag,
-  install.
-- No `&&`, no env prefix, no wrapper around either verb. A refusal names its one
-  exact next command; do that, never a raw `git tag` / `git push origin vX.Y.Z`.
-- A hook or classifier **denial** means nothing ran. Report the denial text
-  verbatim and stop.
-- If step 3's approval excluded install, pass `--no-install`.
+- **Ungated**: it runs `bump release` inline (bump, push, CI wait on that exact
+  sha, tag by name, install) and proves the new version live.
+- **Gated**: it dispatches `plan:release-driver` with ENTRY `release` from the
+  feature branch, and the agent owns the whole arc: `bump release` opens the PR,
+  the agent watches it to merge, runs `bump finish`, installs. Never run
+  `bump release` here first and hand over the open PR: the agent has no entry
+  for a PR that is already open.
+- **UNKNOWN or unparseable**: it stops before anything is committed or pushed.
+  Report its output and stop.
+
+Pass the step 3 approval through: if it excluded install, say so, so the release
+runs with `--no-install`. A hook or classifier **denial** means nothing ran.
+Report the denial text verbatim and stop.
 
 ### 6. Install (only if approved)
 
+`/plan:release` installs as part of the release (step 4-5). Run this step only
+when it reported the install skipped or failed and the user approved install.
 Build and install the release binary locally:
 
 ```bash
@@ -636,9 +636,9 @@ verify at the runtime surface:
 │     while nothing is tagged, pushed, or deployed    │
 │  3. CONFIRMATION CHECKPOINT: get user approval      │
 │     for the irreversible actions below              │
-│  4. bump --no-tag (patch by default) [if approved]  │
-│  5. push, CI green, tag by name      [if approved]  │
-│  6. cargo install --path .           [if approved]  │
+│  4. /plan:release, routed by gates   [if approved]  │
+│  5. bump, push, CI green, tag, install (in step 4)  │
+│  6. cargo install, only if 4 skipped [if approved]  │
 │  7. Verify at the runtime surface    [if shipped]   │
 └─────────────────────────────────────────────────────┘
 ```
