@@ -188,19 +188,42 @@ norm_path() { # norm_path <absolute path>
   }'
 }
 
+# An explicit `DOC_PATH=<path>` or `DOC_PATH: <path>` (bold, backticked or
+# quoted) names the doc outright: callers write it, and nothing else in the
+# prompt can outvote it. Prints the first such path, or nothing.
+explicit_doc() { # explicit_doc  (prompt on stdin)
+  awk '{
+    i = index($0, "DOC_PATH")
+    if (i == 0) next
+    r = substr($0, i + 8)
+    if (!match(r, /^[*]*[ \t]*[:=]/)) next
+    r = substr(r, RLENGTH + 1)
+    sub(/^[ \t*`"\047]*/, "", r)
+    if (match(r, /^[A-Za-z0-9_.\/~@+-]*\.md/)) { print substr(r, 1, RLENGTH); exit }
+  }'
+}
+
 # The Phase 0 reference extractor, four steps, measured at 97.4% over all 348
 # real dispatches in ~/.claude/projects. Step 2 is the one the design doc's
 # sketch omits and Phase 0 added: a round-2 prompt that cites its own review log
 # or implementation notes must still key on the doc, or every round after the
 # first counts against a different file.
+# An explicit DOC_PATH beats all four steps. Implementation audit round 3
+# (2026-10-30): with docs/plan/ docs in play, a plan review whose OPEN: line
+# cited a docs/design/ path keyed on the cited doc, because step 3 only knew
+# `design/`. Step 3 now takes either directory, in prompt order.
 extract_doc() { # extract_doc  (prompt on stdin)
-  local cands filtered pick
-  cands=$(md_tokens | grep -v '^$')
-  [ -z "$cands" ] && return 1
-  filtered=$(printf '%s\n' "$cands" | grep -Ev -- '(-review-log\.md|-implementation-notes\.md)$')
-  [ -n "$filtered" ] && cands="$filtered"
-  pick=$(printf '%s\n' "$cands" | grep -m1 -E '(^|/)design/')
-  [ -z "$pick" ] && pick=$(printf '%s\n' "$cands" | head -1)
+  local text cands filtered pick
+  text=$(cat)
+  pick=$(printf '%s\n' "$text" | explicit_doc)
+  if [ -z "$pick" ]; then
+    cands=$(printf '%s\n' "$text" | md_tokens | grep -v '^$')
+    [ -z "$cands" ] && return 1
+    filtered=$(printf '%s\n' "$cands" | grep -Ev -- '(-review-log\.md|-implementation-notes\.md)$')
+    [ -n "$filtered" ] && cands="$filtered"
+    pick=$(printf '%s\n' "$cands" | grep -m1 -E '(^|/)(design|plan)/')
+    [ -z "$pick" ] && pick=$(printf '%s\n' "$cands" | head -1)
+  fi
   [ -z "$pick" ] && return 1
   case "$pick" in
     "~") pick="$HOME" ;;

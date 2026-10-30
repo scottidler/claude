@@ -210,3 +210,13 @@
 ### Open questions
 - `plan/agents/review-panel.md` Step 1.0's prune line, `find ~/.cache/review-panel/runs -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} +`, is denied by rails ("deletes through another command") even though the deny text names `~/.cache/review-panel/runs` as an allowed confine. Nothing gets pruned; reviews are unaffected. The old `agents/review-panel.md:88` carries the same line, so it is not a plan-plugin regression. Fix the line in `plan/` (e.g. `rkvr rmrf` over the found dirs), or teach rails the tilde form?
 - The `ARCHITECT_PATHGLOB=1` sub-check stays PENDING until Scott repoints `~/.gemini/settings.json:22` to `skills/plan/seats/architect/pathglob.py` on desk and lappy; re-run one `/plan:review` after.
+
+## Implementation audit (round 3) fixes
+
+Source: review-panel run `K9rJmiCh`, round 3 (Mode 2 audit of Phases 0-5): must-fix 1, OPEN 1 and OPEN 2. One commit per fix. The old pipeline files stay byte-identical to the rollback baseline; every fix lands in `plan/` or the shared hook.
+
+### Design decisions
+- `HOME/.claude/hooks/panel-round-guard.sh` `explicit_doc` and `extract_doc`: an explicit `DOC_PATH` names the counted doc outright. Probe 1 showed a `docs/plan/` review whose `OPEN:` line cited a `docs/design/` path keyed on the cited doc, so one doc's cap could be evaded and another's spent. The forms callers write are all accepted: `DOC_PATH: <abs>` (Phase 5 Step 4 prompts, probe 1), `DOC_PATH=<abs>` (the audit dispatch in `plan/skills/build/SKILL.md`), `**DOC_PATH**: \`<abs>\``. Bold, backtick and quote wrappers are stripped.
+- `extract_doc` with no `DOC_PATH`: step 3 takes the first `(^|/)(design|plan)/` token in prompt order, then the first `.md`. Prompt order keeps the existing "two design paths, the first wins" case as it was.
+- `HOME/.claude/hooks/panel-round-guard-test.sh`, group "an explicit DOC_PATH wins": runs under both `review-panel` and `plan:review-panel` and asserts the counter entry's `path=` line, because a counted round alone cannot show which doc it was charged to.
+- Bite-proof, 2026-10-30: with the fix, `pass=151 fail=0`. With `panel-round-guard.sh` reset to `ac1df64`: `pass=145 fail=6`, failing the plan-DOC_PATH-with-design-OPEN case, the bold-DOC_PATH case and the no-DOC_PATH plan-only case, under each name. Restored: `pass=151 fail=0`. The reverse case (design `DOC_PATH`, plan `OPEN`) passes on the old code too, since the old code always preferred `design/`; it is there to catch a fix that over-prefers `plan/`.

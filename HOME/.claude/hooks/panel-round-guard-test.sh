@@ -383,6 +383,36 @@ run allow 'alpha round 2 proves the suffix was stripped' "Design Review of $ALPH
 run allow 'alpha round 3' "Design Review of $ALPHA"
 run deny  'alpha round 4' "Design Review of $ALPHA" 'this is round 4'
 
+echo "=== an explicit DOC_PATH wins over any other .md the prompt cites ==="
+# Implementation audit round 3 (2026-10-30), probe 1. With docs/plan/ docs in
+# play, the old step 3 picked the first `design/` token anywhere in the prompt,
+# so a plan review whose OPEN: line cited a design doc was counted against the
+# cited doc: one doc's cap evaded, another's spent. Both panel names, both
+# directions, both DOC_PATH spellings callers write.
+mkdir -p "$REPO/docs/plan"
+printf '# Plan one\n\n**Status:** In Review\n' > "$REPO/docs/plan/one.md"
+PLANDOC="$REPO/docs/plan/one.md"
+keyed_path() { sed -n '1p' "$CACHE/$(ls "$CACHE" | head -1)"; }
+for SUB in review-panel plan:review-panel; do
+  fresh_cache
+  run allow "$SUB: plan DOC_PATH: with an OPEN naming a design doc" \
+    "DOC_PATH: $PLANDOC"$'\n'"OPEN: compare $ALPHA"
+  check "$SUB: keyed to the plan doc, not the cited design doc" "path=$PLANDOC" "$(keyed_path)"
+  fresh_cache
+  run allow "$SUB: design DOC_PATH= with an OPEN naming a plan doc" \
+    "Skill(plan:review) with DOC_PATH=$ALPHA"$'\n'"OPEN: compare $PLANDOC"
+  check "$SUB: keyed to the design doc, not the cited plan doc" "path=$ALPHA" "$(keyed_path)"
+  fresh_cache
+  run allow "$SUB: bold backticked DOC_PATH after a cited design doc" \
+    "Context: $BETA"$'\n'"**DOC_PATH**: \`$PLANDOC\`"
+  check "$SUB: the bold form keys to the plan doc" "path=$PLANDOC" "$(keyed_path)"
+  fresh_cache
+  run allow "$SUB: no DOC_PATH, a docs/plan path only" \
+    "Read notes/scratch.md then review docs/plan/one.md"
+  check "$SUB: a plan/ path beats a non-doc path with no DOC_PATH" "path=$PLANDOC" "$(keyed_path)"
+done
+SUB="review-panel"
+
 echo "=== reason gate: round 2+ runs ONLY on an open item or a dispute ==="
 fresh_cache
 export NO_REASON=1
