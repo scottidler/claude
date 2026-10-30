@@ -758,7 +758,6 @@
     "allow-readonly": "off",
     "general:gemini": "off",
     "general:markee": "off",
-    "slack-old": "off",
     "vault-recall": "off",
     "slack:repost": "off",
     "slack:write": "off",
