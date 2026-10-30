@@ -1,0 +1,123 @@
+# =============================================================================
+# ARCHITECT SHELL POLICY -- gives the gemini seat a READ-ONLY shell.
+# Loaded by script.sh via `--policy`. Verified against gemini-cli 0.49.0.
+# -----------------------------------------------------------------------------
+# WHY THIS FILE EXISTS
+#
+# The Architect seat used to be STATIC: it could read code but never execute
+# anything, so every "verified" claim was an inference from source, not an
+# observation of behavior. That is how it shipped fabricated counts ("exactly 7
+# ENV_LOCK declarations" -- actual 5; "43 tests in tests.rs" -- actual 31) inside
+# confident prose, and how it returned `ABSTAIN (cannot execute)` 28 times
+# between 2026-07-13 and 08-03.
+#
+# HOW THE BLOCK ACTUALLY WORKED (root-caused 2026-08-30 against 0.49.0)
+#
+# `run_shell_command` is NOT stripped from the tool registry in plan mode --
+# limitations.md said it was, which was true of 0.45.2 and is now wrong. It is
+# REGISTERED and DENIED by two default-tier policy rules shipped in the CLI:
+#
+#   bundle/policies/plan.toml  -- toolName = "*", decision = "deny", priority 40
+#                                 (catch-all for modes = ["plan"])
+#   bundle/policies/write.toml -- run_shell_command, deny, priority 10,
+#                                 interactive = false (headless denial)
+#
+# Policy priority is TIERED: default 1.x < extension 2.x < workspace 3.x <
+# user 4.x < admin 5.x, with the file's own `priority` as the fraction. Those
+# denies land at 1.040 and 1.010. A file passed via `--policy` loads in the USER
+# tier, so `priority = 100` here becomes 4.100 and outranks both.
+#
+# WHY THIS IS STILL READ-ONLY (all four verified live, 2026-08-30)
+#
+#   1. Allowlisted command runs:  `git rev-parse --short HEAD` -> f9cb0e2,
+#      matching the same command run outside gemini.
+#   2. Real counts, not guesses:  `rg -c gemini script.sh | head -1` -> 21,
+#      matching an independent run. Pipelines work.
+#   3. Off-allowlist DENIED:      `curl https://example.com` -> "Tool execution
+#      denied by policy", because plan.toml's catch-all still wins for anything
+#      this file does not name.
+#   4. Compound bypass DENIED:    `rg --version && curl ...` -> denied. The
+#      engine extracts EVERY root command from a pipeline and checks each, so an
+#      allowlisted prefix cannot smuggle a denied command in behind `&&` or `|`.
+#
+# Writes are blocked twice over: plan mode omits write_file/replace from the tool
+# schema entirely (a live write attempt reported the tool absent and the target
+# file was never created), and the deny rule at the bottom of this file is a
+# belt-and-braces backstop in case the seat is ever run outside plan mode.
+#
+# EDITING RULES
+#
+# - `commandPrefix` matches the LITERAL START of the command string, so
+#   multi-word prefixes work. That is load-bearing for git: a bare "git" prefix
+#   would authorize history-rewriting and remote-mutating subcommands, so only
+#   read-only subcommands are named individually.
+# - Do NOT add an interpreter (python, perl, node, xargs, sh, bash) or a tool
+#   with a write/exec flag (sed -i, awk, find -delete/-exec). Those turn a
+#   fixed allowlist back into a general shell.
+# - `cargo` and `otto` are DELIBERATELY ABSENT. Running builds in the repo under
+#   review mutates target/, contends on the cargo file lock with whatever else
+#   is building, and can burn the whole 10m wall clock. Test execution belongs
+#   to the Codex seat, which has a real read-only sandbox. Add "cargo test" here
+#   only as a deliberate, temporary opt-in.
+# =============================================================================
+
+[[rule]]
+name = "Architect read-only shell"
+toolName = "run_shell_command"
+decision = "allow"
+priority = 100
+commandPrefix = [
+  # --- search and read ---
+  "rg",
+  "grep",
+  "cat",
+  "ls",
+  "head",
+  "tail",
+  # ~/.cargo/bin/tail is a Rust reimplementation with incompatible flags and it
+  # shadows coreutils on PATH. persona.md tells the seat to prefer this path.
+  "/usr/bin/tail",
+  "nl",
+  # --- count, compare, describe ---
+  "wc",
+  "sort",
+  "uniq",
+  "cut",
+  "diff",
+  "comm",
+  "stat",
+  "file",
+  "du",
+  "tree",
+  "realpath",
+  "basename",
+  "dirname",
+  "echo",
+  # --- structured data ---
+  "jq",
+  "yq",
+  # --- git, read-only subcommands ONLY (see EDITING RULES above) ---
+  "git log",
+  "git diff",
+  "git show",
+  "git status",
+  "git rev-parse",
+  "git blame",
+  "git ls-files",
+  "git describe",
+  "git shortlog",
+  "git cat-file",
+  "git branch --list",
+  "git tag --list",
+  "git remote -v",
+  "git config --get",
+]
+
+# Backstop. Redundant under plan mode (which omits these from the schema), kept
+# so the seat stays read-only if it is ever dispatched in another approval mode.
+[[rule]]
+name = "Architect never writes"
+toolName = ["write_file", "replace"]
+decision = "deny"
+priority = 200
+denyMessage = "The Architect is a read-only reviewer and never modifies files."

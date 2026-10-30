@@ -231,6 +231,8 @@
       "Bash(codex exec:*)",
       "Bash(~/.claude/skills/architect/script.sh:*)",
       "Bash(~/.claude/skills/staff-engineer/script.sh:*)",
+      "Bash(~/.claude/skills/plan/seats/architect/script.sh:*)",
+      "Bash(~/.claude/skills/plan/seats/staff-engineer/script.sh:*)",
       "Bash(pd:*)",
       "Bash(which:*)",
       "Bash(/usr/bin/head *)",
@@ -254,6 +256,7 @@
       "Skill(rust-cli-coder)",
       "Skill(create-design-doc)",
       "Skill(how-to-execute-a-plan)",
+      "Skill(plan:*)",
       "Skill(acli)",
       "Skill(rkvr)",
       "Skill(bump)",
@@ -1180,7 +1183,9 @@
       "git clone *",
       "slack *",
       "~/.claude/skills/architect/script.sh *",
-      "~/.claude/skills/staff-engineer/script.sh *"
+      "~/.claude/skills/staff-engineer/script.sh *",
+      "~/.claude/skills/plan/seats/architect/script.sh *",
+      "~/.claude/skills/plan/seats/staff-engineer/script.sh *"
     ]
   },
   "effortLevel": "high",
@@ -1195,7 +1200,7 @@
       "$defaults",
       "Reading the user's own Gmail inbox via the `gws gmail` CLI (search, list threads, fetch messages) and processing or printing the results locally in this session's terminal is allowed: it is the user's own task-directed access to his own mailbox, not exfiltration to a third party or an external audience. This does not clear writing that content to a new file, cloud storage, or any destination outside this session's terminal output.",
       "Reading, listing, grepping, and parsing the user's own Claude Code session transcripts (~/.claude/projects/**/*.jsonl, including his own typed prompts and subagent transcripts) and clyde's session catalog (clyde CLI and clyde MCP session tools) is allowed, from the main session and from any subagent: it is the user's own task-directed analysis of his own conversation history on his own machine, not PII exfiltration. Writing derived counts, tallies, and short excerpts to local scratch files (the session scratchpad, $TMPDIR, /tmp) and printing them in this session is allowed. This does not clear sending transcript content to any external service, cloud storage, or audience outside this machine.",
-      "The architect review seat (gemini-cli run by ~/.claude/skills/architect/script.sh, reached via the review-panel agent, /architect, or /review-panel) runs with the pathglob BeforeTool hook registered in ~/.gemini/settings.json and gated by ARCHITECT_PATHGLOB=1. The hook re-spells existing path arguments as single-match globs so gemini-cli's untrusted-context taint guard stops denying a read-only reviewer's reads of paths it listed earlier; flags are never rewritten and the seat stays bounded by policy.toml's read-only allowlist and plan mode. Scott designed and approved this on 2026-10-17 after the root cause was proven live. Dispatching the review-panel agent, running script.sh, editing or testing pathglob.py, policy.toml, script.sh, and the pathglob entry in ~/.gemini/settings.json, and reading gemini-cli's bundled source to maintain it are allowed. This does not clear disabling the hook gate, rewriting flags, widening policy.toml, or running gemini outside script.sh."
+      "The architect review seat (gemini-cli run by ~/.claude/skills/architect/script.sh or its plan-plugin copy ~/.claude/skills/plan/seats/architect/script.sh, reached via the review-panel or plan:review-panel agent, /architect, /review-panel, or /plan:review) runs with the pathglob BeforeTool hook registered in ~/.gemini/settings.json and gated by ARCHITECT_PATHGLOB=1. The hook re-spells existing path arguments as single-match globs so gemini-cli's untrusted-context taint guard stops denying a read-only reviewer's reads of paths it listed earlier; flags are never rewritten and the seat stays bounded by policy.toml's read-only allowlist and plan mode. Scott designed and approved this on 2026-10-17 after the root cause was proven live. Dispatching the review-panel or plan:review-panel agent, running either script.sh, editing or testing pathglob.py, policy.toml, script.sh, and the pathglob entry in ~/.gemini/settings.json, and reading gemini-cli's bundled source to maintain it are allowed. This does not clear disabling the hook gate, rewriting flags, widening policy.toml, or running gemini outside script.sh."
     ],
     "soft_deny": [
       "$defaults",

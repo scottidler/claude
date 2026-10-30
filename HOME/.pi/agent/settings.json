@@ -59,7 +59,11 @@
     "-~/.claude/skills/whitespace",
     "-~/.claude/skills/writing-researcher",
     "-~/.claude/skills/xray",
-    "-~/.claude/skills/zoom-out"
+    "-~/.claude/skills/zoom-out",
+    "-/home/saidler/.claude/skills/plan/skills/create",
+    "-/home/saidler/.claude/skills/plan/skills/build",
+    "-/home/saidler/.claude/skills/plan/skills/review",
+    "-/home/saidler/.claude/skills/plan/skills/release"
   ],
   "enabledModels": [
     "anthropic/*opus*",

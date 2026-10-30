@@ -140,6 +140,32 @@ for other in Explore general-purpose phase-implementer architect ""; do
 done
 SUB="review-panel"
 
+echo "=== the plan plugin's panel is capped the same: plan:review-panel round 4 denies ==="
+# The plan plugin ships its own copy of the panel agent, dispatched as
+# plan:review-panel (docs/design/2026-10-29-plan-plugin.md, Phase 1). A guard
+# that narrowed on the bare name alone would pass it through uncapped.
+fresh_cache
+SUB="plan:review-panel"
+run allow 'plan:review-panel round 1' "Design Review of $ALPHA"
+run allow 'plan:review-panel round 2' "Design Review of $ALPHA"
+run allow 'plan:review-panel round 3' "Design Review of $ALPHA"
+run deny  'plan:review-panel round 4' "Design Review of $ALPHA" 'this is round 4'
+SUB="review-panel"
+
+echo "=== alternating the two panel names shares one counter: the 4th denies ==="
+fresh_cache
+SUB="review-panel"
+run allow 'mixed round 1 as review-panel' "Design Review of $BETA"
+SUB="plan:review-panel"
+run allow 'mixed round 2 as plan:review-panel' "Design Review of $BETA"
+SUB="review-panel"
+run allow 'mixed round 3 as review-panel' "Design Review of $BETA"
+SUB="plan:review-panel"
+run deny  'mixed round 4 as plan:review-panel' "Design Review of $BETA" 'this is round 4'
+SUB="review-panel"
+run deny  'mixed round 4 as review-panel' "Design Review of $BETA" 'this is round 4'
+check 'both names wrote one entry' 1 "$(ls "$CACHE" | wc -l)"
+
 echo "=== an unparseable prompt allows and warns (fail open) ==="
 fresh_cache
 run allow 'no path: implementation audit' 'Run an **Implementation Audit** (post-implementation mode) cross-model review'

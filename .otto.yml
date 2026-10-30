@@ -122,9 +122,53 @@ tasks:
         bin/relocate-targets-test.sh
         bin/prose-report
         bin/prose-report-test.sh
+        HOME/.claude/skills/plan/.claude-plugin/plugin.json
+        HOME/.claude/skills/plan/agents/review-panel.md
+        HOME/.claude/skills/plan/agents/release-driver.md
+        HOME/.claude/skills/plan/refs/review-panel-notes.md
+        HOME/.claude/skills/plan/refs/review-panel-prompts.md
+        HOME/.claude/skills/plan/seats/architect/script.sh
+        HOME/.claude/skills/plan/seats/architect/pathglob.py
+        HOME/.claude/skills/plan/seats/architect/policy.toml
+        HOME/.claude/skills/plan/seats/architect/limitations.md
+        HOME/.claude/skills/plan/seats/staff-engineer/script.sh
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
+        exit 1
+      fi
+      # Rollback baseline for the plan plugin soak
+      # (docs/design/2026-10-29-plan-plugin.md). The old pipeline skills and
+      # agents are the rollback target while plan/ soaks beside them, so they stay
+      # byte-identical to the commit before the plugin landed: fixes go to
+      # plan/ only. Pinned to a literal SHA, not a ref that moves. Phase 6 removes
+      # the old files and this check together.
+      PLAN_BASELINE=62dc65f2935efe78308bb87abd0d6eca0a12bb10
+      PLAN_OLD=(
+        HOME/.claude/skills/create-design-doc
+        HOME/.claude/skills/how-to-execute-a-plan
+        HOME/.claude/skills/review-panel
+        HOME/.claude/skills/architect
+        HOME/.claude/skills/staff-engineer
+        HOME/.claude/skills/shipit
+        HOME/.claude/skills/bump
+        HOME/.claude/skills/babysit
+        HOME/.claude/agents/design-research.md
+        HOME/.claude/agents/phase-implementer.md
+        HOME/.claude/agents/release-driver.md
+        HOME/.claude/agents/review-panel.md
+        HOME/.claude/agents/review-panel-notes.md
+        HOME/.claude/agents/review-panel-prompts.md
+      )
+      if ! git diff --quiet "$PLAN_BASELINE" -- "${PLAN_OLD[@]}"; then
+        echo "The old pipeline files moved off the rollback baseline $PLAN_BASELINE; fix plan/ instead:"
+        git diff --stat "$PLAN_BASELINE" -- "${PLAN_OLD[@]}"
+        exit 1
+      fi
+      PLAN_UNTRACKED=$(git ls-files --others --exclude-standard -- "${PLAN_OLD[@]}")
+      if [ -n "$PLAN_UNTRACKED" ]; then
+        echo "Untracked files under the old pipeline's rollback baseline; fix plan/ instead:"
+        echo "$PLAN_UNTRACKED"
         exit 1
       fi
       # Every rules/*.md and routed/*.md carries YAML frontmatter as its first
@@ -192,6 +236,8 @@ tasks:
       claude plugin test HOME/.claude/skills/session
       echo "=== claude plugin validate --strict session ==="
       claude plugin validate --strict HOME/.claude/skills/session
+      echo "=== claude plugin validate --strict plan ==="
+      claude plugin validate --strict HOME/.claude/skills/plan
 
   ci:
     help: "Full CI pipeline (lint + test)"

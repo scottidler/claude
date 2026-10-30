@@ -396,12 +396,14 @@ const EXCLUDED = [
     'cargo', 'otto', 'aws-vault', 'bump', 'systemctl', 'journalctl', 'crontab', 'ssh',
     'git push', 'git fetch', 'git pull', 'git ls-remote', 'git clone', 'slack',
     '~/.claude/skills/architect/script.sh', '~/.claude/skills/staff-engineer/script.sh',
+    '~/.claude/skills/plan/seats/architect/script.sh', '~/.claude/skills/plan/seats/staff-engineer/script.sh',
 ]
 
 const SHIPPED_EXCLUDED = [
     'aws-vault', 'bump', 'systemctl', 'crontab', 'ssh',
     'git push', 'git fetch', 'git pull', 'git ls-remote', 'git clone', 'slack',
     '~/.claude/skills/architect/script.sh', '~/.claude/skills/staff-engineer/script.sh',
+    '~/.claude/skills/plan/seats/architect/script.sh', '~/.claude/skills/plan/seats/staff-engineer/script.sh',
 ]
 
 describe('excludedHeads', () => {

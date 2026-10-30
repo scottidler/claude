@@ -7,9 +7,9 @@
 # with zero prompts from Scott. One parent wrote in its own transcript
 # "Tenth crossing, and I am not going to tell Scott". This is the hook.
 #
-# WIRING: PreToolUse on matcher `Agent`, narrowed to
-# tool_input.subagent_type == "review-panel". Everything else allows before any
-# other work. The seam is the Agent DISPATCH and not the seat scripts, for two
+# WIRING: PreToolUse on matcher `Agent`, narrowed to tool_input.subagent_type ==
+# "review-panel" or "plan:review-panel". Everything else allows before any other
+# work. The seam is the Agent DISPATCH and not the seat scripts, for two
 # measured reasons: review-panel.md:79-83 mints a fresh $RUN_DIR per dispatch
 # (272 of 328 historical run dirs were single-round), so a per-run-dir counter
 # reads zero on round 4; and the seat scripts run INSIDE the panel subagent,
@@ -133,12 +133,18 @@ deny() { # deny <reason>
 input=$(cat)
 
 # The narrowing test, first and before any other work: this guard has no
-# opinion about any other subagent.
+# opinion about any other subagent. Both names are the one panel while the
+# plan plugin's copy soaks beside the personal agent
+# (docs/design/2026-10-29-plan-plugin.md); they share one (doc, mode) counter,
+# so alternating names cannot buy a fourth round.
 subagent=$(printf '%s' "$input" | jq -r '.tool_input.subagent_type // ""' 2>/dev/null)
-if [ "$subagent" != "review-panel" ]; then
-  log "allow: subagent_type='$subagent' is not review-panel"
-  exit 0
-fi
+case "$subagent" in
+  review-panel|plan:review-panel) ;;
+  *)
+    log "allow: subagent_type='$subagent' is not review-panel or plan:review-panel"
+    exit 0
+    ;;
+esac
 
 prompt=$(printf '%s' "$input" | jq -r '.tool_input.prompt // ""' 2>/dev/null)
 
@@ -148,7 +154,7 @@ prompt=$(printf '%s' "$input" | jq -r '.tool_input.prompt // ""' 2>/dev/null)
 # path that only resolves against it.
 cwd=$(printf '%s' "$input" | jq -r '.cwd // ""' 2>/dev/null)
 [ -n "$cwd" ] && [ -d "$cwd" ] || cwd="$PWD"
-log "entry: subagent=review-panel cwd=$cwd prompt_bytes=${#prompt}"
+log "entry: subagent=$subagent cwd=$cwd prompt_bytes=${#prompt}"
 
 # Every `<path>.md` token in the prompt, in order of appearance. `foo.md:281-288`
 # yields `foo.md`, because the match ends at the extension.
