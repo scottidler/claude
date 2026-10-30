@@ -4,7 +4,7 @@
 **Date:** 2026-10-29
 **Status:** In Review
 **Review Passes Completed:** 5/5
-**Panel rounds:** 1 (synthesis `~/.cache/review-panel/runs/K9rJmiCh/synthesis.md`; 9 must-fix, 9 cheap-win, all folded in below)
+**Panel rounds:** 2 (synthesis `~/.cache/review-panel/runs/K9rJmiCh/synthesis.md`; round 1: 9 must-fix, 9 cheap-win; round 2: freeze dispute closed, 2 mis-folds and 2 new defects; all folded in below)
 
 ## Summary
 
@@ -74,7 +74,7 @@ HOME/.claude/skills/plan/
 - **Companions live in `refs/`.** Measured 2026-10-29 with `--plugin-dir`: `agents/review-panel-notes.md` loaded as agent `plan:review-panel-notes`.
 - **Seat scripts move intact.** They find `persona.md` and `policy.toml` via `SCRIPT_DIR="$(dirname "$0")"` (`architect/script.sh:62,118,237`, `staff-engineer/script.sh:62,117`). `__pycache__` is not copied. `staff-engineer/notes.md:12` cites the old architect persona path and is rewritten on copy.
 - **Paths inside skill and agent bodies are absolute** (`/home/saidler/.claude/skills/plan/...`), matching `review-panel.md` today, unless Phase 0 proves `${CLAUDE_PLUGIN_ROOT}` expands in bodies. Tilde heads were denied as `[Auto-Mode Bypass]` (`agents/review-panel.md`, the Step 3 note).
-- **pi:** `HOME/.pi/agent/settings.json` loads `~/.claude/skills` with per-dir `-` exclusions, and pi's loader recurses into any dir without a `SKILL.md` (panel round 1, verified), so it would register `plan/skills/*` as bare `create`, `build`, `review`, `release`. Phase 1 adds `-~/.claude/skills/plan`.
+- **pi:** `HOME/.pi/agent/settings.json` loads `~/.claude/skills` with per-dir `-` exclusions, and pi's loader recurses into any dir without a `SKILL.md` (panel round 1, verified), so it would register `plan/skills/*` as bare `create`, `build`, `review`, `release`. A `-` entry matches only a SKILL.md path or its parent dir exactly, never an ancestor (pi 1.0.4 `matchesAnyExactPattern`, `dist/core/package-manager.js:500-518`, panel round 2), so `-~/.claude/skills/plan` hides nothing. Phase 1 adds one exact entry per plan skill, in the form Phase 0 (h) proves.
 
 ### Naming
 
@@ -121,7 +121,7 @@ Each phase: one commit on main (this repo takes no PRs), `otto ci` green. From P
 
 #### Phase 0: Prove skills-dir loads skills and agents
 **Model:** sonnet
-- Zero repo code. Scratch plugin named `plan` at `~/.claude/skills/plan/` (untracked, never committed, `rkvr rmrf` before Phase 1) with stub `skills/{create,review}`, `agents/review-panel.md`, `seats/`, `refs/`. The name is `plan` and not `plan-spike` so (i) tests the name that ships.
+- Zero repo code. Scratch plugin named `plan` at `~/.claude/skills/plan/` (untracked, never committed, `rkvr rmrf` before Phase 1) with stub `skills/{create,build,review,release}`, `agents/review-panel.md`, `seats/`, `refs/`. The name is `plan` and not `plan-spike` so (i) tests the name that ships.
 - Prove and record PASS or FAIL with evidence, in this doc:
   - (a) skills-dir (not `--plugin-dir`) loads `skills/` and `agents/`, named `plan:*`
   - (b) Agent PreToolUse payload carries `subagent_type == "plan:review-panel"` (capture hook)
@@ -130,14 +130,15 @@ Each phase: one commit on main (this repo takes no PRs), `otto ci` green. From P
   - (e) `Skill(plan:*)` (the wildcard form Phase 1 ships) matches `Skill(plan:create)` as a permission allow
   - (f) `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SKILL_DIR}` expands in skill and agent bodies
   - (g) `claude plugin validate --strict` accepts `seats/` and `refs/`
-  - (h) with `-~/.claude/skills/plan` added to a scratch copy of the pi settings, pi registers no `create`, `build`, `review` or `release` skill; without it, it does (expected FAIL that the exclusion fixes)
+  - (h) with four exact entries `-/home/saidler/.claude/skills/plan/skills/{create,build,review,release}` added to a scratch copy of the pi settings, pi registers no `create`, `build`, `review` or `release` skill; with only `-~/.claude/skills/plan`, it registers all four (expected, the ancestor form matches nothing)
   - (i) the built-in `/plan` command does not shadow `/plan:*` in the TUI
   - (j) `claude plugin disable plan@skills-dir` drops the `plan:*` names from the init event and sets `enabledPlugins["plan@skills-dir"] = false`; `enable` restores them (proves the soak rollback and the key `resolve.py` reads)
 - If (a) fails: stop. The doc goes back to review with `--plugin-dir` or a local marketplace as the delivery options.
 - If (i) fails: stop and bring Scott the rename question; the plugin name is his call.
 - If (e) fails: Phase 1 lists each `Skill(plan:<skill>)` explicitly.
+- If (h) fails with the four exact entries: stop. pi needs another exclusion mechanism before Phase 1 makes the plugin live.
 - **Success criteria:**
-  - `claude plugin details plan@skills-dir` shows `Skills (2)` and `Agents (1)`
+  - `claude plugin details plan@skills-dir` shows `Skills (4)` and `Agents (1)`
   - capture-hook log contains `"subagent_type":"plan:review-panel"`
   - all ten items recorded with evidence
 
@@ -149,7 +150,7 @@ Each phase: one commit on main (this repo takes no PRs), `otto ci` green. From P
 - Everything that must hold the moment the plugin is live, in this same commit:
   - `hooks/panel-round-guard.sh:138`: accept `review-panel` and `plan:review-panel`. Counter key stays `(doc, mode)` (`:235`). Tests in `panel-round-guard-test.sh`: a `plan:review-panel` round-4 deny, and a mixed sequence (3 dispatches alternating names, 4th denied).
   - `settings.json`: new seat paths in `sandbox.excludedCommands` (`:1182-1183`) with both `rails/hooks/index.spec.ts` lists (`SHIPPED_EXCLUDED` and `EXCLUDED`, `:395-405`) updated; `Bash(<seat>:*)` allows (`:232-233`); `Skill(plan:*)` allow; the autoMode allow prose (`:1198`) names the new architect seat path.
-  - `HOME/.pi/agent/settings.json`: `-~/.claude/skills/plan`.
+  - `HOME/.pi/agent/settings.json`: the four exact plan-skill exclusions Phase 0 (h) proved.
 - `.otto.yml` test task: `claude plugin validate --strict HOME/.claude/skills/plan`; plan files in the lint `FILES` list.
 - `.otto.yml` lint, rollback-baseline check: `git diff --quiet <literal SHA of this phase's parent> -- <8 old skill dirs, 6 old agent files>` and `git ls-files --others --exclude-standard -- <same paths>` prints nothing. Removed in Phase 6.
 - **Success criteria:**
@@ -165,7 +166,7 @@ Each phase: one commit on main (this repo takes no PRs), `otto ci` green. From P
 - **Success criteria:**
   - `claude plugin details plan@skills-dir` shows `Skills (3)`
   - `rg -n -e '"(design-research|phase-implementer|review-panel|release-driver)"' -e '/create-design-doc' -e '/how-to-execute-a-plan' -e 'skills/(architect|staff-engineer)/' HOME/.claude/skills/plan/skills` prints nothing
-  - every `docs/design` hit in `HOME/.claude/skills/plan/skills` (`rg -n docs/design`) sits on a line that also names `docs/plan` or derives from the input path
+  - every `docs/design` hit in `HOME/.claude/skills/plan/skills` (`rg -n docs/design`) is either a write site or reader listed above that also names `docs/plan` or derives from the input path, or a historical provenance citation (e.g. the `docs/design/2026-09-17-dm-resolution-and-pipeline-glue-phase0/evidence.md` citation carried from `how-to-execute-a-plan/SKILL.md:61`), listed by line in the implementation notes
 
 #### Phase 3: Skill release
 **Model:** opus
@@ -208,7 +209,7 @@ Each phase: one commit on main (this repo takes no PRs), `otto ci` green. From P
 - Gate: AC4 and AC5 recorded PASS in the implementation notes.
 - Delete via `rkvr rmrf`: `skills/{create-design-doc,how-to-execute-a-plan,review-panel,architect,staff-engineer,shipit,bump,babysit}`, `agents/{design-research,phase-implementer,release-driver,review-panel,review-panel-notes,review-panel-prompts}.md`.
 - Drop the old entries Phase 1 paralleled: `panel-round-guard.sh` bare name, old seat paths in `settings.json` and both `index.spec.ts` lists, old `Skill(...)` allows, autoMode prose. `HOME/.claude/settings.json.bak` is tracked and carries the old seat paths: delete it or update it, after reading what it backs up.
-- Drop the rollback-baseline check from `.otto.yml`, and the `-~/.claude/skills/plan` pi exclusion only if pi is then pointed at the plan skills (otherwise it stays).
+- Drop the rollback-baseline check from `.otto.yml`, and the four plan-skill pi exclusions only if pi is then pointed at the plan skills (otherwise they stay).
 - Tests that read the live skill tree or the bare names:
   - `inline/resolve_tests.py` `AcceptanceCriterionSevenTest` (`kept == 571`): freeze the enumeration with a recorded `skills=` set; fixtures untouched
   - `inline/resolve_tests.py:187` `LiveStateTest` `resolve("babysit")`: retarget to a surviving skill
@@ -232,7 +233,7 @@ Each phase: one commit on main (this repo takes no PRs), `otto ci` green. From P
   - Cannot run on main: depends on Phases 1-4.
 - [ ] AC5: one ungated and one gated `/plan:release` each end with the new version installed or probed live (binary `--version` or `sdv probe` shows the tag `bump` cut).
   - Cannot run on main: depends on Phase 3 and on releases Scott calls.
-- [ ] AC6: after Phase 6, none of the 8 old skill dirs or 4 old agent files exist under `HOME/.claude/`; `git grep -l -E 'skills/(architect|staff-engineer)/|Skill\((shipit|bump|babysit|review-panel|create-design-doc|how-to-execute-a-plan)\)' -- ':!docs' ':!HOME/.claude/hooks/fixtures'` prints nothing (`git grep`, not `rg`: `rg` skips the hidden `.claude/` dirs; fixtures are frozen data); `otto ci` exits 0; and a fresh-session `/plan:review` still writes both rc files `rc=0`.
+- [ ] AC6: after Phase 6, none of the 8 old skill dirs or 4 old agent files exist under `HOME/.claude/`; `git grep -l -E 'skills/(architect|staff-engineer)/|Skill\((shipit|bump|babysit|review-panel|create-design-doc|how-to-execute-a-plan)\)' -- ':!docs' ':!HOME/.claude/hooks/fixtures'` prints nothing (`git grep`, not `rg`: `rg` skips the hidden `.claude/` dirs; fixtures are frozen data); `otto ci` exits 0; and with the old tree gone, in fresh sessions: `/plan:review` still writes both rc files `rc=0`, `/plan:build` on a one-phase toy `docs/plan/` doc still produces one commit plus notes beside the doc, and `/plan:release` in the remote-less scratch repo still stops at branch 5 with no new commit and no dispatch.
   - Observed on main (`5d4a84a`, clean tree, 2026-10-29): all 12 present; `git grep` lists 11 files (`agents/review-panel.md`, `settings.json`, `settings.json.bak`, 6 old skill files, `rails/hooks/index.spec.ts`, `bin/check-review-panel`); `otto ci` exits 0 (`All CI checks passed!`).
 
 ## Resolved Decisions
@@ -249,6 +250,10 @@ Each phase: one commit on main (this repo takes no PRs), `otto ci` green. From P
 - 2026-10-29, panel round 1: the rollback-baseline check stays a lint `git diff` against a literal SHA plus an untracked-file check. The architect's "breaks on rebase" objection does not apply (main-only, no rebases), and its pre-commit alternative sees only staged changes.
 - 2026-10-29, panel round 1: the gemini pathglob repoint moves from Phase 6 to Phase 4, so the soak exercises the final hook path while both copies exist.
 - 2026-10-29, panel round 1: Phase 6 is gated on a completed live build and both release paths (AC4, AC5).
+- 2026-10-29, panel round 2: both seats accept the rollback-baseline pushback (architect: "no concrete command sequence that defeats this check under these repo constraints"; staff ran it, exit 0 on baseline, 1 on a committed change). Dispute closed.
+- 2026-10-29, panel round 2 (staff, verified against pi 1.0.4 source): the pi exclusion is four exact plan-skill entries, not the plugin dir; Phase 0 (h) gains a FAIL branch.
+- 2026-10-29, panel round 2: AC6 re-proves build and release with the old tree gone, not only review. Release uses the Phase 3 remote-less stop, since a live release after removal would gate Phase 6 on one Scott calls.
+- 2026-10-29, panel round 2: Phase 0 stubs all four skills, so (h) can pass; the Phase 2 `docs/design` criterion exempts historical citations.
 
 ## Alternatives Considered
 
