@@ -221,3 +221,18 @@ Source: review-panel run `K9rJmiCh`, round 3 (Mode 2 audit of Phases 0-5): must-
 - `HOME/.claude/hooks/panel-round-guard-test.sh`, group "an explicit DOC_PATH wins": runs under both `review-panel` and `plan:review-panel` and asserts the counter entry's `path=` line, because a counted round alone cannot show which doc it was charged to.
 - Bite-proof, 2026-10-30: with the fix, `pass=151 fail=0`. With `panel-round-guard.sh` reset to `ac1df64`: `pass=145 fail=6`, failing the plan-DOC_PATH-with-design-OPEN case, the bold-DOC_PATH case and the no-DOC_PATH plan-only case, under each name. Restored: `pass=151 fail=0`. The reverse case (design `DOC_PATH`, plan `OPEN`) passes on the old code too, since the old code always preferred `design/`; it is there to catch a fix that over-prefers `plan/`.
 - `HOME/.claude/skills/plan/skills/build/SKILL.md` finalization steps 4-5: replaced the inline `bump release` / `bump finish` text with one `Skill(plan:release)` invocation carrying the approved level and repo. The inline gated path ran `bump release` and then handed the already-open PR to `plan:release-driver`, which has only ENTRY `release` (re-runs `bump release`) and ENTRY `finish` (after the merge), so nothing owned the merge wait. Routing through `/plan:release` also makes a build-triggered release exercise the gate routing AC5 soaks. The step 3 confirmation checkpoint is unchanged and still comes first. Step 6 now says `/plan:release` installs and the step runs only when that install was skipped or failed; the finalization box names the new steps.
+- `HOME/.claude/skills/plan/agents/review-panel.md` Step 1.0 prune: `find ... -mtime +14 -exec rm -rf {} +` became `find ~/.cache/review-panel/runs -mindepth 1 -maxdepth 1 -mtime +14 -print0 | xargs -0 -r rkvr rmrf`, the form rails' own deny text names (`Run rkvr rmrf <paths> yourself`). rails' `wrapperDenied` read `1`, `+14`, `{}` and `+` as paths outside the scratch prefix, so no spelling of the path could pass the old form. `-r` keeps `rkvr` from running with no targets (checked: empty input, rc=0). The old `agents/review-panel.md` keeps the denied line: it is frozen on the rollback baseline.
+- rails evidence for the prune, 2026-10-30:
+  - `internals.rmRewrite` (bun, `rails/hooks/index.ts`): old form -> `{"deny":"rails: this form deletes through another command, ..."}`; new form -> `{"command":"<unchanged>","note":""}`, no deny. `pkillRewrite` passes both untouched.
+  - Live, headless: `claude -p` (session `90305059-a87d-4299-80ac-52a5df86975d`, `permissionMode: auto`, init lists `rails@skills-dir`) ran the new line verbatim as one Bash call. `is_error: false`, exit 0; it archived the 13 run dirs older than 14 days (2026-10-10 to 2026-10-15) to `/var/tmp/rmrf/2026-10-30-061750-000` .. `-012`. Re-running the `find` afterward lists 0.
+
+### Deviations
+- Fix 2 changes copied text in `plan/skills/build/SKILL.md` (finalization steps 4-6 and the summary box), where Phase 2 copied the old finalization as-is. Same release behavior, one routing entry: the doc's soak rule (fixes land in `plan/` only) permits it.
+- Fix 3 changes the copied `plan/agents/review-panel.md` Step 1.0 line, where the doc excludes behavior changes in copies. Permitted by the same soak rule; the old agent stays frozen.
+
+### Tradeoffs
+- `xargs -0 -r rkvr rmrf` vs moving the run dirs under `$TMPDIR`: the runs dir stays where the guard, the synthesis paths and the audit trail expect it, and the archive costs a tarball per stale run dir, recoverable for three weeks.
+- Explicit `DOC_PATH` wins outright vs ranking `plan/` above `design/` in the fallback: the explicit form is what callers already write, and a ranking only moves the wrong pick to the other direction.
+
+### Open questions
+- None.

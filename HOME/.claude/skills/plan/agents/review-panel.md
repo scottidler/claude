@@ -85,11 +85,14 @@ Resolve these a single time and reuse for both reviewers:
 0. **Make `$RUN_DIR` first**, before anything else (everything below needs it):
    ```bash
    mkdir -p ~/.cache/review-panel/runs
-   find ~/.cache/review-panel/runs -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} +
+   find ~/.cache/review-panel/runs -mindepth 1 -maxdepth 1 -mtime +14 -print0 | xargs -0 -r rkvr rmrf
    RUN_DIR=$(mktemp -d ~/.cache/review-panel/runs/XXXXXXXX)
    ```
    The `find` line prunes run dirs older than 14 days (scratch, regenerable) before
-   minting a new one. The run dir lives under `~/.cache`, already in the sandbox
+   minting a new one, through `rkvr rmrf` (rules/safety.md). Keep that shape: rails
+   denies a `find ... -exec rm` here, because it reads `1`, `+14`, `{}` and `+` as
+   paths outside the scratch prefix, and `-r` keeps `rkvr` from running with no
+   targets. The run dir lives under `~/.cache`, already in the sandbox
    `allowWrite`, so no `settings.json` entry names it. The sibling `rounds/` dir holds
    `panel-round-guard.sh`'s counters: never touch it here.
 1. **DOC_PATH**: use the path given to you. If none, pick the newest under
