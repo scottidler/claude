@@ -741,7 +741,7 @@
       "/home/saidler/.config"
     ]
   },
-  "model": "opus",
+  "model": "fable",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
@@ -1090,7 +1090,8 @@
     "sec@tatari-skills": true,
     "watch@claude-video": true,
     "pr@tatari-skills": true,
-    "panel@tatari-skills": true
+    "panel@tatari-skills": true,
+    "prd@tatari-skills": true
   },
   "extraKnownMarketplaces": {
     "understand-anything": {
@@ -1149,7 +1150,7 @@
         "/home/saidler/Claude",
         "/home/saidler/go",
         "/media/saidler/intel-480gb-ssd",
-        "/media/saidler/samsung-4tb-ssd",
+        "/media/saidler/4tb",
         "/home/saidler/.codex",
         "/home/saidler/.gemini",
         "/var/tmp/rmrf",
