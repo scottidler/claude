@@ -8,8 +8,9 @@ Durable, load-bearing facts about me. Read at session start (included from
 - **Phone: Google Pixel (Android).** I hate iOS and would NEVER own an iPhone.
   Do not assume a screenshot is iOS; if you see a phone screenshot, it is my
   Pixel unless I say otherwise.
-- **Desktop:** hostname `desk`, reached as `talos.lan` (10.10.10.10);
-  `desk.lan` no longer resolves. Runs no borg/cortex daemons.
+- **Desktop:** hostname `talos`, reached as `talos.lan` (10.10.10.10);
+  renamed from `desk` on 2026-10-26, and `desk.lan` no longer resolves.
+  Runs no borg/cortex daemons.
 - **Laptop:** `ltl-7007.lan` (`lappy`/`laptop`), used over Tailscale.
 - **ripr:** `ripr.lan` (10.10.10.11). The sb daemon host: runs the borg and
   cortex daemons, deploys with `otto deploy`.
@@ -38,7 +39,7 @@ Scott's own shorthand, so an agent stops guessing what these mean.
 - **rmrf**: `rkvr rmrf`, the archival-then-delete subcommand of the `rkvr` CLI. Archives to a three-week recovery bin before removing; the one for anything not regenerable (see `rules/safety.md`).
 - **bkup**: `rkvr bkup`, the archive-without-deleting subcommand of the same `rkvr` CLI. `filter-ref` stages candidates for either `rmrf` or `bkup`.
 - **lappy**: the laptop, `ltl-7007.lan`, reached over Tailscale (see Devices above).
-- **desk**: the desktop, hostname `desk`, reached as `talos.lan` (see Devices above).
+- **desk**: the desktop, hostname `talos`, reached as `talos.lan` (see Devices above). "desk" is Scott's shorthand; the host is no longer named that.
 - **ripr**: the host `ripr.lan`, where the sb daemons run (see Devices above).
 - **shipit**: the ungated release path (`bump --gates` says none): commit locally on main, then run `bump release` inline, which pushes, waits for green CI, tags, and installs. Never handed to the `release-driver` agent; a branch-protected repo goes to release-driver instead. Protected -> release-driver, not protected -> shipit (`~/HALL-OF-SHAME.md`, 2026-10-03).
 - **bump**: the `bump` CLI, bumps semantic versions, commits, and tags a git repo; `bump --gates` reports branch-protection status; `bump --no-tag` / `bump --tag-only` split the bump for gated repos.
