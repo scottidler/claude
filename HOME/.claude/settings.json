@@ -880,6 +880,10 @@
           },
           {
             "type": "command",
+            "command": "~/.claude/hooks/terraform-apply-guard.sh"
+          },
+          {
+            "type": "command",
             "command": "~/.claude/hooks/slack-post-guard.sh"
           },
           {
