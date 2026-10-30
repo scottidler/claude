@@ -1,0 +1,22 @@
+# Reviewed and accepted by the author (Scott Idler). Scan with:
+#   skillspector scan <this-skill-dir> --baseline <this-skill-dir>/.skillspector-baseline.yaml
+version: 2
+scanner_version: "2.12.0"
+
+rules:
+  - id: "TT3"
+    path: "scripts/spotify.py"
+    reason: "OAuth client credentials and refresh token go only to api.spotify.com and accounts.spotify.com"
+
+  - id: "E1"
+    path: "scripts/spotify.py"
+    message: "*api.spotify.com*"
+    reason: "The skill exists to call the Spotify Web API"
+
+  - id: "PE3"
+    path: "SKILL.md"
+    reason: "Setup instructions: encrypt the refresh token into keep/.env with manifest age, then shred the plaintext"
+
+  - id: "PE3"
+    path: "scripts/spotify.py"
+    reason: "Same setup instructions, printed to the user after the token exchange; the script never reads keep/.env"
