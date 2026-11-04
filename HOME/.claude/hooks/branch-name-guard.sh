@@ -29,7 +29,7 @@
 # `git tag -a v1 -m "switch -c Bad/Name"` has no token equal to `switch`.
 #
 # Known limit, stated rather than papered over: Scott drives worktrees through
-# the `worktree` CLI, which hands the branch name to git internally where no
+# worktrunk (`wt`), which hands the branch name to git internally where no
 # command-text matcher can see it. Every measured case was a `git checkout -b`
 # or `gh pr create --head` shape; a slashed branch created through that CLI is
 # the CLI's fix, not this hook's.

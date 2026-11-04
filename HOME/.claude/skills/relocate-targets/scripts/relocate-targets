@@ -375,7 +375,7 @@ if [[ -n "${REPO}" ]]; then
 else
   log "sweep mode: root=${ROOT} dest=${DEST}${REMOTE:+ on ${REMOTE}}${DRY_LABEL}"
   # Plain repos: <root>/<org>/<repo>/Cargo.toml. Worktree-managed repos (the
-  # `worktree` CLI's bare+worktree layout) have a `.bare` gitdir instead of a
+  # bare+worktree layout) have a `.bare` gitdir instead of a
   # repo-root Cargo.toml, and each worktree's own Cargo.toml lives wherever
   # git recorded that worktree's path -- so ask git (`worktree list
   # --porcelain`) rather than guessing a fixed depth. Without this, a
