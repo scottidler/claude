@@ -830,7 +830,9 @@
     "ls-owners": "off",
     "gx": "off",
     "core": "off",
-    "teach": "off"
+    "teach": "off",
+    "create-design-doc": "off",
+    "how-to-execute-a-plan": "off"
   },
   "hooks": {
     "PreToolUse": [
@@ -1107,7 +1109,8 @@
       "source": {
         "source": "github",
         "repo": "tatari-tv/tatari-skills"
-      }
+      },
+      "autoUpdate": true
     },
     "claude-video": {
       "source": {

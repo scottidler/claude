@@ -108,12 +108,12 @@ injects "repeated token deduped" 'merge, then /bump, and /bump again after insta
 # about the hook going quiet. A hook that suppressed them would be the lexical
 # suppressor the design doc rejects (Alternative 6).
 injects "discussion: a question about the skill" \
-  'is chunk E ready to build, or do I need to /create-design-doc on it first?' create-design-doc
+  'is chunk E ready to ship, or do I need to /cli-shakedown it first?' cli-shakedown
 
 injects "discussion: a name in a statistic" \
-  '13 of the 15 costliest sessions are /how-to-execute-a-plan' how-to-execute-a-plan
+  '13 of the 15 costliest sessions are /thorough-review' thorough-review
 
-out=$(run 'is chunk E ready to build, or do I need to /create-design-doc on it first?')
+out=$(run 'is chunk E ready to ship, or do I need to /cli-shakedown it first?')
 ctx=$(context_of "$out")
 if printf '%s' "$ctx" | grep -qF 'invoke nothing'; then
   ok "wording: carries the decline branch"

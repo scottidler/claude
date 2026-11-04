@@ -269,6 +269,19 @@ class AcceptanceCriterionSevenTest(unittest.TestCase):
         Path(__file__).resolve().parents[1] / "fixtures/inline-token/fixtures.json"
     )
 
+    # Frozen, not the live tree: turning create-design-doc and
+    # how-to-execute-a-plan off in skillOverrides (2026-11-04) dropped 179
+    # survivors and failed this at 392/571. The fixtures are frozen data, so the
+    # skill set they score against is frozen too.
+    SKILLS = frozenset({
+        "anthropic-usage-report", "archify", "architect", "babysit", "bump",
+        "cli-shakedown", "clone", "create-design-doc", "create-repo", "dotfiles",
+        "e2e", "fabric", "grill-me", "gws", "handoff", "how-to-execute-a-plan",
+        "interview", "last30days", "otto", "persona", "publish", "rust-cli-coder",
+        "sdv-probe", "shipit", "slack-clipboard", "slackify", "staff-engineer",
+        "sys-heat", "thorough-review", "worktree",
+    })
+
     def _score(self) -> tuple[int, int, int]:
         from inline.matcher import matches
 
@@ -276,7 +289,7 @@ class AcceptanceCriterionSevenTest(unittest.TestCase):
             records = json.load(f)
         kept = hit = false_positives = 0
         for record in records:
-            if not resolve(record["token"]):
+            if not resolve(record["token"], skills=set(self.SKILLS)):
                 continue
             matched = matches(record["context"], record["offset"], record["token"])
             if record["label"] == "survivor":
