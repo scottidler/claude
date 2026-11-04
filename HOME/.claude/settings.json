@@ -1096,7 +1096,8 @@
     "watch@claude-video": true,
     "pr@tatari-skills": true,
     "panel@tatari-skills": true,
-    "prd@tatari-skills": true
+    "prd@tatari-skills": true,
+    "worktrunk@worktrunk": true
   },
   "extraKnownMarketplaces": {
     "understand-anything": {
@@ -1116,6 +1117,12 @@
       "source": {
         "source": "github",
         "repo": "bradautomates/claude-video"
+      }
+    },
+    "worktrunk": {
+      "source": {
+        "source": "github",
+        "repo": "max-sixty/worktrunk"
       }
     }
   },
