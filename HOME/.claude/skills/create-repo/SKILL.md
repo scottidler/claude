@@ -68,7 +68,7 @@ The `env GH_TOKEN="$TOKEN"` prefix is **load-bearing**: an ambient `GH_TOKEN` is
 cd ~/repos && clone <owner>/<name>
 ```
 
-**Layout:** `clone` produces a **normal flat checkout** at **`~/repos/<owner>/<name>`** (a regular `.git/` directory, `main` checked out in place). This is the default and what this skill delivers. Do NOT convert it to a bare container (`worktree init` / `worktree migrate`) unless the user explicitly asks for the bare-worktree layout. `cd` there to start working:
+**Layout:** `clone` produces a **normal flat checkout** at **`~/repos/<owner>/<name>`** (a regular `.git/` directory, `main` checked out in place). This is the default and what this skill delivers. Do NOT convert it to a bare container unless the user explicitly asks for the bare-worktree layout. `cd` there to start working:
 
 ```bash
 cd ~/repos/<owner>/<name>

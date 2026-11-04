@@ -109,7 +109,7 @@ already know. The ones that carry most of the work:
 - `gws` - Google Workspace.
 - `acli` - Atlassian CLI for Jira and Confluence.
 - `rkvr` - `rmrf` (archive then delete) and `bkup` (archive only). The safe delete.
-- `worktree` - create, switch, list, prune git worktrees in a bare-container repo.
+- `wt` - worktrunk: create, switch, list, remove, merge git worktrees (`wt switch --create <branch>`).
 
 ### MCP substitutions
 
