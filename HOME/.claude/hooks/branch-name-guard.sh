@@ -28,11 +28,11 @@
 # argument ROLE off `args`: a quoted `-m` message is ONE argument, so
 # `git tag -a v1 -m "switch -c Bad/Name"` has no token equal to `switch`.
 #
-# Known limit, stated rather than papered over: Scott drives worktrees through
-# worktrunk (`wt`), which hands the branch name to git internally where no
-# command-text matcher can see it. Every measured case was a `git checkout -b`
-# or `gh pr create --head` shape; a slashed branch created through that CLI is
-# the CLI's fix, not this hook's.
+# worktrunk (`wt switch --create <name>`) is judged like `git switch -c`: the
+# name is on the command line, so the same argument-role read applies. `wt`
+# creates the name as typed (it does not slugify), so this guard is the only
+# check. A name `wt` derives internally (no name on the command line) is out of
+# reach of any command-text matcher.
 #
 # Emits a PreToolUse "deny" decision (with a reason Claude sees), or {}.
 . "$(dirname "$0")/lib.sh" 2>/dev/null || { echo '{}'; exit 0; }
@@ -151,7 +151,7 @@ while IFS= read -r -d '' stmt; do
   idx=$((idx + 1))
   masked=$(printf '%s' "$stmt" | mask_comment)
 
-  if printf '%s' "$masked" | cmdword_is git; then
+  if printf '%s' "$masked" | cmdword_is git || printf '%s' "$masked" | cmdword_is wt; then
     while IFS= read -r name; do
       judge "$name"
     done <<< "$(new_names "$masked")"
