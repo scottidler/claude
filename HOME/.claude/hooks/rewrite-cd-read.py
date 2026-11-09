@@ -412,16 +412,50 @@ ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 SAFE_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_$~./:@+,%-]*$")
 
 
+def unwrap_command(values: list[str]) -> list[str] | None:
+    """Strip env-prefix assignments and the `command`/`env` wrappers, returning
+    the words of the command that actually runs.
+
+    Scar tissue (issue #4): `command` and `env` sit on READONLY_HEADS and
+    CWD_FREE_HEADS, so `cd ~/repos && command clone org/repo` was judged by the
+    wrapper, not by `clone`: auto-allowed, its slug absolutized, and its cd
+    eligible for dropping. `[]` means a pure query (`command -v x`, bare `env`);
+    None means a wrapper form too opaque to see through (`env -i ...`).
+    """
+    while True:
+        while values and ASSIGNMENT.match(values[0]):
+            values = values[1:]
+        if not values:
+            return values
+        base = values[0].rsplit("/", 1)[-1]
+        if base == "command":
+            rest = values[1:]
+            while rest and rest[0] == "-p":
+                rest = rest[1:]
+            if rest and rest[0] in ("-v", "-V"):
+                return []
+            if rest and rest[0].startswith("-"):
+                return None
+            values = rest
+            continue
+        if base == "env":
+            rest = values[1:]
+            if rest and rest[0].startswith("-"):
+                return None
+            values = rest
+            continue
+        return values
+
+
 def stage_is_safe(values: list[str]) -> bool:
-    if not values:
-        return True
     # `S=$TMPDIR/x` and `FOO=1 grep ...` are env-prefix forms, not commands.
     # Observed in the bail log: a bare assignment stage counted as an unlisted
     # head and killed the rewrite for the whole line. Strip the assignments and
     # judge the REAL head after them -- never return safe for the assignment
     # itself, or `FOO=1 rm -rf /` would sail through.
-    while values and ASSIGNMENT.match(values[0]):
-        values = values[1:]
+    values = unwrap_command(values)
+    if values is None:
+        return False
     if not values:
         return True
     head = values[0]
@@ -576,10 +610,9 @@ def can_drop_cd(flat, stages) -> bool:
     """
     piped_from_prev = False
     for s in stages:
-        head = flat[s[0]]["value"]
-        values = [flat[i]["value"] for i in s]
-        while values and ASSIGNMENT.match(values[0]):
-            values = values[1:]
+        values = unwrap_command([flat[i]["value"] for i in s])
+        if values is None:
+            return False
         if not values:
             # A pure `VAR=value` stage runs no command, so it cannot read the
             # working directory and is no reason to keep the `cd`.
@@ -739,9 +772,14 @@ def stage_is_dangerous(values: list[str]) -> bool:
          In this config that is `git tag`/`git push` and the `gh` delete family.
       2. The command destroys or transmits data, where a prompt is the correct
          outcome anyway and there is no value in silencing it.
+
+    Passing this gate does not license touching ARGUMENTS: rewrite() only
+    absolutizes args in whitelisted stages (issue #4, where an unknown head's
+    `org/repo` slug was absolutized and broke `clone`).
     """
-    while values and ASSIGNMENT.match(values[0]):
-        values = values[1:]
+    values = unwrap_command(values)
+    if values is None:
+        return True
     if not values:
         return False
     base = values[0].rsplit("/", 1)[-1]
@@ -952,6 +990,12 @@ def rewrite(cmd: str, start_cwd: str):
                 return None
             cwd = new_cwd
             continue
+        # Args are only paths we can vouch for on a whitelisted, cwd-reading
+        # head. An unknown head (`clone org/repo`) or a cwd-free one
+        # (`printf %s org/repo`, `echo`) gets its argument bytes untouched.
+        inner = unwrap_command([toks[i]["value"] for i in s]) or []
+        inner_base = inner[0].rsplit("/", 1)[-1] if inner else ""
+        args_rewritable = stage_is_safe([toks[i]["value"] for i in s]) and inner_base not in CWD_FREE_HEADS
         for pos, idx in enumerate(s):
             val = toks[idx]["value"]
             if pos == 0:
@@ -962,6 +1006,8 @@ def rewrite(cmd: str, start_cwd: str):
                     if os.path.isfile(cand) and os.access(cand, os.X_OK):
                         replacements[idx] = cand
                 continue
+            if not args_rewritable:
+                break
             if toks[s[pos - 1]]["value"] in PROTECTED_VALUE_FLAGS:
                 continue
             resolved = resolve_path_arg(cwd, val)

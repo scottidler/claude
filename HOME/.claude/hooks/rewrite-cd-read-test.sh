@@ -93,6 +93,31 @@ run UNCHANGED "$CWD" 'echo no git here'
 echo "=== the cd rewrite still works on its own ==="
 run "cat $REPO/.otto.yml" "$CWD" "cd $REPO && cat .otto.yml"
 
+echo "=== an org/repo slug is never absolutized (issue #4) ==="
+# Scar tissue: under ~/repos every `org/repo` slug's first segment is a real
+# directory, so the mistyped-path branch absolutized it and `clone` died with
+# `Invalid repository specification`. A scratch tree stands in for ~/repos.
+SLUGS="$(mktemp -d)"
+mkdir -p "$SLUGS/tatari-tv/cloned"
+trap 'rm -f "$REWRITE_CD_READ_LOG"; rm -r "$SLUGS"' EXIT # regenerable
+run UNCHANGED "$CWD" "cd $SLUGS && clone tatari-tv/build-version-rs"
+run UNCHANGED "$CWD" "cd $SLUGS && clone tatari-tv/cloned"
+run UNCHANGED "$CWD" "cd $SLUGS && command clone tatari-tv/build-version-rs"
+run UNCHANGED "$CWD" "cd $SLUGS && env FOO=1 clone tatari-tv/build-version-rs"
+run UNCHANGED "$CWD" "cd $SLUGS && FOO=1 command clone tatari-tv/build-version-rs"
+# A cwd-free head keeps its argument bytes; only the dead cd goes.
+run "printf %s tatari-tv/x foo/bar" "$CWD" "cd $SLUGS && printf %s tatari-tv/x foo/bar"
+run "echo tatari-tv" "$CWD" "cd $SLUGS && echo tatari-tv"
+# A wrapper never launders a destructive head past the denylist.
+run UNCHANGED "$CWD" "cd $SLUGS && command rm -r tatari-tv/cloned"
+run UNCHANGED "$CWD" "cd $SLUGS && env rm -r tatari-tv/cloned"
+out=$(fire "$CWD" "cd $SLUGS && command clone tatari-tv/x")
+check "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "none"')" 'none' 'command clone is never auto-allowed'
+# The read path the hook exists for still works on a whitelisted head.
+run "ls $SLUGS/tatari-tv/cloned" "$CWD" "cd $SLUGS && ls tatari-tv/cloned"
+run "cat $SLUGS/tatari-tv/missing" "$CWD" "cd $SLUGS && cat tatari-tv/missing"
+run "command -v clone" "$CWD" "cd $SLUGS && command -v clone"
+
 echo "=== both rewrites in one output ==="
 run 'git status' "$CWD" "cd $CWD && git -C $CWD status"
 run "git -C $OTHER log" "$CWD" "cd $CWD && git -C $OTHER log"
