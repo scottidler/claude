@@ -35,9 +35,9 @@ Run it bare, as its own Bash call, with the absolute repo path:
 bump --gates <REPO>
 ```
 
-`bump --gates` exits 0 on every verdict, including `UNKNOWN`
-(`report_gates` in `scottidler/bump` `src/main.rs`). **The exit code is not the
-signal. Parse the text.** Find the one line that starts with `Gates:`:
+`bump --gates` exits 1 on `UNKNOWN` (Branch 5 routes any non-zero exit) and 0 on
+every other verdict (`report_gates` in `scottidler/bump` `src/main.rs`). **Parse
+the text.** Find the one line that starts with `Gates:`:
 
 | `Gates:` line | Verdict |
 |---|---|
@@ -206,7 +206,7 @@ Every `bump` refusal names its one exact next command.
 ## `bump` reference
 
 ```bash
-bump --gates <REPO>   # the verdict this skill routes on; exit 0 on every verdict
+bump --gates <REPO>   # the verdict this skill routes on; exit 1 on UNKNOWN
 bump release [-m|-M] [-n] [--install "<cmd>"|--no-install] [--standalone "<words>"] [--ci-timeout SECS]
 bump finish  [-n] [--install "<cmd>"|--no-install] [--ci-timeout SECS]
 ```

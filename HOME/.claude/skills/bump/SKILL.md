@@ -23,9 +23,7 @@ bump finish <repo>                         # bare, <repo> is any worktree
 bump release --standalone "<his exact words>"
 ```
 
-- The `<repo>` positional ships in the bump release that carries scottidler/bump
-  commit eba0468; until `bump release --help` shows `[DIR]`, `cd <repo>` in its
-  own Bash call and run the verb bare without it.
+- A subdirectory runs on its repo root, with a notice on stderr.
 - Run `bump release` and `bump finish` with `run_in_background`: the CI wait runs
   up to `--ci-timeout` (default 1800s), past the Bash tool's 600s foreground cap.
   Read the result when the harness reports the exit.
