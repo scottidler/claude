@@ -106,5 +106,7 @@ For Rust projects using `/rust-cli-coder` conventions, the version `bump` writes
 and clap reads it with `version = env!("BUILD_VERSION")`. After the install, `bump
 release` / `bump finish` run `<bin> --version` and fail unless it names the tag exactly;
 a `-N-g<sha>` or a bare `X.Y.Z` there is a build problem to fix, never a version to
-accept. A library crate (no binary target) gets no default install; pass `--no-install`
-or let bump skip it.
+accept. The default install covers CLIs only and prints `install: skipped (...)` with one of
+three reasons: a virtual workspace root, a library crate (no binary target), or a package
+with no `clap` dependency; a service therefore is never installed by default, and
+`--install` or `bump.yml` `install:` is the explicit override.

@@ -177,7 +177,7 @@ outcome in plain words, sentence case, `KEY: Summary` with a confirmed Jira key,
    (substitute the actual vX.Y.Z in the greps below):
    - The annotated tag dereferences to `origin/<default>` (not an orphan):
      `git rev-parse "$(git describe --tags --abbrev=0)^{commit}"` == `git rev-parse origin/<default>`.
-   - The tag is on the remote: `git ls-remote --tags origin | grep vX.Y.Z`.
+   - The tag is on the remote: `git ls-remote --exit-code --tags origin refs/tags/vX.Y.Z` (exit 0 means the tag is there).
    - The tag is annotated: `git cat-file -t vX.Y.Z` → `tag`.
    - Install (if run) reported the new version: bump's own `verify: <bin> --version -> <name> vX.Y.Z`
      line. bump fails the verb when the installed binary does not print the tag exactly; a
@@ -193,14 +193,23 @@ outcome in plain words, sentence case, `KEY: Summary` with a confirmed Jira key,
    sdv probe <DEPLOY-URL>            # /status, /deployed, /version
    ```
    - **Wait mechanically, not by spinning.** Run this probe loop the same way as
-     step 4's poll: a single `run_in_background` Bash call wrapping a terminating
-     `until` loop that KEEPS each probe's output, e.g.
-     `until sdv probe <DEPLOY-URL> | tee -a $TMPDIR/probe.log | grep -q <EXPECTED-VERSION>; do sleep 30; done`,
-     so the harness notifies you when it exits rather than you re-invoking `sdv
-     probe` every few seconds. The `tee` is not decoration: a bare `| grep -q`
-     discards every probe, and the bullet below requires you to paste the output.
-     Read the log back when the loop exits. A deploy lands minutes after the tag,
-     so expect several iterations.
+     step 4's poll: a single `run_in_background` Bash call, so the harness notifies
+     you when it exits rather than you re-invoking `sdv probe` every few seconds. It
+     prechecks the tools, KEEPS each probe's output in the log, compares the whole
+     version value (not a line of text), and is capped:
+     ```bash
+     command -v sdv jq >/dev/null || { echo "sdv and jq are required"; exit 1; }
+     for i in $(seq 1 40); do
+       out=$(sdv probe --format json <DEPLOY-URL>) || { echo "$out"; echo "sdv probe failed (exit $?): fix auth, then re-run"; exit 1; }
+       echo "$out" >> $TMPDIR/probe.log
+       jq -e --arg v <EXPECTED-VERSION> '.version | select(.state == "ok") | .payload.version == $v' <<<"$out" >/dev/null && break
+       sleep 30
+     done
+     ```
+     A missing tool or an sdv failure ends the loop at once, which is what the "fix
+     auth and retry once" bullet below needs; 40 attempts at 30 seconds is the
+     patience bound. Read the log back when the loop exits. A deploy lands minutes
+     after the tag, so expect several iterations.
    - **Paste the probe output into your report**, at least the final one, plus the
      first if the version changed between them. "It's live" with no output is the
      exact unverified claim this step exists to kill.
