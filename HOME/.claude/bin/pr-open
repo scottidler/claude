@@ -144,7 +144,7 @@ if [ "$RELEASE" = "rides" ]; then
   VER=$(git diff "$BASEREF...HEAD" -- Cargo.toml pyproject.toml package.json 2>/dev/null \
         | grep -E '^\+[[:space:]]*"?version"?[[:space:]]*[:=]' \
         | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-  [ -n "$VER" ] || die "--release rides, but no version line changes in the diff vs $BASEREF. Gate D denies this claim (git-release-guard.sh:566), so the command is not emitted. A release PR comes from 'bump release', which commits the version and opens the PR itself; otherwise pass '--release none --reason <why>'."
+  [ -n "$VER" ] || die "--release rides, but no version line changes in the diff vs $BASEREF. Gate D denies this claim (git-release-guard.sh:566), so the command is not emitted. A release PR rides 'bump release', which commits the version and prints the release-intent line, then /pr:create opens it; otherwise pass '--release none --reason <why>'."
   RELEASE_LINE="Release: rides this PR (v$VER)"
 else
   RELEASE_LINE="Release: none - $REASON"

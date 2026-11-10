@@ -383,6 +383,14 @@ runwrappedloop 'for i in {1..30}; do sleep 60; done'
 runwrappedloop 'for i in $(seq 1 30); do sleep 60; done'
 runwrappedloop 'while true; do sleep 30; done'
 
+echo "=== SLEEP SUBSTITUTES: read from /dev/zero crashes zsh; timeout tail -f is a hidden sleep ==="
+run deny 'R=/tmp/x; for i in $(seq 1 100); do [ -f $R/rc.txt ] && break; read -t 5 < /dev/zero 2>/dev/null || true; timeout 5 tail -f /dev/null; done'
+run deny 'read -t 5 </dev/zero'
+run deny 'timeout 5 tail -f /dev/null'
+run allow 'read -t 5 line < /tmp/fifo'
+run allow 'echo "read -t 5 < /dev/zero"'
+run allow 'tail -f /var/log/syslog'
+
 echo "=== SLEEP: cardinality, where the multiplication alone decides ==="
 # Every fixture above carries a per-iteration sleep already over 25, so all of
 # them pass against an implementation that computes no bound at all. These do
@@ -557,16 +565,37 @@ run allow 'git remote -v'
 run allow 'echo "GIT_SSH_COMMAND=ssh -i k is what not to do"'
 run allow "grep -n 'git push' rules/git.md"
 
-echo "=== GIT-NET: sandboxed shapes that cannot authenticate ==="
-run deny  'cd ~/repos/tatari-tv/drata-cli && git push origin x'
-run deny  'git push origin x 2>&1 | tail -5'
-run deny  'git -C ~/repos/tatari-tv/drata-cli push origin x'
-run deny  'git -C ~/repos/x fetch'
-run deny  'git fetch && git status'
-run deny  'timeout 60 git push origin x'
-run deny  "bash -c 'git push origin x'"
-run deny  'git ls-remote origin HEAD | cat'
-runsays   'git -C /r push origin x' 'cd <repo>'
+echo "=== GIT-NET: compound and wrapped shapes allow (sandbox off since 1484c4a) ==="
+run allow 'cd ~/repos/x && git push origin x'
+run allow 'git -C ~/repos/x push origin x 2>&1 | tail -5'
+run allow 'git fetch && git status'
+run allow 'timeout 60 git fetch'
+run allow "bash -c 'git fetch'"
+run allow 'git ls-remote origin HEAD | cat'
+
+echo "=== GIT-NET -C: another repo allows, the cwd denies (2026-11-08, sandbox off) ==="
+run allow 'git -C ~/repos/tatari-tv/drata-cli push origin x'
+run allow 'git -C ~/repos/x fetch'
+run allow 'git -C ~/repos/x push origin x 2>&1'
+run allow 'git -C "/tmp/a b" ls-remote origin HEAD'
+run allow 'git -C .. pull'
+run deny  "git -C $PWD push origin x"
+run deny  'git -C . fetch'
+run deny  "git -C $PWD/ push origin x"
+run deny  "git -C .. -C $(basename "$PWD") push origin x"
+GITC_LINKDIR=$(mktemp -d)
+ln -s "$PWD" "$GITC_LINKDIR/here"
+run deny  "git -C $GITC_LINKDIR/here push origin x"
+runsays   "git -C $GITC_LINKDIR/here pull" 'points at the cwd already'
+# PUBLIC-REPO follows -C: from a cwd outside any repo, a push via -C into this
+# public repo with an unresolvable ref must still deny.
+gitc_reason=$(jq -n --arg c "git -C $PWD push origin no-such-ref-gitc" --arg d "$GITC_LINKDIR" \
+  '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' | bash "$HOOK" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+case "$gitc_reason" in
+  *"PUBLIC remote"*) pass=$((pass + 1)); printf 'PASS  [deny, cwd outside repo] PUBLIC-REPO follows git -C\n' ;;
+  *) fail=$((fail + 1)); printf 'FAIL  [want PUBLIC-REPO deny, cwd outside repo] PUBLIC-REPO follows git -C\n' ;;
+esac
+rm -f "$GITC_LINKDIR/here" && rmdir "$GITC_LINKDIR"  # regenerable: this run's own mktemp fixture
 
 echo "=== SANDBOX-OFF: excluded heads deny with the flag set (2026-10-08 retro, fix 3) ==="
 # These three were allows until fix 3: the flag turned GIT-NET's shape rule into

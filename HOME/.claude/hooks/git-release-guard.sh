@@ -753,7 +753,7 @@ check_stmt() {
         base=$(default_base "$bump_dir")
         if [ -n "$base" ] \
            && [ "$(pkg_versions_changed "$bump_dir" "$(git -C "$bump_dir" merge-base "$base" HEAD)" HEAD)" = "0" ]; then
-          deny "DENIED: the PR body claims 'Release: rides this PR' but no package version line changes in the diff vs $base (a dependency's version is not the package's). Run 'bump release' on this branch instead: it commits the version and opens the PR."
+          deny "DENIED: the PR body claims 'Release: rides this PR' but no package version line changes in the diff vs $base (a dependency's version is not the package's). Run 'bump release' on this branch first: it commits the version and prints the release-intent line for the /pr:create body."
         fi
       fi
     fi

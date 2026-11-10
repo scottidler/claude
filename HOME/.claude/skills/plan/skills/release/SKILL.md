@@ -1,6 +1,6 @@
 ---
 name: release
-description: 'Ship a release, routed by `bump --gates`. Ungated repos release inline with `bump release`; gated repos hand the arc to the plan:release-driver agent, ENTRY release from a feature branch or ENTRY finish once the PR merged. Use when the user says "ship it", "shipit", "release this", "push this out", "cut a release and install", "bump", "bump the version", "bump version", "cut a tag", "create a tag", "tag a release", "tag a new version", "release", or asks to increment or ship a new version, even without naming Rust or saying "bump"; prefer firing over asking. Also fires on the post-merge arc: "the PR merged, finish the bump", "finish the release", "tag it now that it''s merged", "it merged, ship it".'
+description: 'Ship a release, routed by `bump --gates`. Ungated repos release inline with `bump release`; gated repos run `bump release` and `/pr:create` inline, then hand the merge wait to the plan:release-driver agent (ENTRY merge), or ENTRY finish once the PR merged. Use when the user says "ship it", "shipit", "release this", "push this out", "cut a release and install", "bump", "bump the version", "bump version", "cut a tag", "create a tag", "tag a release", "tag a new version", "release", or asks to increment or ship a new version, even without naming Rust or saying "bump"; prefer firing over asking. Also fires on the post-merge arc: "the PR merged, finish the bump", "finish the release", "tag it now that it''s merged", "it merged, ship it".'
 argument-hint: "[-m|--minor|-M|--major] [repo-path]"
 ---
 
@@ -133,30 +133,53 @@ The main session runs it; no agent is dispatched.
 
 ## Branch 2: gated, work on a feature branch
 
-Dispatch the agent; do not run the release inline.
+The main session cuts the version and opens the PR; the agent owns the merge wait
+and the back half. `bump release` never opens a PR: a PR opened inside the bump
+binary is invisible to the PreToolUse guards on `/pr:create`'s body contract, which
+is how tatari-tv/drata-cli#18 (https://github.com/tatari-tv/drata-cli/pull/18)
+shipped a non-contract body. `/pr:create` is the only thing that opens a release
+PR, and it runs here, in the main session, because it asks the author for what the
+diff cannot answer and needs this session's context; the driver has neither (and
+no `Skill` tool, by design).
 
 - **Uncommitted work on the default branch:** `git switch -c <slug>` first (the
-  working tree comes with it; branch names are lowercase, hyphenated, no slash),
-  then dispatch from that branch.
+  working tree comes with it; branch names are lowercase, hyphenated, no slash).
 - **Local commits on the default branch that are not on origin:** stop and
   report. That is the stranded case: `bump release` prints the literal rescue
   commands and never auto-rescues, and neither does this skill.
 
-Dispatch `subagent_type: "plan:release-driver"` with:
+1. **Commit the work on the feature branch**, staging real files by explicit path
+   as in Branch 1 step 2. Already clean with the work committed: no new commit.
+2. **Cut the version.** `cd <REPO>` in its own Bash call, then the bare verb:
+   ```bash
+   bump release [-m|-M]
+   ```
+   Gated, it commits the version, pushes the branch, probes for an open PR, and
+   stops. It never waits for CI, so it returns quickly. Read the output:
+   - **No open PR:** it prints `no open PR for <branch>; bump does not open PRs.`,
+     then `next: open the PR with /pr:create; its body must carry this line
+     verbatim:` and the line(s) to copy, e.g. `Release: rides this PR (vX.Y.Z)`
+     (with `--standalone`, the `Standalone release ordered by Scott: "<his words>"`
+     line comes first). Go to step 3.
+   - **`open PR already exists for <branch>`:** skip step 3. Confirm its body
+     carries `Release: rides this PR (vX.Y.Z)` (`gh pr view <branch> --json
+     url,body`); if not, add it with `/pr:revise`. Go to step 4.
+   - **A refusal:** do the one exact command it names (see Refusals), then re-run.
+3. **Open the PR: invoke `Skill(pr:create)`.** Tell it the body must carry the
+   line(s) `bump release` printed, verbatim, each on a line of its own. Never a
+   bare `gh pr create`. After it opens, `gh pr view <url> --json body` and confirm
+   every printed line is in the body.
+4. **Dispatch `subagent_type: "plan:release-driver"`** with:
+   - **REPO**: the absolute repo path
+   - **ENTRY**: `merge`
+   - **PR**: the open PR's url (required for this entry)
+   - **EXPECTED-VERSION**: the vX.Y.Z from the release-intent line
+   - **INSTALL**: per Branch 1 step 3
+   - **KIND**: `cli` or `service`
+   - **DEPLOY-URL** (service): what `sdv probe` hits until the new version is live
+   - **ACCEPTANCE** (cli): the commands that exercise the installed binary
 
-- **REPO**: the absolute repo path
-- **ENTRY**: `release`
-- **LEVEL**: patch / minor / major
-- **MESSAGE**: a concise commit message derived from the diff (you have the
-  working context; pass it so the agent does not re-infer it)
-- **INSTALL**: per Branch 1 step 3
-- **KIND**: `cli` or `service`
-- **DEPLOY-URL** (service): what `sdv probe` hits until the new version is live
-- **ACCEPTANCE** (cli): the commands that exercise the installed binary
-
-The agent commits the real files, runs `bump release` (which commits the
-version, pushes the branch and opens the PR with `Release: rides this PR
-(vX.Y.Z)`), watches the PR to merge, runs `bump finish`, verifies the tag is on
+The agent watches the PR to merge, runs `bump finish`, verifies the tag is on
 `origin/<default>`, installs, and proves the version live. Relay its report. It
 returns "installed at vX.Y.Z, shakedown not run" on purpose (its tools are
 `Bash, Read, Grep, Glob`, no `Skill`): fire `/cli-shakedown` yourself if the
@@ -179,8 +202,9 @@ Every `bump` refusal names its one exact next command.
 - **Bump-only branch** (diff empty or version lines only): never create one. The
   bump belongs INSIDE the feature PR.
 - **Standalone door**: if Scott already ordered a version-only release in this
-  session, re-run with `bump release --standalone "<his exact words>"`; the words
-  are quoted into the PR. Otherwise STOP and report. Never invent the order, never
+  session, re-run with `bump release --standalone "<his exact words>"`; it prints
+  the quoted words as a line the `/pr:create` body must carry. Otherwise STOP and
+  report. Never invent the order, never
   re-ask one he gave.
 - **Branch name not its own slug**: run the `git branch -m <slug>` it prints.
 - **Behind / diverged**: run the `git pull --ff-only` or `git pull --rebase` it

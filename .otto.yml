@@ -132,6 +132,8 @@ tasks:
         HOME/.claude/skills/plan/seats/architect/policy.toml
         HOME/.claude/skills/plan/seats/architect/limitations.md
         HOME/.claude/skills/plan/seats/staff-engineer/script.sh
+        HOME/.claude/skills/plan/seats/watchdog.sh
+        HOME/.claude/skills/plan/seats/watchdog-test.sh
         HOME/.claude/skills/plan/skills/create/SKILL.md
         HOME/.claude/skills/plan/skills/create/example.md
         HOME/.claude/skills/plan/skills/build/SKILL.md
@@ -220,6 +222,8 @@ tasks:
         echo "=== $t ==="
         bash "$t"
       done
+      echo "=== HOME/.claude/skills/plan/seats/watchdog-test.sh ==="
+      bash HOME/.claude/skills/plan/seats/watchdog-test.sh
       echo "=== bin/hooks-resolve ==="
       bin/hooks-resolve
       echo "=== HOME/.claude/bin/pr-open-test.sh ==="

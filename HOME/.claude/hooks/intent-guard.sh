@@ -307,6 +307,7 @@ cur_cwd="$payload_cwd"
 [ "$cwd_accumulates" -eq 0 ] && cur_cwd=""
 
 git_add_args=""
+git_repo_dir=""
 # SLEEP's gate. The span scan below reads a copy whose quotes are NOT masked, so
 # it alone would fire on a quoted loop that is data. `stmts` + `cmdword_is` is
 # the discrimination: a sleep has to be in EXECUTABLE position somewhere in the
@@ -429,17 +430,12 @@ SLEEP_ADVICE='To wait for a condition, use Monitor with an until-loop (e.g. `unt
 # as credential exploration anyway: the 2026-09-24 drata-cli release burned
 # seven furious messages on exactly these variants (HALL-OF-SHAME).
 #
-# The sandbox half is measured, 2026-09-24: inside the sandbox ~/.ssh and
-# ssh-agent are unreachable and the sandbox's own GIT_SSH_COMMAND replaces the
-# wrapper, so a sandboxed push cannot authenticate as either persona.
-# excludedCommands (`git push *` etc.) lifts the sandbox ONLY for a bare
-# simple command: `git ls-remote origin HEAD` and `... 2>&1` ran unsandboxed,
-# while `cd repo && git ls-remote ...`, `git ls-remote ... | cat` and
-# `git -C repo ls-remote ...` all ran sandboxed and failed.
+# The sandbox shape half (2026-09-24) denied any push/fetch/pull/ls-remote/clone
+# that was not a bare simple command, because only that shape escaped the
+# sandbox. The sandbox is off since 1484c4a, so that half is gone (2026-11-08).
 GITNET_VERBS=" push fetch pull ls-remote clone "
 GITNET_HOW='The persona key is automatic (~/.gitconfig-ssh; rules/secrets.md "git over SSH").'
 GITNET_OVERRIDE_DENY="do not hand-roll git's SSH key, config or remote URL. $GITNET_HOW Run the plain command, e.g. \`git push origin <branch>\`. Denied for"
-GITNET_SHAPE_DENY="this git network command would run INSIDE the sandbox, where it cannot authenticate as either persona. sandbox.excludedCommands only lifts the sandbox for a bare simple command. $GITNET_HOW Make it a separate Bash call: first \`cd <repo>\` alone, then the plain \`git <verb> ...\` alone (a trailing \`2>&1\` is fine; no pipe, no &&, no -C, no wrapper). Denied for"
 # SSH-SHAPE. Measured 2026-10-06 (desk -> ripr.lan): `ssh *` in excludedCommands
 # lifts the sandbox only when the harness reads the line as simple. `$(...)` or
 # backticks inside the quoted remote string, and a `<` redirect or heredoc, make
@@ -457,15 +453,12 @@ sandbox_off=0
 case "$(printf '%s' "$input" | jq -r '.tool_input.dangerouslyDisableSandbox // false' 2>/dev/null)" in
   true|1) sandbox_off=1 ;;
 esac
-# The shape the harness exempts: after dropping redirects, `git <verb>` with no
-# shell metacharacter left anywhere.
-gitnet_bare_simple() {
-  local s
-  s=$(printf '%s' "$command" | sed -E 's/[[:space:]]+[0-9]*>&[0-9-]+//g; s/[[:space:]]+[0-9]*>>?[[:space:]]*[^[:space:];&|<>]+//g')
-  case "$s" in
-    *[\;\&\|\<\>\(\)\$\`]*|*$'\n'*) return 1 ;;
-  esac
-  printf '%s' "$s" | grep -qE '^[[:space:]]*git[[:space:]]+(push|fetch|pull|ls-remote|clone)([[:space:]]|$)'
+# GIT-NET, -C half (Scott, 2026-11-08): `git -C <other-repo> push` is the way
+# to push across repos (the SRE-4429 release stalled without it). Only a -C
+# that resolves, symlinks followed, to the cwd is denied: it is redundant.
+GITNET_CWD_DENY="\`git -C\` points at the cwd already. Drop the \`-C <path>\` and run the plain command. Denied for"
+same_dir() { # same_dir <a> <b>: both resolve to one directory, symlinks followed
+  [ "$(realpath -m -- "$1" 2>/dev/null)" = "$(realpath -m -- "$2" 2>/dev/null)" ]
 }
 
 # dur_ms <operand> -- a literal sleep operand in milliseconds, non-zero exit
@@ -1607,8 +1600,8 @@ while IFS= read -r -d '' stmt; do
 
   if printf '%s' "$verbscan" | cmdword_is git >/dev/null 2>&1; then
     # Walk to the subcommand: skip a leading `env`/assignments, then git's
-    # global options (gitnet_bare_simple judges whether any preceded the verb).
-    g_seen=0 g_sub="" g_skip=0 g_rest="" g_prev=""
+    # global options.
+    g_seen=0 g_sub="" g_skip=0 g_rest="" g_prev="" g_cdir="$cur_cwd" g_has_c=0
     while IFS= read -r tok; do
       if [ "$g_seen" -eq 0 ]; then
         [ "$tok" = "git" ] && g_seen=1
@@ -1617,6 +1610,10 @@ while IFS= read -r -d '' stmt; do
       if [ -n "$g_sub" ]; then g_rest="$g_rest $tok"; continue; fi
       if [ "$g_skip" -eq 1 ]; then
         g_skip=0
+        if [ "$g_prev" = "-C" ]; then
+          g_has_c=1
+          g_cdir=$(abs_path "$tok" "$g_cdir") || g_cdir=""
+        fi
         if [ "$g_prev" = "-c" ]; then
           case "$(printf '%s' "$tok" | tr '[:upper:]' '[:lower:]')" in
             core.sshcommand=*|url.*insteadof=*) deny "$GITNET_OVERRIDE_DENY (git -c $tok)" ;;
@@ -1652,8 +1649,8 @@ while IFS= read -r -d '' stmt; do
           *" https://github.com/"*|*" http://github.com/"*) deny "$GITNET_OVERRIDE_DENY (an HTTPS GitHub URL; remotes stay git@github.com)" ;;
         esac
         [ "$sandbox_off" -eq 1 ] && sandboxoff_deny "git $g_sub"
-        if ! gitnet_bare_simple; then
-          deny "$GITNET_SHAPE_DENY \`git $g_sub\` in a compound, -C/-c, or wrapped command"
+        if [ "$g_has_c" -eq 1 ] && [ -n "$cur_cwd" ] && [ -n "$g_cdir" ] && same_dir "$g_cdir" "$cur_cwd"; then
+          deny "$GITNET_CWD_DENY \`git $g_sub\`"
         fi
         ;;
     esac
@@ -1685,8 +1682,8 @@ while IFS= read -r -d '' stmt; do
         git_add_args="$git_add_args $(printf '%s' "$verbscan" | args | sed -n '/^add$/,$p' | tail -n +2 | grep -v '^-' | tr '\n' ' ')" ;;
     esac
     case "$gtoks" in
-      *" commit "*) git_commit_stmt="$verbscan" ;;
-      *" push "*)   git_push_stmt="$verbscan" ;;
+      *" commit "*) git_commit_stmt="$verbscan"; git_repo_dir="$g_cdir" ;;
+      *" push "*)   git_push_stmt="$verbscan"; git_repo_dir="$g_cdir" ;;
     esac
   fi
 
@@ -1781,7 +1778,8 @@ done < <(printf '%s' "$command" | stmts)
 # commit half needs every `git add` in the whole command and not only the one in
 # its own statement.
 if [ -n "${git_commit_stmt:-}${git_push_stmt:-}" ]; then
-  gr=$(repo_root "${cur_cwd:-$payload_cwd}") || gr=""
+  # A `git -C <other-repo>` push publishes THAT repo, not the cwd's.
+  gr=$(repo_root "${git_repo_dir:-${cur_cwd:-$payload_cwd}}") || gr=""
   if [ -n "$gr" ] && in_scope "$gr"; then
     vis=$(repo_visibility "$gr")
     candidate=""
@@ -1988,6 +1986,22 @@ if [ "$sleep_seen" -eq 1 ] && [ "$run_bg" -eq 0 ]; then
   if [ "$sleep_total_ms" -ge "$SLEEP_T1_MS" ]; then
     secs=$(LC_ALL=C awk -v m="$sleep_total_ms" 'BEGIN { s = m / 1000; if (s == int(s)) printf "%d", s; else printf "%g", s }')
     deny "this command waits ${secs}s in the foreground, summed across its statements and multiplied by each loop's iteration count. The block fires at 25s, which is where the harness's own check fires. $SLEEP_ADVICE"
+  fi
+fi
+
+# SLEEP SUBSTITUTES. `read -t N < /dev/zero` and `timeout N tail -f /dev/null`
+# pause like `sleep` but carry no `sleep` command word, so the SLEEP rule above
+# never prices them. The first is also a crash: /dev/zero has no newline, so
+# zsh 5.9-8ubuntu3 `bin_read` appends to a buffer until it writes past 1 GiB
+# and takes SIGSEGV (coredumps 2026-10-19, 11-04, 11-05, 11-06, all at
+# bin_read+0x3426c, fault address 0x40000000).
+if [ "$run_bg" -eq 0 ]; then
+  subst_text=$(printf '%s' "$command" | mask_heredoc | mask_comment)
+  if printf '%s' "$subst_text" | grep -qE '(^|[;&|({[:space:]])read[[:space:]][^;&|]*<[[:space:]]*/dev/zero'; then
+    deny "\`read ... < /dev/zero\` never sees a newline and crashes zsh 5.9-8ubuntu3 (SIGSEGV in bin_read past a 1 GiB buffer). It is not a sleep. $SLEEP_ADVICE"
+  fi
+  if printf '%s' "$subst_text" | grep -qE '(^|[;&|({[:space:]])timeout[[:space:]]+[0-9.]+[smhd]?[[:space:]]+tail[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*[[:space:]]+/dev/null'; then
+    deny "\`timeout N tail -f /dev/null\` is a sleep in disguise, and this guard cannot price it. $SLEEP_ADVICE"
   fi
 fi
 

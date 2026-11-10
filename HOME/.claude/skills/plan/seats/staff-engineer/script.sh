@@ -38,6 +38,13 @@ set -euo pipefail
 #      Credits/quota are deliberately NOT retried: that is the review-panel's
 #      Step 3.5 substitute-model path and retrying would only delay it.
 #
+# PROGRESS WATCHDOG (2026-11-06). The flat 10m cap killed both seats mid-audit
+# while they were still producing output. The kill now keys on SILENCE: if the
+# trace stops growing for STAFF_ENGINEER_IDLE (default 8m) the seat is hung and dies.
+# STAFF_ENGINEER_WALL_CLOCK (default 30m) stays as a ceiling on the WHOLE script,
+# retries included, so it can never outlast a caller's backstop. Rationale and
+# the measured idle gaps: ../watchdog.sh.
+#
 # TIMEOUT TIE (2026-08-03, marquee mcp-auth doc). review-panel wrapped the
 # sibling script in `timeout 600` while its WALL_CLOCK was also 10m == 600s. The
 # outer kill won, the EXIT trap never ran, and the caller got a banner-only file,
@@ -80,16 +87,23 @@ fi
 # Override the path with STAFF_ENGINEER_PIDFILE when running more than one.
 PIDFILE="${STAFF_ENGINEER_PIDFILE:-$SCRATCH/staff-engineer.pid}"
 
-# Hard wall-clock cap on ONE codex attempt. 10m is a hard ceiling, not an
-# estimate. Per Scott's rule: anything over 10m means the review hung, not that
-# it's slow, so we kill it rather than wait. Held identical to the architect cap
-# on purpose; the value is a hang-killer, not a per-tool performance budget, so
-# there is no reason for the two to differ. A timeout is TERMINAL and is never
-# retried.
-WALL_CLOCK="${STAFF_ENGINEER_WALL_CLOCK:-10m}"
+# Ceiling on the WHOLE script, retries included: each attempt gets only what is
+# left of it, so no retry pushes the script past a caller's backstop. A
+# timeout is TERMINAL and is never retried.
+WALL_CLOCK="${STAFF_ENGINEER_WALL_CLOCK:-30m}"
+
+# Hang detector: kill when the trace has not grown for this long. 8m clears the
+# longest silence measured in a healthy gemini run (317s); see ../watchdog.sh.
+IDLE="${STAFF_ENGINEER_IDLE:-8m}"
+
+# shellcheck source=SCRIPTDIR/../watchdog.sh
+. "$SCRIPT_DIR/../watchdog.sh"
+WALL_SECS=$(seat_seconds "$WALL_CLOCK")
+IDLE_SECS=$(seat_seconds "$IDLE")
+DEADLINE=$(( $(date +%s) + WALL_SECS ))
 
 # Attempts allowed when the backend fails TRANSIENTLY (see is_transient below).
-# 2 means one retry. Worst-case wall clock is MAX_ATTEMPTS * WALL_CLOCK.
+# 2 means one retry. Retries share the one WALL_CLOCK ceiling.
 MAX_ATTEMPTS="${STAFF_ENGINEER_MAX_ATTEMPTS:-2}"
 
 # How much of a failed trace to echo. A full codex trace has hit 41 KB and the
@@ -214,7 +228,7 @@ preserve_trace() {
 # The caller got a banner-only file and no diagnostic: precisely the failure this
 # script exists to prevent. The CALLER owns errexit around this call.
 run_attempt() {
-  timeout --kill-after=30s "$WALL_CLOCK" \
+  timeout --kill-after=30s "$(( DEADLINE - $(date +%s) ))s" \
     codex exec \
     -m gpt-6-astra \
     -c model_reasoning_effort="high" \
@@ -222,7 +236,8 @@ run_attempt() {
     --skip-git-repo-check \
     --color never \
     -o "$LAST_MSG" \
-    "$PROMPT" <"$DOC_PATH" >"$TRACE" 2>&1
+    "$PROMPT" <"$DOC_PATH" >"$TRACE" 2>&1 &
+  watch_progress "$!" "$TRACE" "$IDLE_SECS"
 }
 
 STATUS=0
@@ -238,8 +253,10 @@ while :; do
   # Stop on success, on a timeout (terminal by policy), when attempts are
   # exhausted, or when a retry cannot help.
   if { [ "$STATUS" -eq 0 ] && [ -s "$LAST_MSG" ]; } \
+     || [ "$SEAT_IDLE_KILLED" -eq 1 ] \
      || [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ] \
      || [ "$attempt" -ge "$MAX_ATTEMPTS" ] \
+     || [ $(( DEADLINE - $(date +%s) )) -lt 60 ] \
      || ! is_transient; then
     break
   fi
@@ -248,9 +265,15 @@ while :; do
   attempt=$((attempt + 1))
 done
 
-if [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; then
-  echo "error: codex exceeded the ${WALL_CLOCK} wall-clock limit and was killed. No review was produced." >&2
-  echo "       Over 10m means it hung, not that it's slow. Retry rather than waiting longer." >&2
+echo "staff-engineer: longest silence ${SEAT_MAX_GAP}s (idle limit ${IDLE_SECS}s)" >&2
+
+if [ "$SEAT_IDLE_KILLED" -eq 1 ]; then
+  echo "error: codex wrote nothing for ${IDLE} and was killed as hung. No review was produced." >&2
+  preserve_trace
+  exit 124
+elif [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; then
+  echo "error: codex was still producing output at the ${WALL_CLOCK} ceiling and was killed. No review was produced." >&2
+  echo "       It was not hung (the idle watchdog never fired). Narrow the review scope." >&2
   preserve_trace
   exit 124
 elif [ "$STATUS" -eq 0 ] && [ -s "$LAST_MSG" ]; then

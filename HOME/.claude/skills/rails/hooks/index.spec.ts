@@ -418,11 +418,15 @@ describe('excludedHeads', () => {
         expect(excludedHeads({})).toEqual([])
         expect(excludedHeads({ sandbox: {} })).toEqual([])
         expect(excludedHeads({ sandbox: { excludedCommands: 'cargo *' } })).toEqual([])
+        expect(excludedHeads({ sandbox: { enabled: false, excludedCommands: ['git push *'] } })).toEqual([])
+        expect(excludedHeads({ sandbox: { enabled: true, excludedCommands: ['git push *'] } })).toEqual(['git push'])
         expect(excludedHeads({ sandbox: { excludedCommands: [1, '', 'ssh *'] } })).toEqual(['ssh'])
     })
-    test('the settings.json this repo ships reads as the shipped list', async () => {
+    test('the settings.json this repo ships reads as the shipped list, and as none while the sandbox is off', async () => {
         const path = import.meta.dir + '/../../../settings.json'
-        expect(excludedHeads(JSON.parse(await Bun.file(path).text()))).toEqual(SHIPPED_EXCLUDED)
+        const shipped = JSON.parse(await Bun.file(path).text())
+        expect(excludedHeads({ ...shipped, sandbox: { ...shipped.sandbox, enabled: true } })).toEqual(SHIPPED_EXCLUDED)
+        expect(excludedHeads(shipped)).toEqual(shipped.sandbox.enabled === false ? [] : SHIPPED_EXCLUDED)
     })
 })
 

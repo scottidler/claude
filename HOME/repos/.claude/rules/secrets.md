@@ -95,21 +95,12 @@ tatari-tv as `scottidler` on 2026-09-23). Remotes stay `git@github.com:...`;
 never propose a `github-work` host alias or URL rewrite. Plain `ssh
 git@github.com` defaults to the home key.
 
-- **Run every git network op unsandboxed** (`push`, `fetch`, `pull`,
-  `ls-remote`, `clone`, and `release`/`bump` already are). In the sandbox
-  `~/.ssh` and ssh-agent are unreachable and the sandbox's own
-  `GIT_SSH_COMMAND` replaces `~/.gitconfig-ssh`, so a sandboxed push CANNOT
-  authenticate as either persona. That failure (`Permission denied`, `denied to
-  scottidler`, `Host key verification failed`) is the sandbox, not the keys:
-  retry the same plain command with the sandbox off, once.
-- `sandbox.excludedCommands` lists `git push *`, `git fetch *`, `git pull *`,
-  `git ls-remote *`, `git clone *`, so those run unsandboxed automatically, but
-  only as a bare simple command (a trailing `2>&1` or `> file` is fine).
-  Measured 2026-09-24: `git -C <path> push`, `cd repo && git push`, and
-  `git push ... | tail` all run sandboxed and fail. `cd` into the repo in its
-  own call (cwd persists), then run the plain `git push` alone.
-  `intent-guard.sh`'s GIT-NET rule denies the sandboxed shapes and every
-  override below mechanically.
+- **The Bash sandbox is off** (`settings.json` `sandbox.enabled: false`, since
+  `1484c4a`), so git network ops authenticate in any shape: `cd repo && git
+  push`, `git push ... | tail`, and `git -C <other-repo> push` all work.
+  `git -C <other-repo> push` is the way to push a repo other than the cwd.
+- `intent-guard.sh`'s GIT-NET rule denies a `-C` that resolves (symlinks
+  followed) to the cwd, since it is redundant, and every override below.
 - **Never hand-roll the key.** No `GIT_SSH_COMMAND=... -i`, no
   `GIT_CONFIG_*`/`-c url.*.insteadOf` injection, no HTTPS remote swap: auto mode
   denies these as credential exploration or bypass, and they are unnecessary.

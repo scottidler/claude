@@ -205,3 +205,9 @@ correction and the fix:
   synthesis. `REQUIRES EXECUTION:` should now appear only for test runs, builds,
   benchmarks, and live services; if it shows up for a count or a git-history
   question, the seat skipped the tools it has.
+
+### Flat 10m cap killed working reviews -- FIXED 2026-11-06
+
+- Symptom: a 13-phase implementation audit (drata-cli) died at rc=124 on both seats while each was still emitting tool calls.
+- Root cause: the cap measured elapsed time, not progress. Across 16 preserved gemini traces the longest silence between stream events in a still-progressing run was 317s, so "over 10m means hung" was false for large audits.
+- Fix: `../watchdog.sh` kills on 8m of trace silence (`ARCHITECT_IDLE`) and keeps a 30m ceiling on the whole script, retries included (`ARCHITECT_WALL_CLOCK`). Every run prints its longest silence on stderr. Regression matrix: `../watchdog-test.sh`.

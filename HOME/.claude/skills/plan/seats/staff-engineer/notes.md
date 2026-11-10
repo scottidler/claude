@@ -90,3 +90,4 @@ Codex-specific, and deliberately NOT retried by the script:
 - **Trust/approval**: read-only exec runs fully non-interactively (no approval
   prompts) because it cannot do damage; `--skip-git-repo-check` lets it review
   docs that live outside a git repo.
+- **Progress watchdog (2026-11-06)**: the flat 10m cap killed a codex audit that had already run 41 commands and written a 908 KB trace. `../watchdog.sh` now kills on 8m of trace silence (`STAFF_ENGINEER_IDLE`) under a 30m whole-script ceiling (`STAFF_ENGINEER_WALL_CLOCK`). codex writes no timestamps, so its silent gaps were unmeasured when 8m was chosen; each run's stderr line `longest silence Ns` is how that data accrues. Regression matrix: `../watchdog-test.sh`.

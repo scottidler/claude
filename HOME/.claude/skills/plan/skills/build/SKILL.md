@@ -589,11 +589,11 @@ never picks the path itself:
 
 - **Ungated**: it runs `bump release` inline (bump, push, CI wait on that exact
   sha, tag by name, install) and proves the new version live.
-- **Gated**: it dispatches `plan:release-driver` with ENTRY `release` from the
-  feature branch, and the agent owns the whole arc: `bump release` opens the PR,
-  the agent watches it to merge, runs `bump finish`, installs. Never run
-  `bump release` here first and hand over the open PR: the agent has no entry
-  for a PR that is already open.
+- **Gated**: it runs `bump release` on the feature branch (version commit, push;
+  bump never opens a PR), opens the PR with `/pr:create` carrying the printed
+  `Release: rides this PR (vX.Y.Z)` line, then dispatches `plan:release-driver`
+  with ENTRY `merge`: the agent watches it to merge, runs `bump finish`, installs.
+  Leave all of that to `/plan:release`; do not run `bump release` here first.
 - **UNKNOWN or unparseable**: it stops before anything is committed or pushed.
   Report its output and stop.
 

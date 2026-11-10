@@ -839,7 +839,9 @@ type Stages = { excluded: string[]; rest: string[]; excludedText: string[]; rest
  * truth. An absent or wrongly typed list yields none, which makes the rule inert.
  */
 function excludedHeads(settings: Settings): string[] {
-    const sandbox = (settings as { sandbox?: { excludedCommands?: unknown } }).sandbox
+    const sandbox = (settings as { sandbox?: { enabled?: unknown, excludedCommands?: unknown } }).sandbox
+    // Sandbox off (1484c4a): nothing runs sandboxed, so no compound needs splitting.
+    if (sandbox?.enabled === false) { return [] }
     const raw = sandbox?.excludedCommands
     if (!Array.isArray(raw)) { return [] }
     return raw

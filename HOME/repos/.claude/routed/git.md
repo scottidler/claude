@@ -67,7 +67,7 @@ gh api repos/OWNER/REPO/rules/branches/main        # rulesets (repo + org level)
 - The standing release rulings and the superseded ones, each with its hall line: `~/repos/.claude/refs/release-rulings.md`.
 
 - One release, two bare commands, `bump release <repo>` and `bump finish <repo>`, each its own Bash call from any cwd, run with `run_in_background` (the CI wait can pass the 600s foreground cap). Never set `dangerouslyDisableSandbox` on `bump`, `ssh`, or a git network verb: they already run unsandboxed and `intent-guard.sh` denies the flag.
-  - `bump release [-m|-M]`: ungated, it commits the version, pushes main, waits for CI, tags, pushes the tag, installs. Gated, run on the FEATURE branch with the work committed: it commits the version, pushes the branch, opens the PR itself (`Release: rides this PR (vX.Y.Z)`), and stops.
+  - `bump release [-m|-M]`: ungated, it commits the version, pushes main, waits for CI, tags, pushes the tag, installs. Gated, run on the FEATURE branch with the work committed: it commits the version, pushes the branch, and stops. It never opens the PR: it prints the `/pr:create` hand-off and the literal `Release: rides this PR (vX.Y.Z)` line, and `/pr:create` opens the PR with that line in the body.
   - `bump finish`: gated, after the PR merges, from any worktree of the repo. It fast-forwards the default branch, waits for CI on the merged sha, tags, pushes the tag, installs.
 - No `&&`, no env prefix, no wrapper: a bare `bump ...` matches the allow rule; anything chained or prefixed does not.
 - A re-run after red CI reuses the pending version; it never bumps past it.

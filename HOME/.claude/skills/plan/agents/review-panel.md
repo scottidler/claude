@@ -189,11 +189,19 @@ report says so. **Never write `(inferred)` into this file.** If a status is
 unavailable, say that and say what you did to compensate, such as mining a
 preserved trace and re-testing every claim independently.
 
-**Do NOT wrap the scripts in your own `timeout`.** Each script already owns a
-hard per-attempt wall-clock cap and exits 124 on overrun; the script must win
-an outer timeout race (incident: `refs/review-panel-notes.md`). Use the **Bash
-tool's** own `timeout` parameter (1800000, i.e. 30m) as a non-racing backstop
-instead.
+**Do NOT wrap the scripts in your own `timeout`.** Each script owns its caps
+and exits 124 on overrun: an idle watchdog that kills a seat whose trace has not
+grown for 8m (hung), and a 30m ceiling on the whole script, retries included
+(`seats/watchdog.sh`). The script must win an outer timeout race (incident:
+`refs/review-panel-notes.md`). Use the **Bash tool's** own `timeout` parameter
+(2400000, i.e. 40m) as a non-racing backstop instead. The Bash tool caps that
+parameter at 10m unless `BASH_MAX_TIMEOUT_MS` is set; `settings.json` sets it
+to 2400000, and the setting loads at session start.
+
+**A seat's stderr names its longest silence** (`longest silence Ns (idle limit
+480s)`). Quote both seats' lines in the report. A kill says which cap fired:
+`killed as hung` is the idle watchdog, `still producing output at the 30m
+ceiling` means it was working and the scope was too big for one round.
 
 **Report terminal state honestly.** A non-zero rc, or empty/near-empty
 output, means that reviewer FAILED: say so plainly, name the output file and

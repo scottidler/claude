@@ -32,6 +32,13 @@ set -euo pipefail
 #      succeeded on a plain retry. The retry lives HERE, not in the caller, so a
 #      bare /architect run and the review-panel both get it.
 #
+# PROGRESS WATCHDOG (2026-11-06). The flat 10m cap killed both seats mid-audit
+# while they were still producing output. The kill now keys on SILENCE: if the
+# trace stops growing for ARCHITECT_IDLE (default 8m) the seat is hung and dies.
+# ARCHITECT_WALL_CLOCK (default 30m) stays as a ceiling on the WHOLE script,
+# retries included, so it can never outlast a caller's backstop. Rationale and
+# the measured idle gaps: ../watchdog.sh.
+#
 # TIMEOUT TIE (2026-08-03, marquee mcp-auth doc). review-panel wrapped this in
 # `timeout 600` while WALL_CLOCK was also 10m == 600s. The outer kill won, the
 # EXIT trap never ran, and the caller got a 110-byte banner-only file, rc=124, a
@@ -80,16 +87,23 @@ fi
 # when running more than one.
 PIDFILE="${ARCHITECT_PIDFILE:-$SCRATCH/architect.pid}"
 
-# Hard wall-clock cap on ONE gemini attempt. Held identical to the staff-engineer
-# cap on purpose; the value is a hang-killer, not a per-tool performance budget.
-# Per Scott's rule: over 10m means it hung, not that it's slow, so we kill it
-# rather than wait (exit 124 on overrun). A timeout is TERMINAL and is never
-# retried: two 10m hangs back to back is the observed shape, and burning another
-# 10m proves nothing.
-WALL_CLOCK="${ARCHITECT_WALL_CLOCK:-10m}"
+# Ceiling on the WHOLE script, retries included: each attempt gets only what is
+# left of it, so no retry pushes the script past a caller's backstop. A
+# timeout is TERMINAL and is never retried.
+WALL_CLOCK="${ARCHITECT_WALL_CLOCK:-30m}"
+
+# Hang detector: kill when the trace has not grown for this long. 8m clears the
+# longest silence measured in a healthy gemini run (317s); see ../watchdog.sh.
+IDLE="${ARCHITECT_IDLE:-8m}"
+
+# shellcheck source=SCRIPTDIR/../watchdog.sh
+. "$SCRIPT_DIR/../watchdog.sh"
+WALL_SECS=$(seat_seconds "$WALL_CLOCK")
+IDLE_SECS=$(seat_seconds "$IDLE")
+DEADLINE=$(( $(date +%s) + WALL_SECS ))
 
 # Attempts allowed when the backend fails TRANSIENTLY (see is_transient below).
-# 2 means one retry. Worst-case wall clock is MAX_ATTEMPTS * WALL_CLOCK.
+# 2 means one retry. Retries share the one WALL_CLOCK ceiling.
 MAX_ATTEMPTS="${ARCHITECT_MAX_ATTEMPTS:-2}"
 
 # How much of a failed trace to echo. The whole thing has hit 539 KB (a runaway
@@ -229,7 +243,7 @@ preserve_trace() {
 # and the guard it narrows are in pathglob.py's docstring.
 run_attempt() {
   ARCHITECT_PATHGLOB=1 \
-  timeout --kill-after=30s "$WALL_CLOCK" \
+  timeout --kill-after=30s "$(( DEADLINE - $(date +%s) ))s" \
     gemini \
     -m gemini-3.1-pro-preview \
     --approval-mode plan \
@@ -237,7 +251,8 @@ run_attempt() {
     --policy "$SCRIPT_DIR/policy.toml" \
     "${INCLUDE_ARGS[@]}" \
     --prompt="$PROMPT" \
-    -o stream-json <"$DOC_PATH" >"$TRACE" 2>&1
+    -o stream-json <"$DOC_PATH" >"$TRACE" 2>&1 &
+  watch_progress "$!" "$TRACE" "$IDLE_SECS"
 }
 
 FINAL=""
@@ -265,8 +280,10 @@ while :; do
   # Stop on success, on a timeout (terminal by policy), when attempts are
   # exhausted, or when a retry cannot help.
   if { [ "$STATUS" -eq 0 ] && [ -n "$FINAL" ]; } \
+     || [ "$SEAT_IDLE_KILLED" -eq 1 ] \
      || [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ] \
      || [ "$attempt" -ge "$MAX_ATTEMPTS" ] \
+     || [ $(( DEADLINE - $(date +%s) )) -lt 60 ] \
      || ! is_transient; then
     break
   fi
@@ -284,9 +301,15 @@ if [ "$DENIED" -gt 0 ]; then
   echo "architect: warning: $DENIED tool call(s) denied by gemini's policy guard (see pathglob.py)." >&2
 fi
 
-if [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; then
-  echo "error: gemini exceeded the ${WALL_CLOCK} wall-clock limit and was killed. No complete review." >&2
-  echo "       Over 10m means it hung, not that it's slow. Retry rather than waiting longer." >&2
+echo "architect: longest silence ${SEAT_MAX_GAP}s (idle limit ${IDLE_SECS}s)" >&2
+
+if [ "$SEAT_IDLE_KILLED" -eq 1 ]; then
+  echo "error: gemini wrote nothing for ${IDLE} and was killed as hung. No complete review." >&2
+  preserve_trace
+  exit 124
+elif [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; then
+  echo "error: gemini was still producing output at the ${WALL_CLOCK} ceiling and was killed. No complete review." >&2
+  echo "       It was not hung (the idle watchdog never fired). Narrow the review scope." >&2
   preserve_trace
   exit 124
 elif [ "$STATUS" -eq 0 ] && [ -n "$FINAL" ]; then

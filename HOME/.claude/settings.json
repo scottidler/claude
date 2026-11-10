@@ -1,6 +1,7 @@
 {
   "cleanupPeriodDays": 90,
   "env": {
+    "BASH_MAX_TIMEOUT_MS": "2400000",
     "CLAUDE_COLORSCHEME": "dracula",
     "ENABLE_TOOL_SEARCH": "true",
     "MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES": "3",
