@@ -45,9 +45,10 @@ instead of bumping past it. One intended release, one version number.
 ## GATED (main requires a PR)
 
 On the FEATURE branch, work committed: `bump release [-m|-M]`. It commits the
-version as its own commit, pushes the branch, opens the PR itself with a title
-derived from the branch and a body ending `Release: rides this PR (vX.Y.Z)`, and
-stops. After the PR merges: `bump finish`, from any worktree. It fast-forwards the
+version as its own commit, pushes the branch, and stops. It never opens the PR:
+with none open it prints `next: open the PR with /pr:create` and the literal
+`Release: rides this PR (vX.Y.Z)` line the body must carry. Open the PR with
+`/pr:create` in the main session. After the PR merges: `bump finish`, from any worktree. It fast-forwards the
 default branch where it is checked out, waits for CI on the merged sha, tags it,
 pushes the tag by name, and installs.
 

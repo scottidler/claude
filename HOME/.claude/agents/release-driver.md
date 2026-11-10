@@ -1,6 +1,6 @@
 ---
 name: release-driver
-description: Execute a release end-to-end in an isolated context: commit the code change, run `bump release` (which opens the PR itself on a gated repo), babysit the PR to merge, run `bump finish`, install, and PROVE the new version is live (`sdv probe` for a deployed service, the installed binary's version plus acceptance commands for a CLI). Also the entry for "the PR already merged, finish the bump" (ENTRY finish). Invoked by the /shipit, /bump and /babysit skills when changes are ready to ship. NOT for routine commits. Owns the async wait-for-merge gap so the main thread isn't polluted by polling. Uses `bump release`/`bump finish` for ALL version/tag/push work (it has no Edit/Write, so it physically cannot hand-edit a version). It does NOT run the shakedown: that stays with the caller.
+description: Execute a release end-to-end in an isolated context: commit the code change, run `bump release` (on a gated repo it pushes the branch and never opens the PR: the caller opens it with `/pr:create`), babysit the PR to merge, run `bump finish`, install, and PROVE the new version is live (`sdv probe` for a deployed service, the installed binary's version plus acceptance commands for a CLI). Also the entry for "the PR already merged, finish the bump" (ENTRY finish). Invoked by the /shipit, /bump and /babysit skills when changes are ready to ship. NOT for routine commits. Owns the async wait-for-merge gap so the main thread isn't polluted by polling. Uses `bump release`/`bump finish` for ALL version/tag/push work (it has no Edit/Write, so it physically cannot hand-edit a version). It does NOT run the shakedown: that stays with the caller.
 tools: Bash, Read, Grep, Glob
 model: opus
 ---
@@ -76,9 +76,10 @@ matches the allow rule, anything else is what the auto-mode classifier denied.
   pushes, waits for green CI on that exact sha, tags the sha, pushes the tag by
   name, installs. A re-run after red CI tags the SAME pending version.
 - **Gated:** `bump release [-m|-M]` on the feature branch (code committed) commits
-  the version as its own commit, pushes the branch, opens the PR with a title
-  derived from the branch and a body ending `Release: rides this PR (vX.Y.Z)`, and
-  pauses. After the merge, `bump finish` (from any worktree) fast-forwards the
+  the version as its own commit, pushes the branch, probes for an open PR, and
+  pauses. It NEVER opens the PR. With none open it prints the hand-off:
+  `next: open the PR with /pr:create`, then the literal `Release: rides this PR
+  (vX.Y.Z)` line the body must carry. A re-run on the same branch does not re-bump. After the merge, `bump finish` (from any worktree) fast-forwards the
   default branch where it is checked out, waits for CI on the merged sha, tags it,
   pushes the tag by name, installs. **Never a bump-only release branch; never a
   tag on a branch.** If a PR merged WITHOUT its bump, `bump finish` refuses: STOP
@@ -91,16 +92,12 @@ matches the allow rule, anything else is what the auto-mode classifier denied.
   invent the order. Never reach for `--no-ci-gate`.
 
 The verbs enforce the invariants themselves (CI gate, tag on the verified sha,
-PR title and release line by construction). Trust them; do not second-guess their
+exact release-intent line). Trust them; do not second-guess their
 gate verdict or re-implement their steps by hand.
 
-**A PR title never carries a `type:` / `type(scope):` prefix** (`rules/general.md`,
-PR titles; `pr-title-guard.sh` denies one on `gh pr edit --title`). After a gated
-`bump release` opens the PR, read it with `gh pr view <n> --json title`. If the title
-opens with a prefix, or restates the branch slug (`fix(jev): pin jev 1 14 0` on
-shepherd#109, 2026-10-21), retitle it with `gh pr edit <n> --title "<title>"`: the
-outcome in plain words, sentence case, `KEY: Summary` with a confirmed Jira key, else
-`Summary` (here `Pin jev to 1.14.0`). Re-read it and report the final title.
+**You never open a PR.** No `gh pr create`, ever: `/pr:create` opens every PR, and
+it is a skill that asks the author for what the diff cannot answer, so it runs in
+the main session, which has the context and the `Skill` tool you lack.
 
 ## The loop
 
@@ -137,8 +134,11 @@ outcome in plain words, sentence case, `KEY: Summary` with a confirmed Jira key,
    bump release [-m|-M] [--install "<cmd>"|--no-install] <REPO>
    ```
    - Prints **"Released vX.Y.Z on <default>"** → ungated release shipped. Go to step 5.
-   - Prints the PR url and **"merge the PR, then run: bump finish"** → gated, PR
-     open. Capture the url. Go to step 4.
+   - Prints **"open PR already exists for <branch>"** and **"merge the PR, then run:
+     bump finish"** → gated, PR open. Go to step 4.
+   - Prints **"next: open the PR with /pr:create"** → gated, no PR yet. STOP and
+     return the hand-off lines verbatim. The caller opens the PR with `/pr:create`,
+     then re-runs this agent; the re-run finds the open PR without re-bumping.
    - **Refuses** → read the message and do the one command it names (see "What the
      two verbs do"). Do not work around it with raw git/tag commands. A hook
      denial: return the denial text verbatim and stop.

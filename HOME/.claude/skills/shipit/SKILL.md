@@ -26,7 +26,9 @@ sequence the model has to remember.
   every CI failure costs a SECOND version number (the double-tap; otto burned
   three pairs that way).
 - **GATED** (main requires a PR): on the feature branch, `bump release`: version
-  commit rides the feature PR, branch pushed, PR opened by the verb itself. After
+  commit rides the feature PR, branch pushed, then the verb stops. It never opens
+  the PR: open it with `/pr:create`, carrying the `Release: rides this PR` line
+  the verb prints. After
   the merge, `bump finish` (any worktree): pull main, wait for CI, tag, push the
   tag, install. Never a tag on a branch. Never a bump-only release branch.
 
@@ -53,7 +55,8 @@ Both flows end the same way: install, then PROVE the new version is live.
      space or newline separated. Without them the CLI half proves only `--version`.
 
    The agent commits the real files, runs `bump release` (which detects gated vs
-   ungated, and on a gated repo opens the PR itself), babysits the PR to merge, runs
+   ungated). On a gated repo with no open PR it returns the `/pr:create` hand-off:
+   open the PR with `/pr:create`, then spawn the agent again. It babysits the PR to merge, runs
    `bump finish`, verifies the tag is on `origin/<default>`, installs, and proves
    the version is live. Relay its report.
 
@@ -78,13 +81,9 @@ hand, but follow the `bump` skill exactly:
 # commit the real files by explicit path (NEVER git add -A, it sweeps scratch assets)
 git add <files> && git commit -m "<message>"
 bump release [-m|-M] [--install "<cmd>"|--no-install] <repo>   # bare, run_in_background
-# gated repos stop after opening the PR; after the merge:
+# gated repos stop after pushing the branch; /pr:create opens the PR; after the merge:
 bump finish <repo>                                 # bare, run_in_background
 ```
-
-The `<repo>` positional ships in the bump release that carries scottidler/bump
-commit eba0468; until `bump release --help` shows `[DIR]`, `cd <repo>` in its own
-Bash call and run the verb bare without it.
 
 ## Rules that never bend
 
