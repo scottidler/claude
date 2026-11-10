@@ -99,5 +99,12 @@ bump --gates       # which flow applies (classic protection AND repo/org ruleset
 bump -n            # dry run of a plain bump
 ```
 
-For Rust projects using `/rust-cli-coder` conventions, the version `bump` sets is
-picked up by `build.rs` and exposed via `GIT_DESCRIBE` for clap's `--version`.
+For Rust projects using `/rust-cli-coder` conventions, the version `bump` writes to
+`Cargo.toml` is the version the tag carries and the version the binary reports:
+`build.rs` runs `build_version::emit()` (`tatari-tv/build-version-rs`), which sets
+`BUILD_VERSION` to the bare `vX.Y.Z` on the tagged commit and `vX.Y.Z-N-g<sha>` past it,
+and clap reads it with `version = env!("BUILD_VERSION")`. After the install, `bump
+release` / `bump finish` run `<bin> --version` and fail unless it names the tag exactly;
+a `-N-g<sha>` or a bare `X.Y.Z` there is a build problem to fix, never a version to
+accept. A library crate (no binary target) gets no default install; pass `--no-install`
+or let bump skip it.

@@ -20,7 +20,8 @@ This creates the complete project structure with:
 - src/main.rs (logging, error handling)
 - src/cli.rs (clap derive)
 - src/config.rs (YAML config loading)
-- build.rs (git describe versioning)
+- build.rs (`build_version::emit()`: version from Cargo.toml and the tag)
+- tests/version.rs (`--version` prints `BUILD_VERSION`, anchored on Cargo.toml)
 - .otto.yml (CI tasks)
 
 ### 2. Verify Project Structure

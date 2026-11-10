@@ -391,7 +391,8 @@ This sets up the complete project structure with all conventions pre-configured.
 - **src/main.rs** with logging setup and error handling
 - **src/cli.rs** with clap derive pattern
 - **src/config.rs** with YAML config loading
-- **build.rs** for git describe versioning
+- **build.rs** calling `build_version::emit()` (version from Cargo.toml and the tag)
+- **tests/version.rs** asserting `--version` prints `BUILD_VERSION`, anchored on Cargo.toml
 - **.otto.yml** for CI/CD tasks
 
 ## Core Dependencies
@@ -532,7 +533,7 @@ fn setup_logging() -> Result<()> {
 #[command(
     name = "myapp",
     about = "Description of what this tool does",
-    version = env!("GIT_DESCRIBE"),
+    version = env!("BUILD_VERSION"),
 )]
 pub struct Cli {
     #[arg(short, long)]
@@ -543,7 +544,9 @@ pub struct Cli {
 }
 ```
 
-Use `GIT_DESCRIBE` from build.rs, not `CARGO_PKG_VERSION`.
+Use `BUILD_VERSION` from build.rs, not `CARGO_PKG_VERSION`. On the tagged commit it is
+the bare `vX.Y.Z` (equal to the tag and to `v` + Cargo.toml's version); past the tag it
+is `vX.Y.Z-N-g<sha>`. `bump release` verifies the installed binary prints the tag.
 
 ## Configuration Pattern
 
@@ -557,22 +560,24 @@ Config lives at `~/.config/<project>/<project>.yml`.
 
 ## Build Script (build.rs)
 
+Never hand-roll `git describe`. The shared crate `tatari-tv/build-version-rs` owns the
+contract (anchored on Cargo.toml, fails loudly on a shallow clone or a tag that is not an
+ancestor, bare `v<Cargo.toml version>` when no tag exists yet):
+
+```toml
+[build-dependencies]
+build-version = { git = "https://github.com/tatari-tv/build-version-rs", tag = "v0.1.0", version = "0.1.0" }
+```
+
 ```rust
 fn main() {
-    let git_describe = std::process::Command::new("git")
-        .args(["describe", "--tags", "--always"])
-        .output()
-        .and_then(|o| if o.status.success() {
-            Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
-        } else {
-            Err(std::io::Error::other("git describe failed"))
-        })
-        .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
-
-    println!("cargo:rustc-env=GIT_DESCRIBE={}", git_describe);
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    build_version::emit();
 }
 ```
+
+`tests/version.rs` pins both ends: `--version` prints `<name> {BUILD_VERSION}`, and
+`BUILD_VERSION` equals `v{CARGO_PKG_VERSION}` or starts with `v{CARGO_PKG_VERSION}-`.
+`scaffold` generates all three files.
 
 ## CI/CD with Otto
 

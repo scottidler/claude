@@ -179,7 +179,9 @@ outcome in plain words, sentence case, `KEY: Summary` with a confirmed Jira key,
      `git rev-parse "$(git describe --tags --abbrev=0)^{commit}"` == `git rev-parse origin/<default>`.
    - The tag is on the remote: `git ls-remote --tags origin | grep vX.Y.Z`.
    - The tag is annotated: `git cat-file -t vX.Y.Z` → `tag`.
-   - Install (if run) reported the new version.
+   - Install (if run) reported the new version: bump's own `verify: <bin> --version -> <name> vX.Y.Z`
+     line. bump fails the verb when the installed binary does not print the tag exactly; a
+     failed verify is reported as such, never rounded to installed.
 
 6. **Prove the new version is LIVE, and report the proof, not a claim.** A tag on
    `origin/<default>` says the release exists; it says nothing about anything
@@ -204,6 +206,11 @@ outcome in plain words, sentence case, `KEY: Summary` with a confirmed Jira key,
      exact unverified claim this step exists to kill.
    - Still the old version when your patience runs out → report **NOT LIVE**, with
      the last probe output and how long you waited. Never round that up to shipped.
+   - The match is the whole token `vX.Y.Z`. A probe answering `vX.Y.Z-N-g<sha>` is a
+     build from a commit past the tag (a non-release build, usually the default
+     branch's image), not this release: **NOT LIVE** for the tag, say so with the
+     string. A bare `X.Y.Z` means the service still reports `CARGO_PKG_VERSION`:
+     report that as a migration gap, not as live.
    - `sdv probe` failing on auth (`sdv login`) is a precondition to fix and retry
      once, not a reason to skip the proof.
 
@@ -214,7 +221,10 @@ outcome in plain words, sentence case, `KEY: Summary` with a confirmed Jira key,
    ```
    - Report the exact `--version` string. Mismatch with EXPECTED-VERSION, or a
      `command -v` pointing somewhere the install didn't write → **NOT LIVE**, and
-     say which of the two it was.
+     say which of the two it was. EXPECTED-VERSION is the tag, whole token: `bump
+     v0.4.6` passes; `v0.4.6-2-gabc1234` is a build past the tag (not the release
+     build), and `0.4.6` is a crate still on `CARGO_PKG_VERSION`; both are **NOT
+     LIVE**, each named by its shape.
    - Then run each ACCEPTANCE command, in order, and report each one's exit status
      with enough output to read. A failing acceptance command is reported as
      failing; it does not get retried into silence.
