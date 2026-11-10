@@ -147,10 +147,11 @@ tasks:
       # Rollback baseline for the plan plugin soak
       # (docs/design/2026-10-29-plan-plugin.md). The old pipeline skills and
       # agents are the rollback target while plan/ soaks beside them, so they stay
-      # byte-identical to the commit before the plugin landed: fixes go to
-      # plan/ only. Pinned to a literal SHA, not a ref that moves. Phase 6 removes
-      # the old files and this check together.
-      PLAN_BASELINE=62dc65f2935efe78308bb87abd0d6eca0a12bb10
+      # byte-identical to a pinned commit: fixes go to plan/ only. Pinned to a
+      # literal SHA, not a ref that moves. Moved from 62dc65f to 7dbeda7 on
+      # Scott's order, 2026-11-09, to carry the bump v0.4.8 prose fixes. Phase 6
+      # removes the old files and this check together.
+      PLAN_BASELINE=7dbeda7403bdc2c163ba6c565034b0c7f8444ae5
       PLAN_OLD=(
         HOME/.claude/skills/create-design-doc
         HOME/.claude/skills/how-to-execute-a-plan
