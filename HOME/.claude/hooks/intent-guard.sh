@@ -1869,15 +1869,32 @@ $pargs" in
 --all"*|*"
 --mirror"*) bulk=1 ;;
       esac
-      if [ "$bulk" -eq 1 ]; then
+      # A delete publishes no bytes, so there is nothing to walk. `--delete`
+      # turns every operand into a ref NAME on the remote, which never
+      # resolves locally, so the walk below denied every branch delete
+      # (scottidler/bump `release-verbs-take-dir`, 2026-11-11). The `:dst`
+      # refspec form is handled per refspec in the loop.
+      deleting=0
+      case "
+$pargs
+" in
+        *"
+--delete
+"*|*"
+-d
+"*) deleting=1 ;;
+      esac
+      if [ "$deleting" -eq 1 ]; then
+        refspecs=""
+      elif [ "$bulk" -eq 1 ]; then
         refspecs=$(git -C "$gr" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null)
       else
         refspecs=$(printf '%s' "$ptoks" | tail -n +2)
       fi
-      if [ -z "$refspecs" ]; then
+      if [ -z "$refspecs" ] && [ "$deleting" -eq 0 ]; then
         refspecs=$(git -C "$gr" symbolic-ref --short HEAD 2>/dev/null)
       fi
-      [ -n "$refspecs" ] || deny "$PUBLIC_DENY (no push source could be determined, so the range cannot be computed)"
+      [ -n "$refspecs" ] || [ "$deleting" -eq 1 ] || deny "$PUBLIC_DENY (no push source could be determined, so the range cannot be computed)"
 
     while IFS= read -r refspec; do
       [ -n "$refspec" ] || continue
@@ -1885,6 +1902,12 @@ $pargs" in
       dst="${refspec#*:}"
       [ "$dst" = "$refspec" ] && dst="$src"
       src="${src#+}"
+      # `:dst` (or `+:dst`) deletes dst on the remote and publishes nothing.
+      # Only an empty source WITH a colon: a bare empty token is still a
+      # source that cannot resolve, and stays a deny.
+      case "$refspec" in
+        :*|+:*) continue ;;
+      esac
       # `@{u}..HEAD` describes HEAD, not the ref being pushed, and it errors on
       # a fresh branch, which is this repo's normal landing flow. The
       # destination is read from the REMOTE: a push is already a network

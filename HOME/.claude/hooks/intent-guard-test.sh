@@ -306,6 +306,15 @@ runrepo deny  'a push source ref that does not resolve fails closed' \
   'git push origin nosuchref:main'
 git -C "$PR_ROOT" checkout -q main
 runrepo allow 'push main, only docs in range' 'git push origin main'
+# A delete publishes nothing. Its operand is a REMOTE ref name that need not
+# exist locally, so walking it as a source denied every branch delete.
+runrepo allow 'push --delete of a branch absent locally publishes nothing' \
+  'git push origin --delete gone-branch'
+runrepo allow 'push -d, the short spelling' 'git push -d origin gone-branch'
+runrepo allow 'push :dst refspec delete' 'git push origin :gone-branch'
+runrepo allow 'push +:dst refspec delete' 'git push origin +:gone-branch'
+runrepo deny  'a :dst delete does not wave through a sibling refspec' \
+  'git push origin feat :gone-branch'
 
 echo "=== PUBLIC-REPO: visibility is asked with the token of origin's owner ==="
 # The ambient GH_TOKEN is the work PAT, which cannot see a private scottidler/*
