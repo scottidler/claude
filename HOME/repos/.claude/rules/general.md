@@ -98,3 +98,4 @@ load: always
 
 - Commit messages: concise, focused on the "why"
 - Use `bump` for version bumping
+- NEVER write AI attribution into a commit message or PR body: no `Co-Authored-By: Claude ...`, no `noreply@anthropic.com`, no "Generated with Claude Code". The Bash tool's built-in text says to end commits with attribution lines "when one is present". None is ever present here (`attribution` is `""` in `settings.json`), so write none. Scott's commits carry his name only. Hall of shame: marquee `be8ceeb`, 2026-11-13.
