@@ -569,6 +569,9 @@ Reply to approve. You may approve all, a subset (e.g. "bump and push, skip insta
 or decline. I will run ONLY what you approve.
 ```
 
+End the checkpoint message with the closing block (see Closing), so the
+pending list and the verdict are the last thing Scott reads.
+
 Do not proceed past this point without an explicit affirmative response. If the
 user declines or does not respond, stop: the per-phase commits are already
 safely in local history and nothing is lost. Run only the actions the user
@@ -649,6 +652,36 @@ checkpoint and run ONLY with explicit user approval. Never bump, push, tag, or
 install without it.
 
 ## Closing
+
+### The closing block: answer the three questions before Scott asks them
+
+Scott asked "code complete? rp'd? ready to release?" in session after session
+because the run ended without saying. **Every turn of this skill that ends
+waiting on Scott ends with this block as its LAST lines**: the step 3
+checkpoint, a blocked phase, a STOP. Nothing after it: no offer, no recap.
+
+```
+Code complete: yes (<N>/<N> phases, otto ci green, criteria pass) | no (<phase or criterion that is not>)
+rp'd: yes (audit round <N>, <M> findings folded, 0 open) | no (<state: not dispatched, round N running since HH:MM, N items open>)
+Ready to release: yes | no (<the one blocker in the agent's own work>, next: <the action>)
+Your call: approve <bump level, push, tag, install>. Reply "release". (Or the pending decision in full, with options and Rec.)
+```
+
+- **Ready to release reports the agent's work, never Scott's pending
+  approval or decision.** Waiting on Scott is `yes` plus the `Your call:` line.
+  `no` is only for work the agent still owes. `Your call:` restates the
+  question in full every time, never "my question from earlier".
+
+- **Ready to release: yes** requires all three: every phase committed with CI
+  green, every acceptance criterion PASS (step 0.5), and the step 2 audit back
+  with every finding folded or pushed back. Anything less is `no`.
+- **Do not end the turn while the audit is running** if there is anything left
+  to do. If the turn must end mid-audit, the block still closes it
+  (`rp'd: no (audit round 1 running since 15:58)`). When the audit lands, fold
+  the findings, then close again with the updated block.
+- After the release runs (step 4-7), `/plan:release` owns the closing block.
+
+### What to report above the block
 
 Report what shipped: the phase commits, the tag if one was cut, the CI result,
 and anything that came back from the runtime check in step 7. Name explicitly

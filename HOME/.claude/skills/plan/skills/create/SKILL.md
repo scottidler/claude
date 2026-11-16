@@ -54,7 +54,7 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
 
    **Another panel round runs ONLY when open items or disputes remain.** Once
    every finding is folded in or pushed back and nothing is open or disputed,
-   the doc is ready: stop and tell Scott. Never re-dispatch to "verify the
+   the doc is ready: stop and tell Scott with the closing block (below). Never re-dispatch to "verify the
    fixes" or because rounds remain under the cap. A round 2+ dispatch lists
    each item as `OPEN: <item>` or `DISPUTE: <finding> | <pushback>`, and
    `panel-round-guard.sh` denies one that lists none.
@@ -107,6 +107,37 @@ Record the units the command actually emits: `rg -c` counts matching **lines**,
 other is how a correct observation gets read as false.
 
 See [example.md](example.md) for a sample review process.
+
+## Closing: answer the three questions before Scott asks them
+
+Scott asked "doc complete? rp'd? ready to build?" in session after session
+because the run ended without saying. **Every turn of this skill that ends
+waiting on Scott ends with this block as its LAST lines.** Nothing after it:
+no offer, no recap, no question.
+
+```
+Doc complete: yes | no (<what is missing: passes not run, criteria not executed>)
+rp'd: yes (<N> rounds, 0 open, 0 disputed) | no (<state: not dispatched, round N running since HH:MM, N items open>)
+Ready to build: yes | no (<the one blocker in the agent's own work>, next: <the action>)
+Your call: <the decision, inline, options with pipes>. Rec: <X> (<one-phrase reason>). Reply with your pick or "build".
+```
+
+- **Ready to build reports the agent's work, never Scott's pending answer.**
+  Waiting on Scott's approval or Scott's decision is NOT `no`. It is `yes`,
+  plus the `Your call:` line. `no` is only for work the agent still owes:
+  passes not run, panel items open, criteria not executed.
+- **Ready to build: yes** requires: passes done, the panel's last round
+  dispositioned, every criterion carries an `Observed on main:` line.
+- **`Your call:` states the question in full, every time.** Never "my question
+  from earlier is still waiting": restate it, options and Rec included. With
+  no decision pending, the line reads `Your call: approve the build. Reply "build".`
+- **Do not end the turn while a panel round is running** if there is anything
+  left to do. If the turn must end mid-round, the block still closes it
+  (`rp'd: no (round 2 running since 14:05)`). When the round lands, finish
+  the dispositions and close again with the updated block.
+- A decision only Scott can make (an escalated dispute, a naming or key
+  choice) is recorded in the doc as a Resolved Decision once he answers. Until
+  then it rides the `Your call:` line, and it does not flip Ready to `no`.
 
 ## Voice
 

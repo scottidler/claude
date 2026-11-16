@@ -227,6 +227,28 @@ Every `bump` refusal names its one exact next command.
   okta-auth-rs orphan vector).
 - **Install fails:** report it, and do not roll back the push: the code shipped.
 
+## Closing: answer the three questions before Scott asks them
+
+**Every turn of this skill that ends waiting on Scott ends with this block as
+its LAST lines**: a shipped release, a refusal, a STOP, a relayed driver
+report, or a PR handed to the driver. Nothing after it: no offer, no recap.
+
+```
+Released: yes (vX.Y.Z tagged on origin/<default>) | no (<state: PR open <url>, CI red, refused: <reason>>)
+Live: yes (<proof: `<binary> --version` output | final sdv probe line>) | no (<last observed version>) | n/a (not released)
+Done: yes | no (<what is left and who runs it: merge wait in plan:release-driver, shakedown, a manual step>)
+Your call: <only if something waits on Scott: the question in full, options, Rec>. Omit the line when nothing does.
+```
+
+- A step that waits on Scott (a merge only he can approve, a standalone order)
+  goes on `Your call:`, stated in full. It is never folded into a `no`.
+
+- **Live: yes** needs the pasted proof from Branch 1 step 5 or the driver's
+  report. Green CI or a pushed tag is `Live: no`.
+- **Done: yes** means released, live, and acceptance commands run. If the
+  driver is still waiting on a merge, `Done: no (merge wait, plan:release-driver
+  watching <PR url>)`, and the block closes again when its report lands.
+
 ## `bump` reference
 
 ```bash
