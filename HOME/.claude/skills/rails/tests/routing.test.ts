@@ -13,6 +13,9 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+// The engine's type-check carries no DOM or Node lib, so the timer is declared here.
+declare function setTimeout(handler: (...args: any[]) => void, ms: number): unknown
+
 const HOME = '/home/saidler'
 const LINK_DIR = HOME + '/repos/.claude/routed'
 const BULK_DIR = HOME + '/repos/.claude/rules'

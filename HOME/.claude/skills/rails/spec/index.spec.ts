@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { homedir } from 'node:os'
-import { internals, register } from './index.ts'
+import { internals, register } from '../hooks/index.ts'
 
 const { ghSpots, headSpots, segment, personaFor, inject, inWorkTree } = internals
 const { splitWords, stageComment, resolvePath, rmRewrite } = internals
@@ -764,7 +764,7 @@ describe('module loads in the engine', () => {
     // and `claude-code`; bun does not, so a `node:os` import passed every test
     // here while rails was dark in every fresh session (36f02a4).
     test('index.ts imports only claude-code and relative files', async () => {
-        const src = await Bun.file(new URL('./index.ts', import.meta.url)).text()
+        const src = await Bun.file(new URL('../hooks/index.ts', import.meta.url)).text()
         const specs = [...src.matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1])
         expect(specs.length).toBeGreaterThan(0)
         // `../types/index.d.ts` is the plugin's own `$.state` contract, a file of the plugin.

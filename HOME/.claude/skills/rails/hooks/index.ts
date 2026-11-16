@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, Settings, ToolCallResult } from 'claude-code'
-import { buildIndex, frontmatter, matchPrompt, matchTool, parseLoad } from './rules.ts'
-import type { RuleIndex } from './rules.ts'
+import { buildIndex, frontmatter, matchPrompt, matchTool, parseLoad } from './rules'
+import type { RuleIndex } from './rules'
 import type { RailsLoopLedger, RailsRuleLedger } from '../types/index.d.ts'
 
 /**

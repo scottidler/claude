@@ -19,9 +19,9 @@ tasks:
         HOME/.claude/skills/anthropic-usage-report/SKILL.md
         HOME/.claude/skills/create-design-doc/SKILL.md
         HOME/.claude/skills/rails/hooks/index.ts
-        HOME/.claude/skills/rails/hooks/index.spec.ts
+        HOME/.claude/skills/rails/spec/index.spec.ts
         HOME/.claude/skills/rails/hooks/rules.ts
-        HOME/.claude/skills/rails/hooks/rules.spec.ts
+        HOME/.claude/skills/rails/spec/rules.spec.ts
         HOME/.claude/skills/rails/tests/routing.test.ts
         HOME/.claude/skills/rails/types/index.d.ts
         HOME/.claude/skills/session/hooks/index.ts
@@ -235,8 +235,8 @@ tasks:
       bash bin/prose-report-test.sh
       # Two runners, partitioned by suffix: bun's *.spec.ts under hooks/, and the
       # engine kit's *.test.ts under tests/ (the kit refuses bun:test imports).
-      echo "=== bun test (rails/hooks) ==="
-      (cd HOME/.claude/skills/rails/hooks && bun test)
+      echo "=== bun test (rails/spec) ==="
+      (cd HOME/.claude/skills/rails/spec && bun test)
       echo "=== claude plugin test rails ==="
       claude plugin test HOME/.claude/skills/rails
       # The engine's own loader rules (imports, manifest schema); bun cannot see them.

@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { internals } from './index.ts'
+import { internals } from '../hooks/index.ts'
 import {
     buildIndex, frontmatter, matchPrompt, matchTool, misplaced, normalizeStatement, parseLoad, ruleAt,
-} from './rules.ts'
-import type { RuleIndex } from './rules.ts'
+} from '../hooks/rules.ts'
+import type { RuleIndex } from '../hooks/rules.ts'
 
 const HOME_DIR = resolve(import.meta.dir, '../../../..')
 const RULES_DIR = join(HOME_DIR, 'repos/.claude/rules')

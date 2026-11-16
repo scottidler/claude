@@ -4,7 +4,7 @@
  * `$.session` read and `$.tool.register` is answered here, from memory.
  */
 import { describe, expect, test } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { On, SessionUsage } from 'claude-code'
 import { readSeat } from '../hooks/index'
 
 const TOOL = 'mcp__session__info'
@@ -66,7 +66,7 @@ function world(on: On): World {
             cost: { usd: 0.42 },
         }
         if (asked !== undefined && w.withBreakdown) { usage.context.breakdown = BREAKDOWN }
-        return { value: usage }
+        return { value: usage as unknown as SessionUsage }
     })
     return w
 }
@@ -185,7 +185,7 @@ describe('session: mcp__session__info', () => {
 
     test('a prompt typed over SSH reads promptTypedOnHost false', async ($, on) => {
         const w = world(on)
-        await $.prompt.submit({ text: 'hi' })
+        await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
         expect(w.probes).toBe(1)
         const r = facts(await $.tool.call({ tool: TOOL }))
         expect(r.seat.promptTypedOnHost).toBe(false)
@@ -195,7 +195,7 @@ describe('session: mcp__session__info', () => {
     test('a prompt typed at the local terminal reads promptTypedOnHost true', async ($, on) => {
         const w = world(on)
         w.probe = 'H ripr\nL pts/0 1792239452\nR 10.10.10.13 ltl-7007.lan\n'
-        await $.prompt.submit({ text: 'hi' })
+        await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
         w.probe = 'H ripr\nL pts/0 1792239452\n'
         const r = facts(await $.tool.call({ tool: TOOL }))
         expect(r.seat.promptTypedOnHost).toBe(true)
