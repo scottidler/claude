@@ -75,12 +75,10 @@ these hold:
 - Scott has called this repo protected or PR-only in this session
 - the repo's own `CLAUDE.md` or `AGENTS.md` says changes land by PR
 
-Then stop and ask (2026-10-07 (d): when the check says unprotected on a repo
-Scott treats as protected, stop and ask; do not ship). Nothing is committed or
-pushed before the answer. Ask in the shape `rules/interaction.md` gives: the
-problem (the verdict line verbatim, and the signal that says protected), the
-decision, A: ship ungated inline / B: ship as a PR through the gated path, and a
-`Rec:`.
+Then treat the repo as protected and go to Branch 2 (2026-10-07 (d): when the
+check says unprotected on a repo Scott treats as protected, do not ship
+ungated). State the signal in one line (the verdict line verbatim, and what
+says protected). Never ask which path to take, and never offer options.
 
 None of them hold: go to Branch 1.
 
@@ -227,27 +225,31 @@ Every `bump` refusal names its one exact next command.
   okta-auth-rs orphan vector).
 - **Install fails:** report it, and do not roll back the push: the code shipped.
 
-## Closing: answer the three questions before Scott asks them
+## Handoff: one block, only when the release is done
 
-**Every turn of this skill that ends waiting on Scott ends with this block as
-its LAST lines**: a shipped release, a refusal, a STOP, a relayed driver
-report, or a PR handed to the driver. Nothing after it: no offer, no recap.
+The block appears ONCE: when the release is shipped, live and proven, and
+control passes to Scott for the next step. It is the last lines of that
+message. Nothing after it.
 
 ```
-Released: yes (vX.Y.Z tagged on origin/<default>) | no (<state: PR open <url>, CI red, refused: <reason>>)
-Live: yes (<proof: `<binary> --version` output | final sdv probe line>) | no (<last observed version>) | n/a (not released)
-Done: yes | no (<what is left and who runs it: merge wait in plan:release-driver, shakedown, a manual step>)
-Your call: <only if something waits on Scott: the question in full, options, Rec>. Omit the line when nothing does.
+Released: yes (vX.Y.Z tagged on origin/<default>)
+Live: yes (<proof: `<binary> --version` output | final sdv probe line>)
+Done: yes (acceptance commands run)
+Next: <the plan's next step, or "nothing, the plan is complete">.
 ```
 
-- A step that waits on Scott (a merge only he can approve, a standalone order)
-  goes on `Your call:`, stated in full. It is never folded into a `no`.
-
+- **Every line is `yes`.** If any line would be `no`, the release is not done.
+  No block.
+- **Never ask Scott a question with options.** Not in the block, not anywhere
+  in this skill. No A/B, no `Rec:`, no `Your call:`.
+- **Waiting on the driver** (merge wait): one status line with the PR url. The
+  block comes when its report lands and the version is live.
+- **Waiting on a manual action only Scott can take** (approve a merge, give a
+  standalone order): one line naming that action. No block, no options.
+- **Refused or stopped** (CI red, a bump refusal, a rejected push): report the
+  exact state and the one action that clears it. No block, no options.
 - **Live: yes** needs the pasted proof from Branch 1 step 5 or the driver's
-  report. Green CI or a pushed tag is `Live: no`.
-- **Done: yes** means released, live, and acceptance commands run. If the
-  driver is still waiting on a merge, `Done: no (merge wait, plan:release-driver
-  watching <PR url>)`, and the block closes again when its report lands.
+  report. Green CI or a pushed tag is not live.
 
 ## `bump` reference
 

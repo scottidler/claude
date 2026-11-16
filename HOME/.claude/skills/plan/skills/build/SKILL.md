@@ -555,27 +555,18 @@ Fold anything the audit turns up into the phase commits before continuing.
 The remaining steps (bump, push, tag, install) are irreversible or externally
 visible. **Stop here and get explicit user approval before running any of them.**
 
-Display a summary of exactly what is pending, then wait for the user to confirm:
+The checkpoint IS the handoff block (see Handoff). Above it, list every
+external step the plan requires, in plan order: the version bump
+(`<current> -> <proposed>`), push, tag, install, and any other external step
+the plan names (a repo transfer, a PR in another repo). One reply approves the
+list. **Never offer a subset, never offer options, never ask "which steps do I
+run".** The plan already decided the steps. If Scott wants fewer, he says so.
 
-```
-Ready to finalize. The following IRREVERSIBLE / EXTERNALLY-VISIBLE actions are pending:
-
-  - Version bump: <current version> → <proposed version> (<patch|minor|major>)
-  - git push (commits to <remote>/<branch>)
-  - git push origin <vX.Y.Z> (the tag, by name, after the commit is on <default>)
-  - cargo install --path . (installs binary into ~/.cargo/bin)
-
-Reply to approve. You may approve all, a subset (e.g. "bump and push, skip install"),
-or decline. I will run ONLY what you approve.
-```
-
-End the checkpoint message with the closing block (see Closing), so the
-pending list and the verdict are the last thing Scott reads.
-
-Do not proceed past this point without an explicit affirmative response. If the
-user declines or does not respond, stop: the per-phase commits are already
-safely in local history and nothing is lost. Run only the actions the user
-approved, in the order below.
+Do not proceed past this point without his reply. If he does not reply, stop:
+the per-phase commits are already safely in local history and nothing is lost.
+Then run the list in order without asking again. If a step needs a manual
+action only Scott can take (an email accept, a merge approval), say that one
+action in one line and wait. No options, no block.
 
 ### 4-5. Release: invoke `/plan:release` (only if approved)
 
@@ -651,35 +642,42 @@ push, tag, and install, and those are gated behind the step 3 confirmation
 checkpoint and run ONLY with explicit user approval. Never bump, push, tag, or
 install without it.
 
-## Closing
+## Handoff
 
-### The closing block: answer the three questions before Scott asks them
+### The handoff block: one block, only when the work is done
 
-Scott asked "code complete? rp'd? ready to release?" in session after session
-because the run ended without saying. **Every turn of this skill that ends
-waiting on Scott ends with this block as its LAST lines**: the step 3
-checkpoint, a blocked phase, a STOP. Nothing after it: no offer, no recap.
+The block appears ONCE: at the step 3 checkpoint, when every phase that can
+run before the release is built and audited, and control passes to Scott to
+say "release". It is the last lines of that message. Nothing after it.
 
 ```
-Code complete: yes (<N>/<N> phases, otto ci green, criteria pass) | no (<phase or criterion that is not>)
-rp'd: yes (audit round <N>, <M> findings folded, 0 open) | no (<state: not dispatched, round N running since HH:MM, N items open>)
-Ready to release: yes | no (<the one blocker in the agent's own work>, next: <the action>)
-Your call: approve <bump level, push, tag, install>. Reply "release". (Or the pending decision in full, with options and Rec.)
+Code complete: yes (<N>/<N> phases, otto ci green, criteria pass)
+rp'd: yes (audit round <N>, <M> findings folded, 0 open)
+Ready to release: yes
+Next: /plan:release, then <the plan's external steps and after-release phases, in order>. Reply "release".
 ```
 
-- **Ready to release reports the agent's work, never Scott's pending
-  approval or decision.** Waiting on Scott is `yes` plus the `Your call:` line.
-  `no` is only for work the agent still owes. `Your call:` restates the
-  question in full every time, never "my question from earlier".
+- **Every line is `yes`.** If any line would be `no`, the work is not done. Keep
+  working. Do not show the block.
+- **Phases the plan runs after the release** (they need the shipped version or
+  an external step) do not make Code complete `no`. Write
+  `yes (phases 0, 1, 3-6; 2 and 7 run after the release, per the plan)`.
+  After the release, build those phases without asking again.
+- **Never ask Scott a question with options.** Not in the block, not above it,
+  not anywhere in this skill. No A/B, no `Rec:`, no "which do you want", no
+  `Your call:`. A fork the plan does not settle is the agent's to decide: pick
+  on the evidence, record it in the implementation notes, keep going.
+- **An audit running is not a reason to stop.** Wait for its completion
+  notification, fold the findings, then hand off.
+- **Blocked by something outside the agent's reach** (a hook denial, a failing
+  external service, a manual action only Scott can take): one line naming the
+  blocker and the one action that clears it. No block, no options.
+- After the release runs (step 4-7), `/plan:release` owns the handoff block.
 
-- **Ready to release: yes** requires all three: every phase committed with CI
-  green, every acceptance criterion PASS (step 0.5), and the step 2 audit back
-  with every finding folded or pushed back. Anything less is `no`.
-- **Do not end the turn while the audit is running** if there is anything left
-  to do. If the turn must end mid-audit, the block still closes it
-  (`rp'd: no (audit round 1 running since 15:58)`). When the audit lands, fold
-  the findings, then close again with the updated block.
-- After the release runs (step 4-7), `/plan:release` owns the closing block.
+Scar tissue, 2026-11-15: the first version of this block carried a `Your call:`
+line with options and a `Rec:`. A build agent used it to ask "which of steps
+1-3 do I run? A: all three / B: only step 1" about steps the approved plan
+already required, and showed `Code complete: no` beside `Ready to release: yes`.
 
 ### What to report above the block
 

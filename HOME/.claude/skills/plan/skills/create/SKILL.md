@@ -47,14 +47,16 @@ Apply **Jeffrey Emanuel's Rule of Five**: agents produce best output when forced
 5. **Review panel**: send the doc (plus your open questions) to
    `Skill(plan:review)`. Then run the consensus loop: fold in everything you
    agree with, send pushbacks WITH rationale back to the reviewers seeking
-   consensus, escalate to Scott only what the agents cannot close. NEVER
+   consensus. If the agents cannot close an item, the agent decides it: take
+   the side with the stronger evidence, record it in the doc as a Resolved
+   Decision with the reason, and keep going. Never ask Scott to pick. NEVER
    silently drop or defer a finding. **The doc is ready to build only when
    every finding is dispositioned and Open Questions is empty**, Scott never
    builds with open questions or disputes.
 
    **Another panel round runs ONLY when open items or disputes remain.** Once
    every finding is folded in or pushed back and nothing is open or disputed,
-   the doc is ready: stop and tell Scott with the closing block (below). Never re-dispatch to "verify the
+   the doc is ready: stop and hand off with the handoff block (below). Never re-dispatch to "verify the
    fixes" or because rounds remain under the cap. A round 2+ dispatch lists
    each item as `OPEN: <item>` or `DISPUTE: <finding> | <pushback>`, and
    `panel-round-guard.sh` denies one that lists none.
@@ -108,36 +110,34 @@ other is how a correct observation gets read as false.
 
 See [example.md](example.md) for a sample review process.
 
-## Closing: answer the three questions before Scott asks them
+## Handoff: one block, only when the work is done
 
-Scott asked "doc complete? rp'd? ready to build?" in session after session
-because the run ended without saying. **Every turn of this skill that ends
-waiting on Scott ends with this block as its LAST lines.** Nothing after it:
-no offer, no recap, no question.
+The block appears ONCE: when this skill's work is finished and control passes
+to Scott to say "go to the next step". It is the last lines of that message.
+Nothing after it.
 
 ```
-Doc complete: yes | no (<what is missing: passes not run, criteria not executed>)
-rp'd: yes (<N> rounds, 0 open, 0 disputed) | no (<state: not dispatched, round N running since HH:MM, N items open>)
-Ready to build: yes | no (<the one blocker in the agent's own work>, next: <the action>)
-Your call: <the decision, inline, options with pipes>. Rec: <X> (<one-phrase reason>). Reply with your pick or "build".
+Doc complete: yes (<N>/5 passes)
+rp'd: yes (<N> rounds, 0 open, 0 disputed)
+Ready to build: yes (every criterion has an Observed on main: line)
+Next: /plan:build <doc path>. Reply "build".
 ```
 
-- **Ready to build reports the agent's work, never Scott's pending answer.**
-  Waiting on Scott's approval or Scott's decision is NOT `no`. It is `yes`,
-  plus the `Your call:` line. `no` is only for work the agent still owes:
-  passes not run, panel items open, criteria not executed.
-- **Ready to build: yes** requires: passes done, the panel's last round
-  dispositioned, every criterion carries an `Observed on main:` line.
-- **`Your call:` states the question in full, every time.** Never "my question
-  from earlier is still waiting": restate it, options and Rec included. With
-  no decision pending, the line reads `Your call: approve the build. Reply "build".`
-- **Do not end the turn while a panel round is running** if there is anything
-  left to do. If the turn must end mid-round, the block still closes it
-  (`rp'd: no (round 2 running since 14:05)`). When the round lands, finish
-  the dispositions and close again with the updated block.
-- A decision only Scott can make (an escalated dispute, a naming or key
-  choice) is recorded in the doc as a Resolved Decision once he answers. Until
-  then it rides the `Your call:` line, and it does not flip Ready to `no`.
+- **Every line is `yes`.** If any line would be `no`, the work is not done. Keep
+  working. Do not show the block.
+- **Never ask Scott a question with options.** Not in the block, not above it,
+  not anywhere in this skill. No A/B, no `Rec:`, no "which do you want", no
+  `Your call:`. A fork the agents cannot close is the agent's to decide (step 5).
+  Scott overrides at the handoff if he disagrees.
+- **A panel round running is not a reason to stop.** Wait for its completion
+  notification, fold the findings, then hand off.
+- **Blocked by something outside the agent's reach** (a hook denial, a missing
+  credential): one line naming the blocker and the one action that clears it.
+  No block, no options.
+
+Scar tissue, 2026-11-15: the first version of this block carried a `Your call:`
+line with options and a `Rec:`. Agents used it to put A/B questions to Scott at
+every stop, including on steps the approved plan already required.
 
 ## Voice
 
