@@ -157,9 +157,14 @@ Neutral rename:
   - `otto ci` exits 0.
   - `bump release --help | rg -c Scott | wc -l` prints `0` once the new bump is installed. Observed on main (v0.4.10): `1` (`rg -c` itself prints `4`).
 
-#### Phase 2: Transfer bump (operator: Scott)
-**Model:** sonnet (for the local follow-up only)
-- Scott runs the GitHub transfer `scottidler/bump` -> `tatari-tv/bump`. The repo stays public. The MIT LICENSE and the Cargo `authors` stay as-is.
+#### Phase 2: Transfer bump (agent runs it; Scott accepts one email)
+**Model:** sonnet
+- A direct transfer is impossible: `orgs/tatari-tv/members/scottidler` returns 404, and GitHub requires the transferring account to be able to create repos in the target org. `escote-tatari` is a member (204), and `members_can_create_public_repositories` is `true`.
+- Two-hop GitHub transfer, which keeps commits, tags, releases with binaries, and the redirects:
+  1. As home: `GH_PERSONA=home gh api -X POST repos/scottidler/bump/transfer -f new_owner=escote-tatari`. A user-to-user transfer waits for the recipient. Scott accepts the email as `escote-tatari`.
+  2. Confirm `GH_PERSONA=work gh api repos/escote-tatari/bump --jq .full_name` prints `escote-tatari/bump`.
+  3. As work: `GH_PERSONA=work gh api -X POST repos/escote-tatari/bump/transfer -f new_owner=tatari-tv`.
+- The repo stays public. The MIT LICENSE and the Cargo `authors` stay as-is.
 - Agent follow-up:
   - Move the local clone `~/repos/scottidler/bump` -> `~/repos/tatari-tv/bump`.
   - Run `git remote set-url origin git@github.com:tatari-tv/bump`.
@@ -283,6 +288,7 @@ Each criterion says when it can first pass.
 ## Resolved Decisions
 
 - 2026-11-15, Scott: option A. The org copy becomes canonical, and `bump` transfers to tatari-tv.
+- 2026-11-15, Scott: the agent runs the bump transfer, the history transfers with it, and the repo stays public. Method: the two-hop GitHub transfer via `escote-tatari` (Scott picked A over a mirror push, which loses releases and redirects).
 - 2026-11-15, author, after panel round 1 (M1-M3): **the driver keeps ENTRY `merge` as a wait-only merge observer, and release never invokes `/pr:watch` itself.**
   - `/pr:watch` exits at `ready` and never sees a later merge.
   - An explicit arm is denied under the default `ask`.
