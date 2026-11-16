@@ -1098,7 +1098,9 @@
     "pr@tatari-skills": true,
     "panel@tatari-skills": true,
     "prd@tatari-skills": true,
-    "worktrunk@worktrunk": true
+    "worktrunk@worktrunk": true,
+    "ttv-worktrees@tatari-skills": true,
+    "readtime@tatari-skills": true
   },
   "extraKnownMarketplaces": {
     "understand-anything": {
