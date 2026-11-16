@@ -217,10 +217,11 @@ Neutral rename:
 
 #### Phase 5: Closing status blocks
 **Model:** sonnet
-- Port the `52c03ec` closing block to create, build and release in neutral wording: "the author", and `Your call:` stays.
+- Port the handoff block from `54574ab` (which superseded `52c03ec`) to create, build and release in neutral wording ("the author"). The block appears only when the stage is done, every line reads `yes`, and no skill asks the author a question with options. `52c03ec`'s `Your call:` line is not ported.
 - Skill-lint caps a skill body at 500 lines. Org `build/SKILL.md` is 488 lines on main, so build's block goes in the existing `build/orchestrating.md`. `SKILL.md` gets a one-line pointer as its last step. The block also folds in the org's five-line report, with the last line `Next: /pr:create, or /plan:release to ship`.
 - **Success criteria:**
-  - `rg -c 'Your call:' plugins/plan/skills/create/SKILL.md plugins/plan/skills/build/orchestrating.md plugins/plan/skills/release/SKILL.md` prints a count of at least 1 for each of the three files.
+  - `rg -c 'Your call:|Rec:' plugins/plan/skills/create/SKILL.md plugins/plan/skills/build/orchestrating.md plugins/plan/skills/release/SKILL.md` prints nothing and exits 1.
+  - `rg -c 'handoff block' plugins/plan/skills/create/SKILL.md plugins/plan/skills/build/orchestrating.md plugins/plan/skills/release/SKILL.md` prints a count of at least 1 for each of the three files.
   - `bin/skillzy validate` exits 0.
 
 #### Phase 6: Residue, manifest, evals
