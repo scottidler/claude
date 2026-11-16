@@ -248,6 +248,21 @@ run allow "Rec: line in 8 lines"  "$(stop_payload "$T_PARTIAL" "$SHORT_REC")"
 run block "trailing question in 44 lines" "$(stop_payload "$T_PARTIAL" "$LONG_Q")"
 run allow "44 lines, no Rec: and no trailing question" "$(stop_payload "$T_PARTIAL" "$LONG_PLAIN")"
 
+echo "=== UTC with Pacific (rules 4) ==="
+run block "bare UTC time" "$(stop_payload "$T_PARTIAL" "Deployed at 05:38 UTC.")"
+run block "bare ISO Z instant" "$(stop_payload "$T_PARTIAL" "Started 2026-11-15T05:38:00Z today.")"
+run allow "UTC with PST on the same line" "$(stop_payload "$T_PARTIAL" "Deployed at 05:38 UTC (9:38 PM PST, previous day).")"
+run allow "UTC inside a fenced block" "$(stop_payload "$T_PARTIAL" $'Log:\n```\n05:38 UTC boot\n```\nDone.')"
+run allow "no UTC at all" "$(stop_payload "$T_PARTIAL" "Deployed at 9:38 PM PST.")"
+
+echo "=== PR links (rule 5) ==="
+run block "bare #123" "$(stop_payload "$T_PARTIAL" "Merged #123 this morning.")"
+run block "bare PR 7" "$(stop_payload "$T_PARTIAL" "Waiting on PR 7 to merge.")"
+run allow "markdown-linked PR" "$(stop_payload "$T_PARTIAL" "Merged [PR #6](https://github.com/o/r/pull/6) today.")"
+run allow "number followed by its URL" "$(stop_payload "$T_PARTIAL" "Merged #6 (https://github.com/o/r/pull/6) today.")"
+run allow "number inside a URL" "$(stop_payload "$T_PARTIAL" "See https://github.com/o/r/pull/6#issuecomment-1 for detail.")"
+run allow "bare #123 inside a fenced block" "$(stop_payload "$T_PARTIAL" $'Output:\n```\nmerged #123\n```\nDone.')"
+
 echo "=== pass-throughs ==="
 run allow "stop_hook_active true, offending text" \
   "$(jq -n --arg t "$T_PARTIAL" --arg m "Done. Want me to run it?" \

@@ -16,7 +16,8 @@
 #   prose.sh --help        print this documentation
 #   prose.sh --self-test   run the fixture matrix (prose-test.sh, same directory)
 #
-# THE THREE RULES:
+# THE FIVE RULES (UTC-without-Pacific and unlinked PR numbers are rules 4 and 5,
+# added 2026-11-15: both fire on the final text alone and need no prompt):
 #   em-dash        any literal U+2014 in the final text            (rules/safety.md)
 #   offer-closer   the final sentence offers to do more ("Want me to ...")
 #                  AND the last typed prompt was an instruction or a go-ahead
@@ -227,6 +228,33 @@ fi
 if printf '%s' "$text" | grep -qF "$EMDASH"; then
   offending=$(printf '%s\n' "$text" | grep -F -m1 "$EMDASH")
   block "em-dash (U+2014) in the final reply (rules/safety.md): \"$(head_chars "$offending" 200)\". Recast that line with a colon, parens, a comma, or a split sentence, then reply again."
+fi
+
+# ---- rule 4: UTC time without Pacific ------------------------------------
+# Scott is in Portland, OR. An instant quoted in UTC goes out in both zones on
+# the same line. Fenced code is exempt (logs and commands quote UTC verbatim).
+# Ported from the reply-guard mod (2026-11-15): a prompt.compose mod is skipped
+# by the org guard cc-plugin-sec-default, so the check lives at the Stop hook.
+outside_fences() {
+  printf '%s\n' "$1" | awk 'BEGIN{fenced=0} /^[[:space:]]*```/{fenced=!fenced; next} fenced==0{print}'
+}
+UTC_TIME='[0-9]{1,2}:[0-9]{2}([:.][0-9]+)?[[:space:]]*(UTC|GMT|Z)([^A-Za-z0-9]|$)|(UTC|GMT)[[:space:]]+[0-9]{1,2}:[0-9]{2}|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?(\.[0-9]+)?Z'
+PACIFIC='PST|PDT|Pacific|America/Los_Angeles|(^|[^A-Za-z0-9])PT([^A-Za-z0-9]|$)|Portland'
+scanned=$(outside_fences "$text")
+utc_line=$(printf '%s\n' "$scanned" | grep -E "$UTC_TIME" | grep -Ev "$PACIFIC" | head -n1)
+if [ -n "$utc_line" ]; then
+  block "UTC time with no Pacific time on the same line: \"$(head_chars "$utc_line" 200)\". Write the instant in both zones, for example \"05:38 UTC (9:38 PM PST, previous day)\", with PST or PDT right for that date. If unsure, run TZ=America/Los_Angeles date -d '<instant>'. Fix it and reply again."
+fi
+
+# ---- rule 5: PR or issue number without a link ---------------------------
+# Every PR or issue number is a markdown hyperlink to its URL. Linked forms and
+# bare URLs come out first, so "[PR #6](https://...)" and "#6 (https://...)" pass.
+PR_REF='(^|[^A-Za-z0-9&/_.#-])#[0-9]{1,5}([^A-Za-z0-9_-]|$)|(^|[^A-Za-z0-9])(PRs?|pull request)[[:space:]]+[0-9]{1,5}([^A-Za-z0-9_-]|$)'
+unlinked=$(printf '%s\n' "$scanned" \
+  | sed -E 's/(#[0-9]{1,5}|[Pp][Rr]s?[[:space:]]+[0-9]{1,5})[[:space:]]*\(https?:\/\/[^)[:space:]]+\)//g; s/\[[^]]*\]\([^)]*\)//g; s/https?:\/\/[^[:space:])>]+//g')
+pr_line=$(printf '%s\n' "$unlinked" | grep -Ei "$PR_REF" | head -n1)
+if [ -n "$pr_line" ]; then
+  block "PR or issue reference with no link: \"$(head_chars "$pr_line" 200)\". Every PR or issue number is a markdown hyperlink to its URL, for example [PR #6](https://github.com/<org>/<repo>/pull/6). Rewrite each bare reference and reply again."
 fi
 
 # ---- rule 2: offer-closer ------------------------------------------------

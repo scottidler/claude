@@ -47,8 +47,10 @@ is yours before writing code. Never guess into the wrong phase.
      are NOT yours to execute — surface them as open questions for the parent.
 
 3. **Write tests.** Every public function added gets at least one test —
-   happy-path and an error/edge case. For Rust: unit tests in `#[cfg(test)] mod
-   tests`, integration tests in `tests/`. For non-Rust repos, match the repo's
+   happy-path and an error/edge case. For Rust: unit tests in their own file
+   (declare `#[cfg(test)] mod tests;` in `src/foo.rs`, bodies in `src/foo/tests.rs`;
+   never an inline `mod tests { ... }` block, per `rules/rust.md`), integration
+   tests in `tests/`. For non-Rust repos, match the repo's
    existing test framework and layout.
 
 4. **Run `otto ci` until green.** Read each failure, fix the *specific* issue

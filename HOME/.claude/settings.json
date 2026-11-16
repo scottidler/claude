@@ -7,7 +7,6 @@
     "MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES": "3",
     "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1",
     "TMPDIR": "/tmp/claude-1000",
-    "RUSTC_WRAPPER": "",
     "ENABLE_COMMIT_REVIEW": "0"
   },
   "attribution": {

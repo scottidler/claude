@@ -140,6 +140,10 @@ On-demand docs in `~/repos/.claude/refs/`, read when the scenario calls for it.
 - Why cargo builds die `sccache: error: Operation not permitted` in the Bash sandbox, the 2026-06-28 dotfiles change that caused it, and the `sandbox.network.allowAllUnixSockets` fix
 - Read when: any build or tool inside the sandbox fails on a unix socket (sccache, ssh/gpg agent, docker, `systemctl --user`). Do NOT re-derive this; do NOT strip `RUSTC_WRAPPER`.
 
+### gotchas.md
+- Measured traps: systemd `Persistent=true` stalls a timer after reinstall, zsh `/dev/zero` SIGSEGV
+- Read when: writing a systemd timer, or a zsh command that reads from a device
+
 ### graphify
 
 - Skill at `~/.claude/skills/graphify/SKILL.md`: turns any input into a knowledge graph

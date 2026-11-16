@@ -250,7 +250,7 @@ fn test_new_function_error_case() { ... }
 ```
 
 For Rust projects, tests go in:
-- `#[cfg(test)] mod tests` blocks for unit tests
+- a `#[cfg(test)] mod tests;` declaration with bodies in `src/foo/tests.rs` for unit tests (never an inline `mod tests { ... }` block, per `rules/rust.md`)
 - `tests/` directory for integration tests
 
 **Coverage target**: Every public function should have at least one test.
