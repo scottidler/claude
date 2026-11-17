@@ -729,7 +729,6 @@
       "ScheduleWakeup",
       "ReportFindings",
       "ShareOnboardingGuide",
-      "Artifact(path:*)",
       "Artifact(action:live-edit)",
       "Artifact(action:write_db)",
       "Artifact(action:upload_asset)",
@@ -743,7 +742,7 @@
       "/home/saidler/.config"
     ]
   },
-  "model": "fable",
+  "model": "opus",
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "oracle"
