@@ -122,23 +122,6 @@ tasks:
         bin/relocate-targets-test.sh
         bin/prose-report
         bin/prose-report-test.sh
-        HOME/.claude/skills/plan/.claude-plugin/plugin.json
-        HOME/.claude/skills/plan/agents/review-panel.md
-        HOME/.claude/skills/plan/agents/release-driver.md
-        HOME/.claude/skills/plan/refs/review-panel-notes.md
-        HOME/.claude/skills/plan/refs/review-panel-prompts.md
-        HOME/.claude/skills/plan/seats/architect/script.sh
-        HOME/.claude/skills/plan/seats/architect/pathglob.py
-        HOME/.claude/skills/plan/seats/architect/policy.toml
-        HOME/.claude/skills/plan/seats/architect/limitations.md
-        HOME/.claude/skills/plan/seats/staff-engineer/script.sh
-        HOME/.claude/skills/plan/seats/watchdog.sh
-        HOME/.claude/skills/plan/seats/watchdog-test.sh
-        HOME/.claude/skills/plan/skills/create/SKILL.md
-        HOME/.claude/skills/plan/skills/create/example.md
-        HOME/.claude/skills/plan/skills/build/SKILL.md
-        HOME/.claude/skills/plan/skills/review/SKILL.md
-        HOME/.claude/skills/plan/skills/release/SKILL.md
       )
       if rg -n '\x{2014}' "${FILES[@]}"; then
         echo "Found an em dash in the lint list above."
@@ -223,8 +206,6 @@ tasks:
         echo "=== $t ==="
         bash "$t"
       done
-      echo "=== HOME/.claude/skills/plan/seats/watchdog-test.sh ==="
-      bash HOME/.claude/skills/plan/seats/watchdog-test.sh
       echo "=== bin/hooks-resolve ==="
       bin/hooks-resolve
       echo "=== HOME/.claude/bin/pr-open-test.sh ==="
@@ -246,8 +227,6 @@ tasks:
       claude plugin test HOME/.claude/skills/session
       echo "=== claude plugin validate --strict session ==="
       claude plugin validate --strict HOME/.claude/skills/session
-      echo "=== claude plugin validate --strict plan ==="
-      claude plugin validate --strict HOME/.claude/skills/plan
 
   ci:
     help: "Full CI pipeline (lint + test)"

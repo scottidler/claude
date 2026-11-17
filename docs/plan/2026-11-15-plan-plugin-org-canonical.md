@@ -2,7 +2,7 @@
 
 **Author:** Scott A. Idler
 **Date:** 2026-11-15
-**Status:** In Review
+**Status:** Implemented
 **Review Passes Completed:** 5/5 (draft, correctness against live probes, edge cases, clarity and excellence in the round-1 rewrite); panel round 1 folded
 
 ## Summary

@@ -1872,7 +1872,7 @@ $pargs" in
       # A delete publishes no bytes, so there is nothing to walk. `--delete`
       # turns every operand into a ref NAME on the remote, which never
       # resolves locally, so the walk below denied every branch delete
-      # (scottidler/bump `release-verbs-take-dir`, 2026-11-11). The `:dst`
+      # (tatari-tv/bump `release-verbs-take-dir`, 2026-11-11). The `:dst`
       # refspec form is handled per refspec in the loop.
       deleting=0
       case "

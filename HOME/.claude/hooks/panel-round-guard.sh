@@ -33,9 +33,12 @@
 # reader assumes atomicity.
 #
 # THE DOOR (modeled on the release guard's env-var door, since retired for
-# `bump release --standalone`; Scott approved 2026-07-10) is PANEL_ROUNDS_ORDERED_BY_SCOTT=<n> in the dispatch
-# prompt. It must be a NONBLANK LINE OF ITS OWN, matched
-# ^PANEL_ROUNDS_ORDERED_BY_SCOTT=[0-9]+$, never at a word boundary anywhere in
+# `bump release --standalone`; Scott approved 2026-07-10) is
+# PANEL_ROUNDS_ORDERED_BY_OWNER=<n> in the dispatch prompt. The plan plugin
+# moved to tatari-skills and renamed the marker from _SCOTT to _OWNER
+# (docs/plan/2026-11-15-plan-plugin-org-canonical.md, Phase 6 and 7); the old
+# _SCOTT spelling is still accepted. It must be a NONBLANK LINE OF ITS OWN, matched
+# ^PANEL_ROUNDS_ORDERED_BY_(SCOTT|OWNER)=[0-9]+$, never at a word boundary anywhere in
 # the prompt. The design doc this guard was built from carries that literal
 # marker followed by an integer four times, in its own prose, and quoting prior
 # findings is the normal shape of a round-4 prompt: an "anywhere" match would
@@ -45,7 +48,7 @@
 #
 # Honest about what the door is: visible and auditable, not unforgeable. An
 # agent can type the prefix. What it cannot do is open the door without leaving
-# PANEL_ROUNDS_ORDERED_BY_SCOTT=<n> in the transcript for Scott to grep. Not a
+# PANEL_ROUNDS_ORDERED_BY_(SCOTT|OWNER)=<n> in the transcript for Scott to grep. Not a
 # security boundary, and nothing here should be read as one.
 #
 # FAIL OPEN, deliberately, against rules/taste.md's usual fail-closed default:
@@ -312,7 +315,7 @@ cap="$CAP_DEFAULT"
 # open it; that is recorded in Open Questions, not silently closed.
 door=$(printf '%s\n' "$prompt" | tr -d '\r' \
   | awk '/^[[:space:]]*(```|~~~)/{fence=!fence; next} !fence' \
-  | grep -m1 -E '^PANEL_ROUNDS_ORDERED_BY_SCOTT=[0-9]+$')
+  | grep -m1 -E '^PANEL_ROUNDS_ORDERED_BY_(SCOTT|OWNER)=[0-9]+$')
 if [ -n "$door" ]; then
   cap="${door#*=}"
   log "door open: cap raised to $cap by a control line in the prompt"
@@ -354,7 +357,7 @@ if [ "$this_round" -gt "$cap" ]; then
     "panel-round-guard: this is round $this_round on $doc; the cap is $cap (rules/interaction.md)." \
     "Rounds 1-$cap produced findings that belong in the doc, not in another round." \
     "If the doc still has open findings, fold them in and build; if Scott has" \
-    "ordered more rounds, re-dispatch with PANEL_ROUNDS_ORDERED_BY_SCOTT=<n> in the prompt." \
+    "ordered more rounds, re-dispatch with PANEL_ROUNDS_ORDERED_BY_OWNER=<n> in the prompt." \
     "Counter: $shown ($rounds rounds recorded)")"
 fi
 

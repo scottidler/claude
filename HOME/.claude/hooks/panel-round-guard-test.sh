@@ -104,7 +104,7 @@ run allow 'alpha round 2' "Design Review of $ALPHA, round 2"
 run allow 'alpha round 3' "Design Review of $ALPHA, round 3"
 run deny  'alpha round 4' "Design Review of $ALPHA, round 4" 'this is round 4'
 run deny  'alpha round 4 names the cap' "Design Review of $ALPHA" 'the cap is 3'
-run deny  'alpha round 4 names the remedy' "Design Review of $ALPHA" 'PANEL_ROUNDS_ORDERED_BY_SCOTT=<n>'
+run deny  'alpha round 4 names the remedy' "Design Review of $ALPHA" 'PANEL_ROUNDS_ORDERED_BY_OWNER=<n>'
 run deny  'alpha round 4 names the counter' "Design Review of $ALPHA" '(3 rounds recorded)'
 run deny  'alpha round 4 names the doc' "Design Review of $ALPHA" "$ALPHA"
 
@@ -211,6 +211,15 @@ run allow 'door: round 4 with the marker' "$DOOR5"
 run allow 'door: round 5 with the marker' "$DOOR5"
 run deny  'door: round 6 with the marker' "$DOOR5_6" 'this is round 6'
 run deny  'door: the deny names the raised cap' "$DOOR5_6" 'the cap is 5'
+fresh_cache
+DOOR_OWNER=$'Design Review of '"$ALPHA"$', round 4\nPANEL_ROUNDS_ORDERED_BY_OWNER=5'
+DOOR_OWNER_6=$'Design Review of '"$ALPHA"$', round 6\nPANEL_ROUNDS_ORDERED_BY_OWNER=5'
+run allow 'owner door: round 1 plain' "Design Review of $ALPHA"
+run allow 'owner door: round 2 plain' "Design Review of $ALPHA"
+run allow 'owner door: round 3 plain' "Design Review of $ALPHA"
+run allow 'owner door: round 4 with the OWNER marker' "$DOOR_OWNER"
+run allow 'owner door: round 5 with the OWNER marker' "$DOOR_OWNER"
+run deny  'owner door: round 6 with the OWNER marker' "$DOOR_OWNER_6" 'the cap is 5'
 run deny  'door: closing it again denies at 5 recorded' "Design Review of $ALPHA" 'the cap is 3'
 
 echo "=== relative and absolute resolve to one counter (AC6) ==="
@@ -428,6 +437,7 @@ run allow 'DISPUTE: line opens round 3' "Design Review of $GAMMA"$'\nDISPUTE: M4
 fresh_cache
 run allow 'door round 1' "Design Review of $GAMMA"
 run allow 'Scott door counts as a reason' "Design Review of $GAMMA"$'\nPANEL_ROUNDS_ORDERED_BY_SCOTT=3'
+run allow 'owner door counts as a reason' "Design Review of $GAMMA"$'\nPANEL_ROUNDS_ORDERED_BY_OWNER=3'
 unset NO_REASON
 
 echo

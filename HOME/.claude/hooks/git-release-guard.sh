@@ -67,7 +67,7 @@
 #
 # THE DOOR: Scott's explicit order for a version-only release is
 # `bump release --standalone "<his exact words>"`, words quoted into the PR. The
-# 2026-07-10 env-var marker it replaces is retired (scottidler/bump
+# 2026-07-10 env-var marker it replaces is retired (tatari-tv/bump
 # docs/design/2026-09-26-one-release-command.md): an env prefix on an excluded
 # command is exactly what the auto-mode classifier denied. Every refusal below
 # that would stop an agent names that door, and none invites inventing the order.
@@ -107,7 +107,7 @@
 # v0.1.1; gates A/B/C + recovery messages 2026-07-10 after slack-cli #16;
 # Gate D + the door 2026-07-10 (Scott approved both) after mcp-io-rs #6/#7;
 # the door moved into `bump release --standalone` and the verbs exempted
-# 2026-09-26 (scottidler/bump one-release-command);
+# 2026-09-26 (tatari-tv/bump one-release-command);
 # Gate D widened to never-tagged repos 2026-07-13 after okta-auth-py #5/#6.
 # Companion docs: /bump skill (agent-facing flows), routed/git.md (the law),
 # ~/HALL-OF-SHAME.md (the case history).
