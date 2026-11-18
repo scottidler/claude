@@ -226,3 +226,55 @@ Result: VERIFIED
 ### Open questions
 
 - None.
+
+## Phase 2: Shadow em-dash at `tool.call`
+
+### Design decisions
+
+- Shadow wiring: `HOME/.claude/skills/voice-guard/hooks/index.ts:register`. One `tool.call` hook: a tool no `emdash.sh` matcher covers returns `next(e)` unjudged and unlogged; a covered one is judged, then `const r = await next(e)`, a row is queued, and `r` is returned untouched. The enforce branch (`{ deny: emdashReason(v) }`, row `chainResult: null`) exists and is tested, but `enforce` stays default false in `plugin.json`.
+- Matcher set: `rules.ts:surfaceOf` mirrors the four `emdash.sh` entries in `settings.json` (`Write|Edit|MultiEdit|NotebookEdit`, `Bash`, the outward Slack/Atlassian/Marquee list, `mcp__multi-account-github__create_pr`). The mod sees every call, so judging one the hook never sees (a read-only `mcp__slack__search_messages`) would log a mismatch the hook could not agree with. The MCP regex is anchored.
+- `chainResult`: `rules.ts:chainVerdict`, pure. `{ deny }` from a plugin beneath is `deny`; an errored result whose `text` opens `PreToolUse:<tool> hook error: ` is `deny` (Phase 0 Q6); anything else, a tool that merely errored included, is `allow`.
+- Log: `~/.local/state/voice-guard/<sessionId>.<copyTag>.jsonl`, rails' scheme. Rows are kept in memory and the copy's own file rewritten per row through one serialized promise chain (`index.ts:record`), never awaited by the hook and never rejecting; a write failure is noted once in the debug log. `ROW_CAP` 2000; past it the oldest go and the file opens with `{"event":"dropped","count":N}`. A new session id (a `/clear`) starts a new file. Row: `ts, session, event, surface, tool, rule, label, modVerdict, chainResult, mode, agentId`, plus `error` on a catch row. No tool input text is logged.
+- `.catch` fails open: `next` is replay-safe there, so it returns the chain's settled result (or runs the chain once if the hook had not), and queues a row with `rule: "catch"`, `modVerdict: null`, the chain's verdict, and `error` (`throw: <message>` or `timeout`).
+- One case table, `spec/emdash-cases.ts`, holds the 31 `emdash-test.sh` cases as data. `spec/parity.spec.ts` (bun) runs the real `emdash.sh` on each payload and the mod's judgment (`surfaceOf`, then `judgeToolCall`) on each call. `tests/voice-guard.test.ts` (`claude plugin test`) imports the same table and drives each case through the engine.
+- The U+2014 is built as `String.fromCharCode(0x2014)` in the new files. The Write tool, like the Bash tool, expands a typed JS unicode escape for the character (backslash, u, 2014) into the literal: the first Write of `emdash-cases.ts` was denied by `emdash.sh` for exactly that.
+
+### Deviations
+
+- `MultiEdit` restored in `rules.ts:writtenField` as an inert selector (`edits[].new_string`), reversing Phase 1's drop. The settings matcher beneath still names `MultiEdit`, and the criterion asks for the same verdict on every `emdash-test.sh` case; with the selector dropped, case 12 differed by design. Spec case 12 is flipped back by name ("12 deny (restored in Phase 2, inert selector)") and a 12b case pins that `old_string` is not scanned.
+- The kit hands a test's `classic.PreToolUse` hook the call's own fields (`tool`, `command`), not `tool_name`/`tool_input`, and resolves a deny to the mod as `{"ref":1,"result":"Error: <reason>","text":"<reason>","isError":true}`, with no `PreToolUse:<tool> hook error: ` prefix. The live engine adds the prefix (Q6, and the live check below). The test's stand-in therefore states the prefix itself (`settingsDenyText`), documented in the test; the mapping keys on the live shape, not the kit's.
+- The kit runs no process, so `git-release-guard.sh` and `emdash.sh` are stand-ins in `claude plugin test`: the release stand-in returns the script's verbatim deny text for `git push --tags` (captured by piping that payload through the real script), and the `emdash.sh` stand-in denies what `emdash-test.sh` expects denied. The real `emdash.sh` is exercised in `spec/parity.spec.ts` through `Bun.spawnSync`.
+- Row fields: `prose.sh`'s offer fields (`source`, `p`, `reason`, `ms`, `threshold`, `prompt`, `final`) have no meaning at `tool.call` and Phase 4 is dropped (Q1, Q4a), so the row carries `ts`, `session`, `event` from `prose.sh` plus the doc's five and `tool`, `label`, `agentId`.
+- The live check ran under `claude -p --plugin-dir`, not an interactive session (no TTY). With `--plugin-dir` the skills-dir copy is not loaded (`Not loaded: the name "voice-guard" is already taken by a session-only plugin`), so one copy judged.
+- `.otto.yml` is untouched (Phase 6 owns it), so `otto ci` does not yet run the mod's three commands; they were run by hand.
+
+### Tradeoffs
+
+- One `tool.call` hook with a pure `surfaceOf` filter over four `on('tool.call', { tool })` registrations: one place mirrors `settings.json`, and bun tests it without the engine.
+- Fire-and-forget row writes over awaiting each write in the hook: a hung `$.fs.write` cannot stall a tool call or push the hook into its `.catch`. Cost: the kit tests poll for the row (`rowsSettled`).
+- A real-script parity spec under bun over restating the 31 expected verdicts only: if `emdash.sh` changes, the spec fails until the mod follows. Cost: the spec depends on `bash` and `jq` and on `emdash.sh` staying at `HOME/.claude/hooks/` (Phase 7 keeps it in the repo, unwired).
+- The catch test induces a real throw (an MCP input nested 27,000 levels deep overflows `stringsOf`'s recursion; the kit refuses past 28,000) over a test-only throw switch in production code.
+
+### Open questions
+
+- `chainResult: deny` does not say which layer denied. In the live probe the first Write was denied by `rails`' rule gate (`rails (user) answered tool.call without next()`, `voice.md` gate) and logged `chainResult: deny` with `emdash.sh` never running. For the Phase 7 parity matrix that row would count as agreement. Should the row carry the denier (`settings` from the prefix, `plugin` from `{ deny }`) before Phase 7, or should Phase 7 discard rows whose deny came back as `{ deny }`?
+- Matcher semantics: the mod anchors the MCP list (`^(...)$`). If Claude Code tests a settings matcher unanchored, a future tool whose name merely contains a listed name would reach `emdash.sh` but not the mod. No such tool exists today.
+
+### Success criteria
+
+1. PASS. Every `emdash-test.sh` case yields the same verdict in the mod. `spec/parity.spec.ts` runs the real `emdash.sh` and the mod's judgment on all 31 cases (`bun test`: `84 pass, 0 fail` across the two spec files); `tests/voice-guard.test.ts` drives the same 31 through the engine and checks `{ modVerdict, chainResult }` per case (`claude plugin test`: `11 pass, 0 fail`).
+2. PASS. `claude plugin test` case "a settings hook beneath (git-release-guard.sh) still denies git push --tags through the mod": the call comes back denied with the script's text, the tool never runs, and the row reads `modVerdict: allow, chainResult: deny, mode: shadow`. The enforce-mode case shows the same deny still reaches a clean-by-the-mod call.
+3. PASS, headless. `claude -p --plugin-dir HOME/.claude/skills/voice-guard --allowedTools Write` from a scratch dir, prompted to Write `alpha<U+2014>beta` to `probe.md`. The second Write reached `emdash.sh` (the first was stopped by `rails`' gate, see Open questions). Debug log (the literal character shown as `[U+2014]`):
+
+```
+2026-11-18T23:47:43.456Z [DEBUG] Hooks: PreToolUse:Write [~/.claude/hooks/emdash.sh] finished with status 0 (18ms)
+2026-11-18T23:47:43.459Z [DEBUG] Hook PreToolUse (~/.claude/hooks/emdash.sh) returned permissionDecision: deny (reason: em-dash (U+2014) in Write content; recast with a colon, parens, comma, or a split sentence (rules/safety.md). The offending text: "alpha[U+2014]beta")
+```
+
+The model saw `PreToolUse:Write hook error: em-dash (U+2014) in Write content; ...`. Mod log row (`~/.local/state/voice-guard/d4413dc7-aa3b-4f92-830c-d371288fd9eb.1795045654308-zv44ix.jsonl`, second row):
+
+```
+{"ts":"2026-11-18T23:47:43.476Z","session":"d4413dc7-aa3b-4f92-830c-d371288fd9eb","event":"tool.call","surface":"write","tool":"Write","rule":"emdash","label":"Write content","modVerdict":"deny","mode":"shadow","agentId":null,"chainResult":"deny"}
+```
+
+No `probe.md` was written. The probe's log directory and scratch dir were removed with `rkvr rmrf`.

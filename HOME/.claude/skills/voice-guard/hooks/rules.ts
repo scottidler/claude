@@ -84,11 +84,21 @@ function stringsOf(value: unknown, path: string[] = []): { path: string; text: s
     return entries.flatMap(([k, v]) => stringsOf(v, [...path, k]))
 }
 
+/** `edits[].new_string`, joined: `old_string` is what is being removed. Non-string entries are skipped. */
+function multiEditText(edits: unknown): unknown {
+    if (!Array.isArray(edits)) { return undefined }
+    return edits
+        .map((ed) => (ed !== null && typeof ed === 'object' ? (ed as Record<string, unknown>)['new_string'] : undefined))
+        .filter((s): s is string => typeof s === 'string')
+        .join('\n')
+}
+
 /** The one string a built-in write tool owns, with its label; null for any other tool. */
 function writtenField(tool: string, input: Record<string, unknown>): { label: string; text: unknown } | null {
     switch (tool) {
         case 'Write': return { label: 'Write content', text: input['content'] }
         case 'Edit': return { label: 'Edit new_string', text: input['new_string'] }
+        case 'MultiEdit': return { label: 'MultiEdit edits[].new_string', text: multiEditText(input['edits']) }
         case 'NotebookEdit': return { label: 'NotebookEdit new_source', text: input['new_source'] }
         default: return null
     }
@@ -101,9 +111,11 @@ const BASH_LABEL = 'the Bash command (it carries a git commit / gh stage, so thi
  * `tool_use_id` and `agentId`). Returns the first violation, or null.
  *
  * Scanned per tool: Write `content`, Edit `new_string` (not `old_string`, which
- * is being removed), NotebookEdit `new_source`, the whole Bash command when an
- * outward stage is present, and every string at any depth of an `mcp__*` input.
- * Any other tool passes. There is no `MultiEdit`: Claude Code 2.1.327 offers none.
+ * is being removed), MultiEdit `edits[].new_string`, NotebookEdit `new_source`,
+ * the whole Bash command when an outward stage is present, and every string at
+ * any depth of an `mcp__*` input. Any other tool passes. Claude Code 2.1.327
+ * offers no `MultiEdit`; its selector stays, inert, because the settings
+ * matcher beneath still names it and shadow parity compares against that.
  */
 export function judgeToolCall(tool: string, input: Record<string, unknown>): Violation | null {
     const filePath = input['file_path'] ?? input['notebook_path'] ?? ''
@@ -130,4 +142,47 @@ export function judgeToolCall(tool: string, input: Record<string, unknown>): Vio
 export function emdashReason(v: Violation): string {
     return 'em-dash (U+2014) in ' + v.label
         + '; recast with a colon, parens, comma, or a split sentence (rules/safety.md). The offending text: "' + v.line + '"'
+}
+
+/** Which settings matcher of `emdash.sh` covers a tool: the same four entries `settings.json` wires. */
+export type Surface = 'write' | 'bash' | 'mcp-post' | 'create_pr'
+
+const OUTWARD_MCP = new RegExp(
+    '^(mcp__slack__chat_post_message|mcp__slack__chat_update|mcp__slack__conversations_add_message'
+    + '|mcp__atlassian__(addCommentToJiraIssue|createJiraIssue|editJiraIssue|createConfluencePage'
+    + '|updateConfluencePage|createConfluenceFooterComment|createConfluenceInlineComment)'
+    + '|mcp__marquee__marquee_(publish|update))$',
+)
+
+/**
+ * The surface a tool call belongs to, or null when no `emdash.sh` matcher
+ * covers it. The mod sees every call; judging one the hook never sees would
+ * log a mismatch the hook could not have agreed with.
+ */
+export function surfaceOf(tool: string): Surface | null {
+    if (tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit' || tool === 'NotebookEdit') { return 'write' }
+    if (tool === 'Bash') { return 'bash' }
+    if (tool === 'mcp__multi-account-github__create_pr') { return 'create_pr' }
+    if (OUTWARD_MCP.test(tool)) { return 'mcp-post' }
+    return null
+}
+
+export type ChainVerdict = 'allow' | 'deny'
+
+/** A settings-tier PreToolUse deny, as `next(e)` hands it back: Phase 0 Q6. */
+const SETTINGS_DENY = /^PreToolUse:\S+ hook error: /
+
+/**
+ * What the chain beneath decided, read off the result `next(e)` resolved to.
+ * A plugin beneath answers `{ deny }`; a settings hook's deny comes back as an
+ * errored result whose text opens `PreToolUse:<tool> hook error: ` (Phase 0
+ * Q6). A tool that merely failed is also `isError`, so the prefix is the key,
+ * never `isError` alone.
+ */
+export function chainVerdict(result: unknown): ChainVerdict {
+    if (result === null || typeof result !== 'object') { return 'allow' }
+    const r = result as Record<string, unknown>
+    if (typeof r['deny'] === 'string') { return 'deny' }
+    if (r['isError'] === true && typeof r['text'] === 'string' && SETTINGS_DENY.test(r['text'])) { return 'deny' }
+    return 'allow'
 }

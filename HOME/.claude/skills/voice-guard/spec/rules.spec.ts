@@ -33,10 +33,12 @@ describe('emdash-test.sh parity: Write', () => {
 describe('emdash-test.sh parity: Edit / MultiEdit / NotebookEdit', () => {
     test('10 deny: Edit new_string carries it', () => deny(...edit('docs/note.md', 'old text', `new${EMDASH}text`)))
     test('11 allow: Edit REMOVING it, only old_string carries it', () => allow(...edit('docs/note.md', `old${EMDASH}text`, 'old: text')))
-    // 2.1.327 has no MultiEdit tool (Phase 0): the two bash cases become pass-through pins.
-    // Were the tool ever to return, an unlisted tool name still passes, and the matcher list must grow with it.
-    test('12 allow (was deny): MultiEdit is no longer a scanned tool', () =>
-        allow('MultiEdit', { file_path: 'docs/note.md', edits: [{ old_string: 'x', new_string: 'clean one' }, { old_string: 'y', new_string: `second${EMDASH}edit` }] }))
+    // 2.1.327 has no MultiEdit tool (Phase 0), but the settings matcher beneath still names it,
+    // so its selector stays, inert, and shadow parity holds case for case (Phase 2).
+    test('12 deny (restored in Phase 2, inert selector): MultiEdit second edit carries it', () =>
+        deny('MultiEdit', { file_path: 'docs/note.md', edits: [{ old_string: 'x', new_string: 'clean one' }, { old_string: 'y', new_string: `second${EMDASH}edit` }] }))
+    test('12b allow: MultiEdit removing it, only old_string carries it', () =>
+        allow('MultiEdit', { file_path: 'docs/note.md', edits: [{ old_string: 'x', new_string: 'clean one' }, { old_string: `second${EMDASH}edit`, new_string: 'second: edit' }] }))
     test('13 allow: MultiEdit, neither edit carries it', () =>
         allow('MultiEdit', { file_path: 'docs/note.md', edits: [{ old_string: 'x', new_string: 'clean one' }, { old_string: 'y', new_string: 'clean two' }] }))
     test('14 deny: NotebookEdit new_source carries it', () =>
