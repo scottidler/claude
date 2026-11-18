@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "voice-guard",
+  "version": "0.1.0",
+  "description": "function hooks that keep Scott's mechanical voice rules at the tool boundary: a literal em-dash (U+2014) in written content, a commit or gh body, or an outward post is denied. Runs in shadow mode (judge, log, pass through) until enforce is turned on",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Scott A. Idler",
+    "email": "scott.a.idler@gmail.com"
+  },
+  "userConfig": {
+    "enforce": {
+      "type": "boolean",
+      "default": false,
+      "title": "enforce",
+      "description": "When on, a match returns a deny and ends the chain. When off (shadow mode) the mod judges, logs and passes through, so the settings hook beneath decides."
+    }
+  }
+}

@@ -199,3 +199,30 @@ The `chainResult` mapping: `isError === true` with `text` starting `PreToolUse:<
 At `classic.Stop` the question is unobservable: the mod's handler never runs (Q1), so no `next(e)` result exists to inspect. No Stop `{ block }` shape was recorded.
 
 Result: VERIFIED
+
+## Phase 1: Scaffold and the em-dash matcher
+
+### Design decisions
+
+- Layout copied from `rails`: `HOME/.claude/skills/voice-guard/` with `.claude-plugin/plugin.json`, `hooks/hooks.json`, `hooks/index.ts`, `hooks/rules.ts`, `spec/rules.spec.ts`, `tests/voice-guard.test.ts`, `types/index.d.ts`.
+- `hooks/rules.ts`: pure functions only (`isAllowlistedPath`, `stripHeredocs`, `hasOutwardStage`, `judgeToolCall`, `emdashReason`), no `$`, no I/O. `judgeToolCall(tool, input)` takes the call's fields and returns a `Violation | null`, so Phase 2 only has to hand it `e` and decide what to do with the verdict.
+- `hooks/index.ts`: a pass-through (`on('tool.call', ...)` returns `next(e)`), since Phase 2 owns the shadow wiring. It does not import `rules.ts` yet.
+- The heredoc stripper is a line-by-line port of the awk in `emdash.sh` (queue of pending delimiters, indented terminator for the dash form, herestrings neutralized), and the outward-stage regex is the same alternation with the POSIX alnum class spelled `[A-Za-z0-9]`.
+- `types/index.d.ts` holds `Tier` and `Violation` (Data Model); `plugin.json` declares only `enforce` (boolean, default false) in `userConfig`. `deny_outward` and `warn_structural` arrive with the phases that use them.
+- The U+2014 literal must never appear in the source: the character is built from its JS escape. The first write through the Bash tool put a literal into `rules.ts` and the test file (the tool layer expands the escape in command text); both were converted back with `perl`, and a grep for the character over the folder is empty. Phase 2 and later should write these files with the Write or Edit tools, or re-run that grep after any heredoc.
+
+### Deviations
+
+- `MultiEdit.edits[].new_string` dropped from the field map (Phase 0: no `MultiEdit` tool in 2.1.327). The two `emdash-test.sh` MultiEdit cases (12, 13) are kept as spec cases that assert `MultiEdit` is not a scanned tool, so case 12 flips from deny to allow, named "allow (was deny)".
+- Cases 30 and 31 (malformed and empty payload) have no payload to parse in the mod, which receives fields. They are ported as calls with no usable fields (`{ content: 42 }`, `{ command: [...] }`, `{}`, tool name `''`) that must pass.
+- The 31 cases live in `spec/` (bun). `tests/` holds only two `claude plugin test` pass-through cases, because Phase 1 has no shadow logic to test through the engine; Phase 2 grows it.
+- `userConfig` carries `enforce` only, where the Data Model lists three options.
+
+### Tradeoffs
+
+- `judgeToolCall(tool, input)` over a function that takes the engine's event type: keeps `rules.ts` free of the `claude-code` types and testable under bun without the engine.
+- Matching `emdash.sh` exactly (stage split on `;` even inside quotes, `*.golden` suffix, `tests/fixtures/` prefix or infix) over fixing its quirks: Phase 2's parity criterion compares the two, so any improvement waits until after parity.
+
+### Open questions
+
+- None.
