@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { chainSourceOf, chainVerdict, judgeToolCall, staleHeartbeats, surfaceOf } from '../hooks/rules.ts'
+import { chainSourceOf, chainVerdict, judgeToolCall, staleHeartbeats, staleLogs, surfaceOf } from '../hooks/rules.ts'
 import { EMDASH_CASES, payloadOf } from './emdash-cases.ts'
 import type { Verdict } from './emdash-cases.ts'
 
@@ -113,5 +113,22 @@ describe('staleHeartbeats: keep the newest 20', () => {
         const es = [...Array.from({ length: 20 }, (_, i) => file('heartbeat.s' + i, i)), file('last-session-id', 0), file('a.1-b.jsonl', 0), { name: 'heartbeat.d', kind: 'dir', mtimeMs: 0 }]
         expect(staleHeartbeats(es)).toEqual([])
         expect(staleHeartbeats([])).toEqual([])
+    })
+})
+
+describe('staleLogs: session logs older than 14 days', () => {
+    const DAY = 24 * 60 * 60 * 1000
+    const NOW = 100 * DAY
+    const entry = (name: string, ageDays: number, kind = 'file') => ({ name, kind, mtimeMs: NOW - ageDays * DAY })
+
+    test('only .jsonl files past 14 days are named', () => {
+        const es = [entry('a.1-x.jsonl', 15), entry('b.2-y.jsonl', 13), entry('c.3-z.jsonl', 40)]
+        expect(staleLogs(es, NOW)).toEqual(['a.1-x.jsonl', 'c.3-z.jsonl'])
+    })
+
+    test('heartbeats, last-session-id and directories are never named', () => {
+        const es = [entry('heartbeat.s1', 90), entry('last-session-id', 90), entry('old.jsonl', 90, 'dir'), entry('fresh.jsonl', 1)]
+        expect(staleLogs(es, NOW)).toEqual([])
+        expect(staleLogs([], NOW)).toEqual([])
     })
 })

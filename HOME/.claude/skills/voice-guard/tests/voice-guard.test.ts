@@ -432,11 +432,28 @@ describe('heartbeat: the load check preflight reads', () => {
         const entries = [
             ...Array.from({ length: 22 }, (_, i) => hb(i + 1)),
             { name: 'last-session-id', kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false },
-            { name: 's.1-a.jsonl', kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false },
+            { name: 's.1-a.jsonl', kind: 'file' as const, size: 1, mtimeMs: Date.now(), isLink: false },
         ]
         const w = hbWorld(on, entries, true)
         await $.session.start(START)
         expect(w.runs).toEqual([[HOME + '/.cargo/bin/rkvr', 'rmrf', '--', DIR + '/heartbeat.s2', DIR + '/heartbeat.s1']])
+    })
+
+    test('session logs older than 14 days go through rkvr rmrf; fresh ones stay', async ($, on) => {
+        const old = Date.now() - 15 * 24 * 60 * 60 * 1000
+        const entries = [
+            { name: 'old.1-a.jsonl', kind: 'file' as const, size: 1, mtimeMs: old, isLink: false },
+            { name: 'new.2-b.jsonl', kind: 'file' as const, size: 1, mtimeMs: Date.now(), isLink: false },
+        ]
+        const w = hbWorld(on, entries, true)
+        await $.session.start(START)
+        expect(w.runs).toEqual([[HOME + '/.cargo/bin/rkvr', 'rmrf', '--', DIR + '/old.1-a.jsonl']])
+    })
+
+    test('a handler beneath session.start still runs through the mod', async ($, on) => {
+        hbWorld(on, [], false)
+        const r = await $.session.start({ cwd: '/beneath', surface: null, isInteractive: false } as any)
+        expect(r).toEqual({ cwd: '/beneath' })
     })
 
     test('without rkvr nothing is deleted', async ($, on) => {

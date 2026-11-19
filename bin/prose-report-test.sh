@@ -92,7 +92,7 @@ expect "counts the mod's rows across the glob, minus dropped markers" 0 '^  voic
 expect "mod section names the file count" 0 '^voice-guard  \(3 rows in 2 files\)' -- --log "$MIXED" --mod-dir "$MOD"
 expect "mod section counts chainSource" 0 'chainSource  null 2  settings 1' -- --log "$MIXED" --mod-dir "$MOD"
 expect "mod rows alone are enough (no prose.sh file)" 0 '^  prose.sh     0 rows$' -- --log "$ROOT/never-written.jsonl" --mod-dir "$MOD"
-expect "VOICE_GUARD_LOG_DIR is the default mod dir" 0 '^  voice-guard  3 rows$' -- --log "$MIXED" --mod-dir "$MOD"
+VOICE_GUARD_LOG_DIR="$MOD" expect "VOICE_GUARD_LOG_DIR is the default mod dir" 0 '^  voice-guard  3 rows$' -- --log "$MIXED"
 reject "no mod rows, no mod section" '^voice-guard  \(' -- --log "$MIXED"
 expect "--since filters the mod's rows too" 1 'has no records since 2027-01-01' -- --log "$MIXED" --mod-dir "$MOD" --since 2027-01-01
 

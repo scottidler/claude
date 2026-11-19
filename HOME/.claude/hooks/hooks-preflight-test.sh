@@ -163,7 +163,7 @@ done
 # ---- fixtures: voice-guard load check (heartbeat.<session id>) ----------------
 # Read last-session-id, compare to heartbeat.<that id>, THEN write the current id.
 run_voice() { # run_voice <current session id>
-  HOOKS_PREFLIGHT_SETTINGS="$good" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" HOOKS_PREFLIGHT_SESSION_ID="$1" bash "$PREFLIGHT"
+  HOOKS_PREFLIGHT_SETTINGS="$good" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" HOOKS_PREFLIGHT_SESSION_ID="$1" HOOKS_PREFLIGHT_SOURCE="${2:-startup}" bash "$PREFLIGHT"
 }
 
 rm -rf "$HOOKS_PREFLIGHT_VOICE_STATE"; mkdir -p "$HOOKS_PREFLIGHT_VOICE_STATE"
@@ -201,6 +201,28 @@ if printf '%s' "$ctx" | rg -q 'no heartbeat for session sess-new in' && ! printf
   ok "hooks-preflight: the recorded id advances each run"
 else
   bad "hooks-preflight: recorded id did not advance: $ctx"
+fi
+
+# /clear: the engine raises no session.start for it, so its id never gets a heartbeat.
+# startup X, /clear to Y, startup Z: Z must not warn about Y.
+rm -rf "$HOOKS_PREFLIGHT_VOICE_STATE"; mkdir -p "$HOOKS_PREFLIGHT_VOICE_STATE"
+ctx=$(run_voice sess-x startup)
+: > "$HOOKS_PREFLIGHT_VOICE_STATE/heartbeat.sess-x"
+ctx_clear=$(run_voice sess-y clear)
+ctx_z=$(run_voice sess-z startup)
+if [ -z "$ctx_clear" ] && [ -z "$ctx_z" ] && [ "$(cat "$HOOKS_PREFLIGHT_VOICE_STATE/last-session-id")" = "sess-z" ]; then
+  ok "hooks-preflight: startup X, /clear to Y, startup Z does not warn about Y"
+else
+  bad "hooks-preflight: /clear sequence warned or mis-recorded: clear=[$ctx_clear] z=[$ctx_z]"
+fi
+
+# source "clear" leaves last-session-id untouched.
+printf 'sess-x\n' > "$HOOKS_PREFLIGHT_VOICE_STATE/last-session-id"
+run_voice sess-y clear >/dev/null
+if [ "$(cat "$HOOKS_PREFLIGHT_VOICE_STATE/last-session-id")" = "sess-x" ]; then
+  ok "hooks-preflight: source clear does not record the id"
+else
+  bad "hooks-preflight: source clear overwrote last-session-id"
 fi
 
 # ---- fixture: the routed rules dir does not resolve --------------------------

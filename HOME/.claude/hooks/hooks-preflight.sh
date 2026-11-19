@@ -24,8 +24,13 @@ VOICE_STATE="${HOOKS_PREFLIGHT_VOICE_STATE:-$HOME/.local/state/voice-guard}"
 if [ "${HOOKS_PREFLIGHT_SESSION_ID+set}" = set ]; then
   SESSION_ID="$HOOKS_PREFLIGHT_SESSION_ID"
 else
-  SESSION_ID=$(cat 2>/dev/null | jq -r '.session_id // empty' 2>/dev/null)
+  PAYLOAD=$(cat 2>/dev/null)
+  SESSION_ID=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null)
+  SOURCE=$(printf '%s' "$PAYLOAD" | jq -r '.source // empty' 2>/dev/null)
 fi
+# A test sets HOOKS_PREFLIGHT_SOURCE to the payload's `source` (startup, resume, clear, compact).
+[ "${HOOKS_PREFLIGHT_SOURCE+set}" = set ] && SOURCE="$HOOKS_PREFLIGHT_SOURCE"
+SOURCE="${SOURCE:-}"
 
 # shellcheck source=hooks-resolve-lib.sh
 . "$SCRIPT_DIR/hooks-resolve-lib.sh" 2>/dev/null || exit 0
@@ -67,6 +72,9 @@ routing_off=$(jq -r 'if [.pluginConfigs["rails@skills-dir"].options.rule_routing
 # the current id: writing first would warn every session. No last-session-id
 # (first run) is no warning. This sees a load failure at the NEXT session
 # start, and a session that ended before session.start ran warns falsely.
+# A /clear session (SessionStart source "clear") gets no session.start from the
+# engine, so no heartbeat is ever written for its id: recording it would warn at
+# the next startup every time. source "clear" skips the read, compare and write.
 voice_down=$(jq -r '
   def opt(k): [.pluginConfigs["voice-guard@skills-dir"].options[k], .pluginConfigs["voice-guard"].options[k]] | any(. == false);
   if .enabledPlugins["voice-guard@skills-dir"] == false then "voice-guard@skills-dir is disabled in enabledPlugins"
@@ -75,7 +83,7 @@ voice_down=$(jq -r '
   else empty end' "$SETTINGS" 2>/dev/null)
 
 voice_unloaded=""
-if [ -n "$SESSION_ID" ]; then
+if [ -n "$SESSION_ID" ] && [ "$SOURCE" != "clear" ]; then
   last_id=""
   [ -r "$VOICE_STATE/last-session-id" ] && last_id=$(head -n 1 "$VOICE_STATE/last-session-id" 2>/dev/null | tr -d '[:space:]')
   if [ -n "$last_id" ] && [ ! -e "$VOICE_STATE/heartbeat.$last_id" ]; then

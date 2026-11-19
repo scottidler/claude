@@ -1,7 +1,7 @@
 import type { EngineInterface, HookFailure, Register, ToolCallResult } from 'claude-code'
 import {
     chainSourceOf, chainVerdict, denyIdsFrom, emdashReason, judgeOutward, judgeProse, judgeToolCall,
-    ruleReason, staleHeartbeats, surfaceOf, verdictOf, warnText, HEARTBEAT_PREFIX,
+    ruleReason, staleHeartbeats, staleLogs, surfaceOf, verdictOf, warnText, HEARTBEAT_PREFIX,
 } from './rules'
 import type { ChainSource, ChainVerdict, Surface } from './rules'
 
@@ -138,8 +138,8 @@ function errorText(f: HookFailure): string {
  * The load check's heartbeat (docs/design/2026-11-18-voice-mod.md, Data
  * Model): `heartbeat.<sessionId>` in the log directory, written at
  * `session.start`. `hooks-preflight.sh` reads `last-session-id` and warns when
- * that session has no heartbeat. Keeps the newest `HEARTBEAT_KEEP`; the rest
- * go through `rkvr rmrf` (rules/safety.md), skipped without it. Never throws:
+ * that session has no heartbeat. Keeps the newest `HEARTBEAT_KEEP`; those and
+ * session logs older than 14 days go through `rkvr rmrf` (rules/safety.md), skipped without it. Never throws:
  * a heartbeat that cannot be written must not fail the session start, and the
  * missing file is exactly what preflight reports.
  */
@@ -150,7 +150,8 @@ async function writeHeartbeat($: EngineInterface): Promise<void> {
         const dir = home + LOG_DIR
         const id = await $.session.id()
         await $.fs.write(dir + '/' + HEARTBEAT_PREFIX + id, new Date().toISOString() + '\n')
-        const stale = staleHeartbeats(await $.fs.list(dir))
+        const entries = await $.fs.list(dir)
+        const stale = [...staleHeartbeats(entries), ...staleLogs(entries, Date.now())]
         if (stale.length === 0) { return }
         const rkvr = await findRkvr($, home)
         if (rkvr === null) { return }

@@ -225,6 +225,19 @@ export function staleHeartbeats(
         .map((e) => e.name)
 }
 
+/** Per-session mod logs kept this long, as rails keeps its router logs. */
+export const LOG_KEEP_MS = 14 * 24 * 60 * 60 * 1000
+
+/** The `*.jsonl` session logs last written before `now - LOG_KEEP_MS`. Heartbeats and `last-session-id` are never named. */
+export function staleLogs(
+    entries: readonly { name: string; kind: string; mtimeMs: number }[],
+    now: number,
+): string[] {
+    return entries
+        .filter((e) => e.kind === 'file' && e.name.endsWith('.jsonl') && e.mtimeMs < now - LOG_KEEP_MS)
+        .map((e) => e.name)
+}
+
 /*
  * The phrase table (Phase 5): the new bans from the 2026-11-18 scour. Every
  * rule defaults to a warning; a `deny-outward` rule denies on an outward
