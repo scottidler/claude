@@ -445,3 +445,45 @@ Review-panel run 8e330b2f, Mode 2 implementation audit, architect seat only (sta
 ### Open questions
 - Deferred (audit finding 6): `turn.complete` returns `{ ...r, text: warnText(hits) }`, which replaces any `text` a module beneath set. No other mod in this repo hooks `turn.complete`, so no conflict today; revisit if one does.
 - Phase 7 (cutover) remains an operator step; unchanged.
+
+## Phase 7: Cutover
+
+Run by the orchestrator on Scott's order ("do the cutover"), 2026-11-18. Probe harness in the session scratchpad (`cutover/probe.sh`, uncommitted): one headless `claude -p` per probe from a scratch git repo, reading the mod log row and the debug log per session.
+
+### Probe matrix
+| Probe | Shadow (modVerdict / chainResult / chainSource) | Enforce, emdash.sh still wired | After cutover (settings.json) |
+|---|---|---|---|
+| write-viol | deny / deny / settings | deny / null / null, no emdash.sh line | deny / null / null |
+| write-clean | allow / allow / null | allow / allow / null | allow / allow / null |
+| edit-viol | deny / deny / settings | deny / null / null | deny / null / null |
+| edit-clean | allow / allow / null | allow / allow / null | allow / allow / null |
+| nb-viol | deny / deny / settings | deny / null / null | deny / null / null |
+| nb-clean | allow / allow / null | allow / allow / null | allow / allow / null |
+| bash-viol (`git commit -m`) | deny / deny / settings | deny / null / null | deny / null / null |
+| bash-clean | allow / allow / null | allow / allow / null | allow / allow / null |
+| slack-viol (bogus channel) | deny / deny / settings | deny / null / null | deny / null / null |
+| release-ctl (`git push --tags`) | allow / deny / settings | allow / deny / settings | allow / deny / settings |
+
+- Shadow: 0 mismatches; each deny's debug line is `Hook PreToolUse (~/.claude/hooks/emdash.sh) returned permissionDecision: deny`.
+- Every probe's debug log shows `Hooks: Stop [~/.claude/hooks/hindsight-retain.sh] finished with status 0`.
+- Startup test after the change: `claude -p "reply OK"` from a scratch dir printed `OK`, exit 0.
+- `rg -c 'emdash\.sh|prose\.sh' HOME/.claude/settings.json` returns 2 (the Stop and SubagentStop `prose.sh` entries).
+
+### Design decisions
+- Retired all 4 `emdash.sh` entries (Q2b VERIFIED); kept both `prose.sh` entries (Q1 NEGATIVE). `emdash.sh` stays in the repo, unwired.
+- `enforce: true` set under `pluginConfigs["voice-guard@skills-dir"].options` in `settings.json`; the debug log confirms that key is the one the engine reads (`no pluginConfigs["voice-guard@skills-dir"].options in user, --settings or managed settings` before the change). This closes Phase 6's open question on the key.
+- First shadow run: write-viol and bash-viol logged no row because `rails` (above voice-guard) denied first with its voice.md gate and the probe prompt said to stop on any denial. The prompts were changed to read the rule and retry once; the re-run is the matrix above.
+
+### Deviations
+- Probes ran headless (`claude -p`), not in a TTY session; Q2b showed `tool.call` denies behave the same under `-p`.
+- No clean control on the outward MCP surfaces or `create_pr`: a clean call would post. Atlassian, Marquee and `create_pr` violations were not probed live; they share the mod's matcher code with the Slack probe and are covered by the bun and plugin-test suites.
+- No expected-verdict probes for the new rules: none is promoted, so none can deny; their fixtures run in `bun test`.
+- `rails/spec/rules.spec.ts` read its tool-name registry from `settings.json` matchers, and the retired `emdash.sh` matchers were its only source for `Write` and the Marquee tools (3 fails in `otto ci`). The spec now also reads `OUTWARD_MCP_MATCHER` and `WRITE_MATCHER`, newly exported from `voice-guard/hooks/rules.ts`. `otto ci` exits 0.
+
+### Tradeoffs
+- Registry fix in the spec vs. adding permission entries for the Marquee tools: permission entries would change what is auto-allowed, so the spec reads the mod's matchers instead.
+
+### Open questions
+- None.
+
+Rollback: restore the 4 `emdash.sh` entries first, then set `enforce` false or disable the plugin.

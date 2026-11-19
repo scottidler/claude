@@ -147,12 +147,22 @@ export function emdashReason(v: Violation): string {
 /** Which settings matcher of `emdash.sh` covers a tool: the same four entries `settings.json` wires. */
 export type Surface = 'write' | 'bash' | 'mcp-post' | 'create_pr'
 
-const OUTWARD_MCP = new RegExp(
-    '^(mcp__slack__chat_post_message|mcp__slack__chat_update|mcp__slack__conversations_add_message'
+/**
+ * The outward MCP tools, in settings-matcher syntax. Since the 2026-11-18
+ * cutover no settings.json entry names them, so rails' spec reads this as
+ * a tool-name registry beside settings.json.
+ */
+export const OUTWARD_MCP_MATCHER = 'mcp__slack__chat_post_message|mcp__slack__chat_update|mcp__slack__conversations_add_message'
     + '|mcp__atlassian__(addCommentToJiraIssue|createJiraIssue|editJiraIssue|createConfluencePage'
     + '|updateConfluencePage|createConfluenceFooterComment|createConfluenceInlineComment)'
-    + '|mcp__marquee__marquee_(publish|update))$',
-)
+    + '|mcp__marquee__marquee_(publish|update)'
+
+const OUTWARD_MCP = new RegExp('^(' + OUTWARD_MCP_MATCHER + ')$')
+
+/** The file-writing tools, in settings-matcher syntax; read by rails' spec like OUTWARD_MCP_MATCHER. */
+export const WRITE_MATCHER = 'Write|Edit|MultiEdit|NotebookEdit'
+
+const WRITE_TOOLS = new RegExp('^(' + WRITE_MATCHER + ')$')
 
 /**
  * The surface a tool call belongs to, or null when no `emdash.sh` matcher
@@ -160,7 +170,7 @@ const OUTWARD_MCP = new RegExp(
  * log a mismatch the hook could not have agreed with.
  */
 export function surfaceOf(tool: string): Surface | null {
-    if (tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit' || tool === 'NotebookEdit') { return 'write' }
+    if (WRITE_TOOLS.test(tool)) { return 'write' }
     if (tool === 'Bash') { return 'bash' }
     if (tool === 'mcp__multi-account-github__create_pr') { return 'create_pr' }
     if (OUTWARD_MCP.test(tool)) { return 'mcp-post' }

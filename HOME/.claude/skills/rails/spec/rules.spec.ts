@@ -6,6 +6,7 @@ import {
     buildIndex, frontmatter, matchPrompt, matchTool, misplaced, normalizeStatement, parseLoad, ruleAt,
 } from '../hooks/rules.ts'
 import type { RuleIndex } from '../hooks/rules.ts'
+import { OUTWARD_MCP_MATCHER, WRITE_MATCHER } from '../../voice-guard/hooks/rules.ts'
 
 const HOME_DIR = resolve(import.meta.dir, '../../../..')
 const RULES_DIR = join(HOME_DIR, 'repos/.claude/rules')
@@ -119,7 +120,12 @@ function expand(pattern: string): string[] {
     return expand(pattern.slice(open + 1, close)).flatMap((alt) => expand(head + alt + tail))
 }
 
-/** Every tool name settings.json registers: permission entries and PreToolUse/PostToolUse matchers. */
+/**
+ * Every tool name settings.json registers (permission entries and
+ * PreToolUse/PostToolUse matchers), plus the outward MCP tools the
+ * voice-guard mod guards: the em-dash matchers moved there from
+ * settings.json at the 2026-11-18 cutover.
+ */
 function settingsToolNames(): Set<string> {
     const s = JSON.parse(readFileSync(SETTINGS, 'utf8')) as {
         permissions: Record<string, unknown>
@@ -137,6 +143,9 @@ function settingsToolNames(): Set<string> {
                 for (const n of expand(h.matcher)) { names.add(n) }
             }
         }
+    }
+    for (const m of [OUTWARD_MCP_MATCHER, WRITE_MATCHER]) {
+        for (const n of expand(m)) { names.add(n) }
     }
     return names
 }
