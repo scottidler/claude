@@ -399,3 +399,27 @@ That is the shipped default. To collect more evidence with no behavior change, s
 - Three heartbeat cases: PASS (matching heartbeat silent; missing heartbeat for the recorded id names `voice-guard`; first run silent), plus a case that the recorded id advances.
 - `otto ci` exits 0 and runs the mod's three commands: PASS (rc 0; output shows `bun test (voice-guard/spec)`, `claude plugin test voice-guard`, `claude plugin validate --strict voice-guard`).
 - `bin/prose-report` counts both files: PASS (fixture output: `prose.sh 2 rows`, `voice-guard 3 rows` across 2 files; `bin/prose-report-test.sh` 27 passed).
+
+## Build close: acceptance criteria and scope
+
+### Design decisions
+- Phase 7 (cutover) is not built in this run. The doc marks it an operator step: it needs a probe matrix in live TTY sessions and removes live `HOME/.claude/settings.json` entries, which a build never does. Phase 6 is the final built phase and carries the design doc.
+- Phases 3 and 4 were not built: dropped by the Q1 and Q4a continuation rows (Phase 0).
+
+### Deviations
+- Acceptance criterion "Offer rule" amended to apply only when Q1 and Q4a are VERIFIED. Reason: the criterion was unconditional while the doc's own continuation table gates Phase 4 on Q1 and Q4a; Phase 0 recorded both NEGATIVE (`Result: NEGATIVE -> Q1`, `Result: NEGATIVE -> Q4a` above). This is a doc defect, independent of the code.
+
+### Tradeoffs
+- None.
+
+### Open questions
+- Phase 7 for the operator: run the probe matrix counting only `chainSource: settings` rows, set `enforce: true`, retire the 4 `emdash.sh` entries (Q2b VERIFIED), keep both `prose.sh` entries (Q1 NEGATIVE).
+
+### Acceptance criteria at build close
+- Validate, bun test, plugin test: PASS. `claude plugin validate --strict` printed `Validation passed`; `bun test` ran 276 tests, 0 fail; `claude plugin test` ran 34 tests, 0 fail.
+- Phase 0 notes: PASS. `rg -c '^Result: (VERIFIED|NEGATIVE)'` on this file returned 8.
+- Shadow parity: test half PASS (31-case parity spec against the live `emdash.sh`; Phase 3 non-offer half N/A, Phase 3 dropped). Live probe matrix UNVERIFIED: Phase 7 operator step, needs live sessions.
+- Offer rule: N/A after amendment (Phase 4 dropped by Q1 and Q4a).
+- Promotion gate: PASS. No rule promoted; `deny_outward` default is empty (Phase 5 replay table above).
+- Visibility: PASS. `hooks-preflight-test.sh` printed `pass=23 fail=0`; `bin/prose-report-test.sh` printed `27 passed, 0 failed`.
+- Cutover: UNVERIFIED, Phase 7 operator step. `rg -c 'emdash\.sh|prose\.sh' HOME/.claude/settings.json` still returns 6.
