@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { chainVerdict, judgeToolCall, surfaceOf } from '../hooks/rules.ts'
+import { chainSourceOf, chainVerdict, judgeToolCall, staleHeartbeats, surfaceOf } from '../hooks/rules.ts'
 import { EMDASH_CASES, payloadOf } from './emdash-cases.ts'
 import type { Verdict } from './emdash-cases.ts'
 
@@ -74,5 +74,44 @@ describe('chainVerdict: what the chain beneath decided (Phase 0 Q6)', () => {
         expect(chainVerdict({ text: 'PreToolUse:Bash hook error: x' })).toBe('allow')
         expect(chainVerdict(undefined)).toBe('allow')
         expect(chainVerdict('deny')).toBe('allow')
+    })
+})
+
+describe('chainSourceOf: which layer denied (the Phase 7 matrix counts settings only)', () => {
+    test('a PreToolUse prefix errored result is settings', () => {
+        expect(chainSourceOf({ isError: true, text: 'PreToolUse:Bash hook error: no' })).toBe('settings')
+    })
+
+    test('a plugin beneath answering { deny } is plugin', () => {
+        expect(chainSourceOf({ deny: 'nope' })).toBe('plugin')
+    })
+
+    test('allow, a merely errored tool, and junk are null', () => {
+        expect(chainSourceOf({ ref: 1, result: 'ok' })).toBeNull()
+        expect(chainSourceOf({ isError: true, text: 'Error: exit 1' })).toBeNull()
+        expect(chainSourceOf({ text: 'PreToolUse:Bash hook error: x' })).toBeNull()
+        expect(chainSourceOf(undefined)).toBeNull()
+        expect(chainSourceOf('deny')).toBeNull()
+    })
+
+    test('agrees with chainVerdict: non-null iff deny', () => {
+        for (const r of [{ deny: 'x' }, { isError: true, text: 'PreToolUse:Bash hook error: x' }, { text: 'ok' }, null, 3]) {
+            expect(chainSourceOf(r) !== null).toBe(chainVerdict(r) === 'deny')
+        }
+    })
+})
+
+describe('staleHeartbeats: keep the newest 20', () => {
+    const file = (name: string, mtimeMs: number) => ({ name, kind: 'file', mtimeMs })
+
+    test('22 heartbeats leave the 2 oldest stale', () => {
+        const es = Array.from({ length: 22 }, (_, i) => file('heartbeat.s' + i, i))
+        expect(staleHeartbeats(es)).toEqual(['heartbeat.s1', 'heartbeat.s0'])
+    })
+
+    test('20 or fewer leave none; other files are never named', () => {
+        const es = [...Array.from({ length: 20 }, (_, i) => file('heartbeat.s' + i, i)), file('last-session-id', 0), file('a.1-b.jsonl', 0), { name: 'heartbeat.d', kind: 'dir', mtimeMs: 0 }]
+        expect(staleHeartbeats(es)).toEqual([])
+        expect(staleHeartbeats([])).toEqual([])
     })
 })

@@ -187,6 +187,44 @@ export function chainVerdict(result: unknown): ChainVerdict {
     return 'allow'
 }
 
+/**
+ * Which layer a chain deny came from, for the Phase 7 parity matrix (which
+ * counts only `settings` rows): `settings` when it came back as an errored
+ * result opening `PreToolUse:<tool> hook error: ` (a settings hook), `plugin`
+ * when it came back as `{ deny }` (a plugin beneath, such as rails), `null`
+ * when the chain allowed. Keyed exactly as `chainVerdict` is, so
+ * `chainSourceOf(r) !== null` iff `chainVerdict(r) === 'deny'`.
+ */
+export type ChainSource = 'settings' | 'plugin'
+
+export function chainSourceOf(result: unknown): ChainSource | null {
+    if (result === null || typeof result !== 'object') { return null }
+    const r = result as Record<string, unknown>
+    if (typeof r['deny'] === 'string') { return 'plugin' }
+    if (r['isError'] === true && typeof r['text'] === 'string' && SETTINGS_DENY.test(r['text'])) { return 'settings' }
+    return null
+}
+
+/** Heartbeat files kept, newest first. */
+export const HEARTBEAT_KEEP = 20
+export const HEARTBEAT_PREFIX = 'heartbeat.'
+
+/**
+ * The heartbeat files past the newest `keep`, by modification time. Only
+ * regular files named `heartbeat.<id>` count; the logs and `last-session-id`
+ * beside them are never named.
+ */
+export function staleHeartbeats(
+    entries: readonly { name: string; kind: string; mtimeMs: number }[],
+    keep: number = HEARTBEAT_KEEP,
+): string[] {
+    return entries
+        .filter((e) => e.kind === 'file' && e.name.startsWith(HEARTBEAT_PREFIX))
+        .sort((a, b) => b.mtimeMs - a.mtimeMs || (a.name < b.name ? 1 : -1))
+        .slice(keep)
+        .map((e) => e.name)
+}
+
 /*
  * The phrase table (Phase 5): the new bans from the 2026-11-18 scour. Every
  * rule defaults to a warning; a `deny-outward` rule denies on an outward

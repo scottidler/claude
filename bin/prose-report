@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""prose-report: summarize prose.sh's offer-rule decision log.
+"""prose-report: summarize prose.sh's offer-rule decision log and the voice-guard mod's logs.
 
 prose.sh appends one JSONL record per instruction test (the offer rule's "was
 the prompt an instruction?" check) to ~/.local/state/prose/decisions.jsonl.
-This prints three things from it:
+The voice-guard mod writes one JSONL per session and module copy to
+~/.local/state/voice-guard/<sessionId>.<copyTag>.jsonl (rows: surface, rule,
+modVerdict, chainResult, chainSource, mode). Both sources are read and both
+are counted. The health/verdicts/review sections describe prose.sh's records;
+a voice-guard section summarizes the mod's rows. This prints:
 
   health   is Jev answering, or is the hook running on the verb-list fallback,
            and why (off, no-key, curl-exit-<n>, bad-answer); Jev latency
@@ -12,14 +16,16 @@ This prints three things from it:
            sentence) to label by hand: was this block or allow right?
 
 Usage:
-  prose-report [--log PATH] [--since YYYY-MM-DD] [--uncertain] [--rows N]
+  prose-report [--log PATH] [--mod-dir DIR] [--since YYYY-MM-DD] [--uncertain] [--rows N]
 
   --log        decision log (default: $PROSE_LOG, else the XDG state path)
+  --mod-dir    directory of the mod's *.jsonl logs (default: $VOICE_GUARD_LOG_DIR,
+               else the XDG state path's voice-guard/)
   --since      only records on or after this UTC date
   --uncertain  review rows only for Jev answers between 0.3 and 0.7
   --rows       cap the review table at the newest N rows (default: all)
 
-Exit 0 on a readable log, 1 when the log is missing or holds no records.
+Exit 0 when either source holds records, 1 when neither does.
 """
 import argparse
 import json
@@ -36,6 +42,24 @@ def default_log():
         return Path(os.environ["PROSE_LOG"])
     state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
     return Path(state) / "prose/decisions.jsonl"
+
+
+def default_mod_dir():
+    if os.environ.get("VOICE_GUARD_LOG_DIR"):
+        return Path(os.environ["VOICE_GUARD_LOG_DIR"])
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
+    return Path(state) / "voice-guard"
+
+
+def load_mod(directory, since):
+    """The mod's rows from every *.jsonl in the directory, minus its `dropped` markers."""
+    files = sorted(directory.glob("*.jsonl")) if directory.is_dir() else []
+    rows, bad = [], 0
+    for f in files:
+        records, b = load(f, since)
+        bad += b
+        rows.extend(r for r in records if r.get("event") != "dropped")
+    return rows, bad, len(files)
 
 
 def load(path, since):
@@ -62,7 +86,29 @@ def clip(text, n):
     return text if len(text) <= n else text[: n - 1] + "~"
 
 
-def report(records, bad, uncertain, rows):
+def mod_section(mod_rows, mod_files):
+    print(f"\nvoice-guard  ({len(mod_rows)} rows in {mod_files} files)")
+    for field in ("modVerdict", "chainResult", "chainSource", "mode"):
+        counts = {}
+        for r in mod_rows:
+            key = "null" if r.get(field) is None else str(r.get(field))
+            counts[key] = counts.get(key, 0) + 1
+        print(f"  {field:<12} " + "  ".join(f"{k} {n}" for k, n in sorted(counts.items(), key=lambda kv: -kv[1])))
+    by_rule = {}
+    for r in mod_rows:
+        if r.get("rule"):
+            by_rule[r["rule"]] = by_rule.get(r["rule"], 0) + 1
+    for rule, n in sorted(by_rule.items(), key=lambda kv: -kv[1]):
+        print(f"    rule {rule:<20} {n}")
+
+
+def report(records, bad, uncertain, rows, mod_rows=(), mod_files=0):
+    print("sources")
+    print(f"  prose.sh     {len(records)} rows")
+    print(f"  voice-guard  {len(mod_rows)} rows")
+    if not records:
+        mod_section(mod_rows, mod_files)
+        return
     jev = [r for r in records if r.get("source") == "jev"]
     fallback = [r for r in records if r.get("source") == "verbs"]
     slash = [r for r in records if r.get("source") == "slash"]
@@ -104,6 +150,8 @@ def report(records, bad, uncertain, rows):
         review = [r for r in jev if lo <= r["p"] < hi]
     if rows:
         review = review[-rows:]
+    if mod_rows:
+        mod_section(mod_rows, mod_files)
     print(f"\nreview ({len(review)} rows: was each verdict right?)")
     for r in review:
         p = f"{r['p']:.2f}" if isinstance(r.get("p"), (int, float)) else (r.get("reason") or "-")
@@ -114,20 +162,22 @@ def report(records, bad, uncertain, rows):
 def main():
     ap = argparse.ArgumentParser(description="Summarize prose.sh's offer-rule decision log.")
     ap.add_argument("--log", type=Path, default=default_log())
+    ap.add_argument("--mod-dir", type=Path, default=default_mod_dir())
     ap.add_argument("--since")
     ap.add_argument("--uncertain", action="store_true")
     ap.add_argument("--rows", type=int, default=0)
     args = ap.parse_args()
-    if not args.log.is_file():
-        print(f"prose-report: no decision log at {args.log} (prose.sh writes it on the first offer it judges)",
-              file=sys.stderr)
+    records, bad = load(args.log, args.since) if args.log.is_file() else ([], 0)
+    mod_rows, mod_bad, mod_files = load_mod(args.mod_dir, args.since)
+    if not records and not mod_rows:
+        if not args.log.is_file() and not mod_files:
+            print(f"prose-report: no decision log at {args.log} (prose.sh writes it on the first offer it judges) "
+                  f"and no voice-guard logs in {args.mod_dir}", file=sys.stderr)
+        else:
+            print(f"prose-report: {args.log} has no records" + (f" since {args.since}" if args.since else "")
+                  + f" (and no voice-guard rows in {args.mod_dir})", file=sys.stderr)
         return 1
-    records, bad = load(args.log, args.since)
-    if not records:
-        print(f"prose-report: {args.log} has no records" + (f" since {args.since}" if args.since else ""),
-              file=sys.stderr)
-        return 1
-    report(records, bad, args.uncertain, args.rows)
+    report(records, bad + mod_bad, args.uncertain, args.rows, mod_rows, mod_files)
     return 0
 
 

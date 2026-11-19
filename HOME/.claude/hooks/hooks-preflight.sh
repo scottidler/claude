@@ -18,6 +18,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SETTINGS="${HOOKS_PREFLIGHT_SETTINGS:-$HOME/.claude/settings.json}"
 LIB_SH="${HOOKS_PREFLIGHT_LIB:-$HOME/.claude/hooks/lib.sh}"
 ROUTED_DIR="${HOOKS_PREFLIGHT_ROUTED:-$HOME/repos/.claude/routed}"
+VOICE_STATE="${HOOKS_PREFLIGHT_VOICE_STATE:-$HOME/.local/state/voice-guard}"
+# The SessionStart payload carries session_id on stdin. A test sets
+# HOOKS_PREFLIGHT_SESSION_ID (empty means: no session id, skip the load check).
+if [ "${HOOKS_PREFLIGHT_SESSION_ID+set}" = set ]; then
+  SESSION_ID="$HOOKS_PREFLIGHT_SESSION_ID"
+else
+  SESSION_ID=$(cat 2>/dev/null | jq -r '.session_id // empty' 2>/dev/null)
+fi
 
 # shellcheck source=hooks-resolve-lib.sh
 . "$SCRIPT_DIR/hooks-resolve-lib.sh" 2>/dev/null || exit 0
@@ -52,6 +60,30 @@ rails_down=$(jq -r '
   else empty end' "$SETTINGS" 2>/dev/null)
 routing_off=$(jq -r 'if [.pluginConfigs["rails@skills-dir"].options.rule_routing, .pluginConfigs.rails.options.rule_routing] | any(. == false) then "pluginConfigs rails options.rule_routing is false" else empty end' "$SETTINGS" 2>/dev/null)
 
+# voice-guard (docs/design/2026-11-18-voice-mod.md, Phase 6): disabled the
+# same way rails is, and a failed load. The mod writes heartbeat.<sessionId>
+# at session.start; this reads last-session-id (the previous session this
+# hook ran in), warns if that session has no heartbeat, and only THEN writes
+# the current id: writing first would warn every session. No last-session-id
+# (first run) is no warning. This sees a load failure at the NEXT session
+# start, and a session that ended before session.start ran warns falsely.
+voice_down=$(jq -r '
+  def opt(k): [.pluginConfigs["voice-guard@skills-dir"].options[k], .pluginConfigs["voice-guard"].options[k]] | any(. == false);
+  if .enabledPlugins["voice-guard@skills-dir"] == false then "voice-guard@skills-dir is disabled in enabledPlugins"
+  elif opt("enabled") then "pluginConfigs voice-guard options.enabled is false"
+  elif (.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS // "") != "1" then "env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is not \"1\""
+  else empty end' "$SETTINGS" 2>/dev/null)
+
+voice_unloaded=""
+if [ -n "$SESSION_ID" ]; then
+  last_id=""
+  [ -r "$VOICE_STATE/last-session-id" ] && last_id=$(head -n 1 "$VOICE_STATE/last-session-id" 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$last_id" ] && [ ! -e "$VOICE_STATE/heartbeat.$last_id" ]; then
+    voice_unloaded="$last_id"
+  fi
+  mkdir -p "$VOICE_STATE" 2>/dev/null && printf '%s\n' "$SESSION_ID" > "$VOICE_STATE/last-session-id" 2>/dev/null
+fi
+
 if [ "${#missing[@]}" -gt 0 ]; then
   detail=$(printf '%s; ' "${missing[@]}")
   # The globs are spelled out rather than a bare `hooks/*`, which also emits a
@@ -65,6 +97,16 @@ if [ -n "$rails_down" ]; then
 elif [ -n "$routing_off" ]; then
   msg="${msg:+$msg
 }hooks-preflight: rule routing is off ($routing_off), so git, marquee, otto and voice rules are flushed whole into each loop at its first prompt or tool call instead of on trigger. fix: set pluginConfigs[\"rails@skills-dir\"].options.rule_routing true"
+fi
+
+if [ -n "$voice_down" ]; then
+  msg="${msg:+$msg
+}hooks-preflight: voice-guard will not run ($voice_down), so the em-dash and phrase checks the mod shadows or enforces are off. fix: enable the voice-guard plugin and set env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS to \"1\""
+fi
+
+if [ -n "$voice_unloaded" ]; then
+  msg="${msg:+$msg
+}hooks-preflight: voice-guard did not load last session (no heartbeat for session $voice_unloaded in $VOICE_STATE). fix: run claude plugin validate --strict ~/.claude/skills/voice-guard and read the plugin load errors in the debug log"
 fi
 
 if [ ! -d "$ROUTED_DIR" ]; then

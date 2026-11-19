@@ -134,7 +134,7 @@ describe('shadow mode: the mod judges, the chain beneath decides', () => {
         const rows = await rowsSettled(w, 1)
         expect(rows).toEqual([expect.objectContaining({
             event: 'tool.call', session: SESSION, surface: 'write', tool: 'Write', rule: 'emdash',
-            label: 'Write content', modVerdict: 'deny', chainResult: 'deny', mode: 'shadow', agentId: null,
+            label: 'Write content', modVerdict: 'deny', chainResult: 'deny', chainSource: 'settings', mode: 'shadow', agentId: null,
         })])
         expect(w.writes[0]?.path).toMatch(LOG_FILE)
     })
@@ -144,7 +144,20 @@ describe('shadow mode: the mod judges, the chain beneath decides', () => {
         const r = await $.tool.call({ tool: 'Write', file_path: 'a.md', content: 'a' + EMDASH_CHAR + 'b' })
         expect(r.result).toBe('ok')
         expect(w.ran).toEqual(['Write'])
-        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ modVerdict: 'deny', chainResult: 'allow' })])
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ modVerdict: 'deny', chainResult: 'allow', chainSource: null })])
+    })
+
+    test('a plugin beneath answering { deny } logs chainSource plugin, not settings', async ($, on) => {
+        const writes: string[] = []
+        on('ui.log', () => ({ value: undefined }))
+        mock.env(on, { HOME })
+        on('session.id', () => ({ value: SESSION }))
+        on('fs.write', ($, e) => { writes.push(String(e.text)); return { value: undefined } })
+        on('tool.call', () => ({ deny: 'rails: gh needs a persona' }))
+        const r = await $.tool.call({ tool: 'Bash', command: 'git status' })
+        expect(denied(r)).toContain('rails: gh needs a persona')
+        for (let i = 0; i < 200 && writes.length < 1; i += 1) { await new Promise((resolve) => setTimeout(resolve, 0)) }
+        expect(JSON.parse(writes[0] as string)).toEqual(expect.objectContaining({ modVerdict: 'allow', chainResult: 'deny', chainSource: 'plugin' }))
     })
 
     test('a settings hook beneath (git-release-guard.sh) still denies git push --tags through the mod', async ($, on) => {
@@ -205,7 +218,7 @@ describe('shadow mode: the mod judges, the chain beneath decides', () => {
         expect(r.result).toBe('ok')
         expect(w.ran).toEqual(['mcp__slack__chat_post_message'])
         expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({
-            surface: 'mcp-post', rule: 'catch', modVerdict: null, chainResult: 'allow', error: expect.stringMatching(/^throw: Maximum call stack/),
+            surface: 'mcp-post', rule: 'catch', modVerdict: null, chainResult: 'allow', chainSource: null, error: expect.stringMatching(/^throw: Maximum call stack/),
         })])
     })
 })
@@ -379,5 +392,56 @@ describe('turn.complete: warn text beneath the answer', () => {
         const answer = 'Here is the line:\n```\nThe hook serves as a gate.\n```\n'
         const r = await $.turn.complete(complete(answer))
         expect(r.text).toBe(answer)
+    })
+})
+
+describe('heartbeat: the load check preflight reads', () => {
+    const DIR = HOME + '/.local/state/voice-guard'
+    const START = { cwd: '/r', surface: null, isInteractive: false } as any
+
+    function hbWorld(on: On, entries: { name: string; kind: 'file' | 'dir' | 'other'; size: number; mtimeMs: number; isLink: boolean }[], rkvr: boolean) {
+        const writes: { path: string; text: string }[] = []
+        const runs: string[][] = []
+        on('ui.log', () => ({ value: undefined }))
+        on('session.start', ($, e) => ({ cwd: e.cwd }))
+        on('tool.call', () => ({ result: 'ok' }))
+        mock.env(on, { HOME, PATH: '/usr/bin' })
+        on('session.id', () => ({ value: SESSION }))
+        on('fs.write', ($, e) => { writes.push({ path: e.path, text: String(e.text) }); return { value: undefined } })
+        on('fs.list', () => ({ value: entries }))
+        on('fs.exists', ($, e) => ({ value: rkvr && e.path === HOME + '/.cargo/bin/rkvr' }))
+        on('process.run', ($, e) => { runs.push([...(e as any).argv ?? (e as any).command ?? []]); return { value: { exitCode: 0, stdout: '', stderr: '' } } as any })
+        return { writes, runs }
+    }
+
+    const hb = (n: number) => ({ name: 'heartbeat.s' + n, kind: 'file' as const, size: 1, mtimeMs: n, isLink: false })
+
+    test('session.start writes heartbeat.<sessionId>', async ($, on) => {
+        const w = hbWorld(on, [], false)
+        await $.session.start(START)
+        expect(w.writes).toEqual([{ path: DIR + '/heartbeat.' + SESSION, text: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) }])
+    })
+
+    test('nothing is written before session.start (plugin.register does not count)', async ($, on) => {
+        const w = hbWorld(on, [], false)
+        await $.tool.call({ tool: 'Read', file_path: 'a' } as any)
+        expect(w.writes).toEqual([])
+    })
+
+    test('past 20 heartbeats the oldest go through rkvr rmrf; logs and last-session-id are never named', async ($, on) => {
+        const entries = [
+            ...Array.from({ length: 22 }, (_, i) => hb(i + 1)),
+            { name: 'last-session-id', kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false },
+            { name: 's.1-a.jsonl', kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false },
+        ]
+        const w = hbWorld(on, entries, true)
+        await $.session.start(START)
+        expect(w.runs).toEqual([[HOME + '/.cargo/bin/rkvr', 'rmrf', '--', DIR + '/heartbeat.s2', DIR + '/heartbeat.s1']])
+    })
+
+    test('without rkvr nothing is deleted', async ($, on) => {
+        const w = hbWorld(on, Array.from({ length: 22 }, (_, i) => hb(i + 1)), false)
+        await $.session.start(START)
+        expect(w.runs).toEqual([])
     })
 })

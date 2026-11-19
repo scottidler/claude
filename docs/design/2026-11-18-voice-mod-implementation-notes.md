@@ -368,3 +368,34 @@ That is the shipped default. To collect more evidence with no behavior change, s
 - `q-number-ref` and `ac-number-ref` fire on commit messages that cite design-doc labels. Is a design-doc `AC5` or a review `Q7` in a commit body on a repo where the doc lives a violation, or only on Slack, Jira, Confluence and Marquee? The answer decides whether the 20 and 50 "true" hits are really true, and whether the rules should narrow to the MCP posts (where their FPs are the in-document scorecard labels) before any promotion.
 - Should `triad` and `promote-word` stay in the table? Both measured as mostly FPs on this corpus (about 19 of 22 and 22 of 22 sampled). They are `warn` and never block, but `warn_structural` would show them on most replies that list three tools or mention a release promote.
 - `warn_structural` has no live check: no interactive session was run, and `claude plugin test` stands in for the engine. The "warn beneath the answer" display is verified in the kit, not on a terminal.
+
+## Phase 6: Wiring and visibility
+
+### Design decisions
+
+- `chainSource` on every `tool.call` row (the orchestrator's answer to Phase 2's first open question): `rules.ts:chainSourceOf`, pure, keyed exactly as `chainVerdict` is. `settings` when the deny came back as the errored `PreToolUse:<tool> hook error: ` result, `plugin` when it came back as `{ deny }`, `null` on allow. Phase 7's parity matrix counts only `chainSource: settings` rows, so a deny by `rails` (or any plugin beneath) never counts as `emdash.sh` agreement. A row where the mod itself denied in enforce mode has `chainResult: null` and `chainSource: null` (the chain was never consulted). The catch row and the `turn.complete` row carry the field too. Tests: `spec/parity.spec.ts` (all three values, plus "non-null iff `chainVerdict` is deny"), and in `tests/voice-guard.test.ts` the settings value (the U+2014 Write), `plugin` (a new test with a plugin beneath answering `{ deny }`), and `null` (the allow rows).
+- Heartbeat: `hooks/index.ts:writeHeartbeat`, a top-level function taking `$`, called from a new `on('session.start')` hook (not `plugin.register`). It writes `heartbeat.<sessionId>` (an ISO timestamp), lists the directory, and prunes past the newest 20 (`rules.ts:staleHeartbeats`, pure: regular files named `heartbeat.*` only, newest by `mtimeMs`). `$.fs` has no delete, so pruning goes through `rkvr rmrf` as rails' log prune does (`rules/safety.md`), skipped when `rkvr` is not found. It never throws and always returns `next(e)`: a failed heartbeat is exactly what preflight reports, so it must not break session start.
+- Preflight (`hooks-preflight.sh`): the disabled check mirrors rails' (`enabledPlugins`, `options.enabled` under both the plugin id and the bare name, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`). The load check reads `last-session-id`, compares to `heartbeat.<id>`, THEN writes the current id; no `last-session-id` is no warning. The session id comes from the SessionStart payload's `session_id` on stdin; tests set `HOOKS_PREFLIGHT_SESSION_ID` (set-but-empty skips the check and the stdin read) and `HOOKS_PREFLIGHT_VOICE_STATE` (the state dir). The test file exports both at the top so no existing case touches real state or waits on stdin.
+- `bin/prose-report`: reads `prose.sh`'s file and `*.jsonl` in `--mod-dir` (default `$VOICE_GUARD_LOG_DIR`, else `~/.local/state/voice-guard`). A new `sources` block counts both; the mod's `dropped` markers are not counted as rows. The health/verdicts/review sections stay `prose.sh`-only (mod rows have no `source`/`verdict`); a `voice-guard` section tallies `modVerdict`, `chainResult`, `chainSource`, `mode` and rule hits. Exit 1 only when neither source has records. `--since` filters both.
+- `.otto.yml`: the voice-guard source files join the em-dash lint list (the `rails` entries' counterpart), and the `test` task runs `bun test` in `spec/`, `claude plugin test`, and `claude plugin validate --strict`, after the rails ones.
+
+### Deviations
+
+- None from the spec's intent. Preflight's session id source (stdin) and the two test env overrides are not named in the doc; they are the SessionStart contract and the repo's existing override pattern (`HOOKS_PREFLIGHT_*`).
+
+### Tradeoffs
+
+- `rkvr rmrf` for heartbeat pruning over leaving them unpruned: the doc says keep the newest 20, `$.fs` cannot delete, and rails already shows the sanctioned path. Cost: no pruning on a host without `rkvr`.
+- prose-report keeps the `prose.sh` sections untouched and adds a mod section, over merging both into one table: the row shapes share only `ts`, `session`, `event`.
+
+### Open questions
+
+- The disabled check assumes the plugin id `voice-guard@skills-dir` (rails' id with its name swapped; the bare `voice-guard` is read too). Confirm against the live `enabledPlugins` key when the mod is first enabled in `settings.json` (not edited here).
+- A heartbeat is written only at `session.start`, which fires once per process per loaded plugin: a `/clear` session id has no heartbeat, so a preflight that records a post-`/clear` id would warn falsely next time. The doc accepts false warnings of this kind; flagging it in case the rate is annoying in production.
+
+### Success criteria
+
+- Disabled plugin names `voice-guard`: PASS, 4 `hooks-preflight-test.sh` cases (enabledPlugins, options.enabled under both keys, function-hooks env).
+- Three heartbeat cases: PASS (matching heartbeat silent; missing heartbeat for the recorded id names `voice-guard`; first run silent), plus a case that the recorded id advances.
+- `otto ci` exits 0 and runs the mod's three commands: PASS (rc 0; output shows `bun test (voice-guard/spec)`, `claude plugin test voice-guard`, `claude plugin validate --strict voice-guard`).
+- `bin/prose-report` counts both files: PASS (fixture output: `prose.sh 2 rows`, `voice-guard 3 rows` across 2 files; `bin/prose-report-test.sh` 27 passed).

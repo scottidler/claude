@@ -21,6 +21,12 @@ trap 'rm -rf "$SCRATCH"' EXIT
 pass=0
 fail=0
 
+# The voice-guard load check reads and writes ~/.local/state/voice-guard: point it at
+# the scratch dir, and give every run no session id (skip the check, no stdin read)
+# unless a case sets one.
+export HOOKS_PREFLIGHT_VOICE_STATE="$SCRATCH/voice-state"
+export HOOKS_PREFLIGHT_SESSION_ID=""
+
 ok()  { printf 'PASS  %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf 'FAIL  %s\n' "$*"; fail=$((fail + 1)); }
 
@@ -135,6 +141,66 @@ if printf '%s' "$ctx" | rg -q 'rule routing is off.*flushed whole'; then
   ok "hooks-preflight: reads rule_routing under the plugin id too"
 else
   bad "hooks-preflight: missed rule_routing under rails@skills-dir: $ctx"
+fi
+
+# ---- fixtures: voice-guard disabled ------------------------------------------
+for case in \
+  'voice-guard@skills-dir is disabled in enabledPlugins|{"enabledPlugins":{"voice-guard@skills-dir":false}}' \
+  'options.enabled is false|{"pluginConfigs":{"voice-guard":{"options":{"enabled":false}}}}' \
+  'options.enabled is false|{"pluginConfigs":{"voice-guard@skills-dir":{"options":{"enabled":false}}}}' \
+  'CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is not|{"env":{}}'; do
+  want="${case%%|*}"; extra="${case#*|}"
+  off="$SCRATCH/voice-off.json"
+  jq --argjson x "$extra" '. + $x' "$good" > "$off"
+  ctx=$(HOOKS_PREFLIGHT_SETTINGS="$off" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" bash "$PREFLIGHT")
+  if printf '%s' "$ctx" | rg -q "voice-guard will not run \\([^)]*$want"; then
+    ok "hooks-preflight: names voice-guard when disabled ($want)"
+  else
+    bad "hooks-preflight: no voice-guard disabled warning for $want: $ctx"
+  fi
+done
+
+# ---- fixtures: voice-guard load check (heartbeat.<session id>) ----------------
+# Read last-session-id, compare to heartbeat.<that id>, THEN write the current id.
+run_voice() { # run_voice <current session id>
+  HOOKS_PREFLIGHT_SETTINGS="$good" HOOKS_PREFLIGHT_LIB="$HOOKS_DIR/lib.sh" HOOKS_PREFLIGHT_SESSION_ID="$1" bash "$PREFLIGHT"
+}
+
+rm -rf "$HOOKS_PREFLIGHT_VOICE_STATE"; mkdir -p "$HOOKS_PREFLIGHT_VOICE_STATE"
+ctx=$(run_voice sess-new)
+if [ -z "$ctx" ] && [ "$(cat "$HOOKS_PREFLIGHT_VOICE_STATE/last-session-id")" = "sess-new" ]; then
+  ok "hooks-preflight: first run (no last-session-id) is silent and records the id"
+else
+  bad "hooks-preflight: first run warned or did not record the id: $ctx"
+fi
+
+rm -rf "$HOOKS_PREFLIGHT_VOICE_STATE"; mkdir -p "$HOOKS_PREFLIGHT_VOICE_STATE"
+printf 'sess-old\n' > "$HOOKS_PREFLIGHT_VOICE_STATE/last-session-id"
+: > "$HOOKS_PREFLIGHT_VOICE_STATE/heartbeat.sess-old"
+ctx=$(run_voice sess-new)
+if [ -z "$ctx" ] && [ "$(cat "$HOOKS_PREFLIGHT_VOICE_STATE/last-session-id")" = "sess-new" ]; then
+  ok "hooks-preflight: a matching heartbeat is silent"
+else
+  bad "hooks-preflight: a matching heartbeat warned: $ctx"
+fi
+
+rm -f "$HOOKS_PREFLIGHT_VOICE_STATE/heartbeat.sess-old"
+printf 'sess-old\n' > "$HOOKS_PREFLIGHT_VOICE_STATE/last-session-id"
+ctx=$(run_voice sess-new)
+if printf '%s' "$ctx" | rg -q 'voice-guard did not load last session.*sess-old' \
+   && [ "$(cat "$HOOKS_PREFLIGHT_VOICE_STATE/last-session-id")" = "sess-new" ]; then
+  ok "hooks-preflight: a missing heartbeat for the recorded id names voice-guard, then records the new id"
+else
+  bad "hooks-preflight: missing heartbeat not named, or id not recorded: $ctx"
+fi
+
+# The id was written after the compare: the next run, still without a heartbeat for
+# sess-new, warns about sess-new (not about sess-old again).
+ctx=$(run_voice sess-newer)
+if printf '%s' "$ctx" | rg -q 'no heartbeat for session sess-new in' && ! printf '%s' "$ctx" | rg -q 'sess-old'; then
+  ok "hooks-preflight: the recorded id advances each run"
+else
+  bad "hooks-preflight: recorded id did not advance: $ctx"
 fi
 
 # ---- fixture: the routed rules dir does not resolve --------------------------

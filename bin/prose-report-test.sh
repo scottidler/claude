@@ -5,6 +5,8 @@ set -u
 REPORT="$(cd "$(dirname "$0")" && pwd)/prose-report"
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/prose-report-test.XXXXXX")
 pass=0; fail=0
+# The mod's log dir defaults to this host's real one: point it at an empty scratch dir.
+export VOICE_GUARD_LOG_DIR="$ROOT/no-mod-logs"
 
 rec() {  # rec <ts> <verdict> <source> <p|null> <reason|null> <ms> <prompt> <final>
   jq -nc --arg ts "$1" --arg v "$2" --arg s "$3" --argjson p "$4" --argjson reason "$5" \
@@ -75,6 +77,24 @@ if PROSE_LOG="$MIXED" python3 -I "$REPORT" 2>&1 | grep -q '^records  5 '; then
 else
   fail=$((fail+1)); echo "FAIL  PROSE_LOG env var is the default log"
 fi
+
+echo "=== voice-guard logs ==="
+MOD="$ROOT/mod"; mkdir -p "$MOD"
+modrow() {  # modrow <rule|null> <modVerdict> <chainResult> <chainSource|null>
+  jq -nc --argjson rule "$1" --arg mv "$2" --arg cr "$3" --argjson cs "$4" \
+    '{ts:"2026-10-06T10:00:00Z", session:"s", event:"tool.call", surface:"write", tool:"Write",
+      rule:$rule, modVerdict:$mv, chainResult:$cr, chainSource:$cs, mode:"shadow"}'
+}
+{ modrow '"emdash"' deny deny '"settings"'; modrow null allow allow null; echo '{"event":"dropped","count":3}'; } > "$MOD/s1.111-aaa.jsonl"
+{ modrow '"emdash"' deny allow null; } > "$MOD/s2.222-bbb.jsonl"
+expect "counts rows from both files" 0 '^  prose.sh     5 rows$' -- --log "$MIXED" --mod-dir "$MOD"
+expect "counts the mod's rows across the glob, minus dropped markers" 0 '^  voice-guard  3 rows$' -- --log "$MIXED" --mod-dir "$MOD"
+expect "mod section names the file count" 0 '^voice-guard  \(3 rows in 2 files\)' -- --log "$MIXED" --mod-dir "$MOD"
+expect "mod section counts chainSource" 0 'chainSource  null 2  settings 1' -- --log "$MIXED" --mod-dir "$MOD"
+expect "mod rows alone are enough (no prose.sh file)" 0 '^  prose.sh     0 rows$' -- --log "$ROOT/never-written.jsonl" --mod-dir "$MOD"
+expect "VOICE_GUARD_LOG_DIR is the default mod dir" 0 '^  voice-guard  3 rows$' -- --log "$MIXED" --mod-dir "$MOD"
+reject "no mod rows, no mod section" '^voice-guard  \(' -- --log "$MIXED"
+expect "--since filters the mod's rows too" 1 'has no records since 2027-01-01' -- --log "$MIXED" --mod-dir "$MOD" --since 2027-01-01
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -1,9 +1,9 @@
 import type { EngineInterface, HookFailure, Register, ToolCallResult } from 'claude-code'
 import {
-    chainVerdict, denyIdsFrom, emdashReason, judgeOutward, judgeProse, judgeToolCall,
-    ruleReason, surfaceOf, verdictOf, warnText,
+    chainSourceOf, chainVerdict, denyIdsFrom, emdashReason, judgeOutward, judgeProse, judgeToolCall,
+    ruleReason, staleHeartbeats, surfaceOf, verdictOf, warnText, HEARTBEAT_PREFIX,
 } from './rules'
-import type { ChainVerdict, Surface } from './rules'
+import type { ChainSource, ChainVerdict, Surface } from './rules'
 
 /**
  * voice-guard at `tool.call`, Phase 2: shadow mode for the em-dash rule
@@ -49,6 +49,8 @@ type Row = {
     label: string | null
     modVerdict: 'allow' | 'deny' | 'warn' | null
     chainResult: ChainVerdict | null
+    /** Which layer denied: `settings` (prefix), `plugin` (`{ deny }`), null on allow or when the mod itself denied. */
+    chainSource: ChainSource | null
     mode: Mode
     agentId: string | null
     error?: string
@@ -132,12 +134,54 @@ function errorText(f: HookFailure): string {
     return f.kind + (f.message === undefined ? '' : ': ' + f.message)
 }
 
+/**
+ * The load check's heartbeat (docs/design/2026-11-18-voice-mod.md, Data
+ * Model): `heartbeat.<sessionId>` in the log directory, written at
+ * `session.start`. `hooks-preflight.sh` reads `last-session-id` and warns when
+ * that session has no heartbeat. Keeps the newest `HEARTBEAT_KEEP`; the rest
+ * go through `rkvr rmrf` (rules/safety.md), skipped without it. Never throws:
+ * a heartbeat that cannot be written must not fail the session start, and the
+ * missing file is exactly what preflight reports.
+ */
+async function writeHeartbeat($: EngineInterface): Promise<void> {
+    try {
+        const home = await $.env.get('HOME')
+        if (home === undefined || home === '') { throw new Error('HOME is unset') }
+        const dir = home + LOG_DIR
+        const id = await $.session.id()
+        await $.fs.write(dir + '/' + HEARTBEAT_PREFIX + id, new Date().toISOString() + '\n')
+        const stale = staleHeartbeats(await $.fs.list(dir))
+        if (stale.length === 0) { return }
+        const rkvr = await findRkvr($, home)
+        if (rkvr === null) { return }
+        await $.process.run([rkvr, 'rmrf', '--', ...stale.map((n) => dir + '/' + n)])
+    } catch (err) {
+        try { $.ui.log('voice-guard: heartbeat failed: ' + (err instanceof Error ? err.message : String(err)), { to: 'debug' }) } catch { /* nowhere left to say it */ }
+    }
+}
+
+/** The `rkvr` on the engine's PATH, else `~/.cargo/bin/rkvr`; null when neither exists (as rails finds it). */
+async function findRkvr($: EngineInterface, home: string): Promise<string | null> {
+    const path = (await $.env.get('PATH')) ?? ''
+    const dirs = [...path.split(':').filter((d) => d.startsWith('/')), home + '/.cargo/bin']
+    for (const dir of dirs) {
+        const candidate = dir.replace(/\/+$/, '') + '/rkvr'
+        if (await $.fs.exists(candidate)) { return candidate }
+    }
+    return null
+}
+
 export const register: Register = (on, options) => {
     const mode: Mode = options['enforce'] === true ? 'enforce' : 'shadow'
     const log = newModLog()
     const { ids: denyIds, unknown: unknownDenyIds } = denyIdsFrom(options['deny_outward'])
     const warnStructural = options['warn_structural'] === true
     let notedUnknown = false
+
+    on('session.start', async ($, e, next) => {
+        await writeHeartbeat($)
+        return next(e)
+    }).catch(async ($, e, next) => next(e))
 
     on('tool.call', async ($, e, next) => {
         const tool = String(e.tool)
@@ -159,11 +203,11 @@ export const register: Register = (on, options) => {
         const reason = v !== null ? emdashReason(v) : denying !== undefined ? ruleReason(denying) : null
         const base = { event: 'tool.call' as const, surface, tool, mode, agentId: e.agentId ?? null }
         if (reason !== null && mode === 'enforce') {
-            for (const j of judged) { void record($, log, { ...base, ...j, chainResult: null }) }
+            for (const j of judged) { void record($, log, { ...base, ...j, chainResult: null, chainSource: null }) }
             return { deny: reason }
         }
         const r: ToolCallResult = await next(e)
-        for (const j of judged) { void record($, log, { ...base, ...j, chainResult: chainVerdict(r) }) }
+        for (const j of judged) { void record($, log, { ...base, ...j, chainResult: chainVerdict(r), chainSource: chainSourceOf(r) }) }
         return r
     }).catch(async ($, e, next) => {
         // Fail open: `next` is replay-safe here, so a hook that had already
@@ -172,7 +216,7 @@ export const register: Register = (on, options) => {
         const tool = String(e.tool)
         void record($, log, {
             event: 'tool.call', surface: surfaceOf(tool), tool, rule: 'catch', label: null, modVerdict: null,
-            chainResult: chainVerdict(r), mode, agentId: e.agentId ?? null, error: errorText(next.error),
+            chainResult: chainVerdict(r), chainSource: chainSourceOf(r), mode, agentId: e.agentId ?? null, error: errorText(next.error),
         })
         return r
     })
@@ -186,7 +230,7 @@ export const register: Register = (on, options) => {
         for (const h of hits) {
             void record($, log, {
                 event: 'turn.complete', surface: 'reply', tool: '', rule: h.rule, label: h.label,
-                modVerdict: 'warn', chainResult: null, mode, agentId: null,
+                modVerdict: 'warn', chainResult: null, chainSource: null, mode, agentId: null,
             })
         }
         return { ...r, text: warnText(hits) }
