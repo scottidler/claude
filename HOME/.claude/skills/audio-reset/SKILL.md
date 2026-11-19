@@ -43,6 +43,12 @@ reset does too.
   `pactl get-default-source` listed the mic. Reloading the tab did not help. Only a full Firefox kill did.
   Tell the user this before the restart, never after.
 - Zoom reconnected on 2026-10-29. Not verified since.
+- Slack desktop does not (2026-11-18). A huddle showed "Allow microphone access" after the restart.
+  Closing the window only hides Slack to the tray, so the old PipeWire connection survives and the
+  window returns on reopen. Check `ps -eo pid,etimes,cmd | grep '[/]usr/lib/slack/slack'`: a long
+  `etimes` means a stale process. Fix: `pkill -f '[/]usr/lib/slack/slack'` (the bracket keeps pkill off
+  its own shell; it does not touch `slack mcp serve`), then the user reopens Slack. Tell the user
+  before the restart, never after. Whether the mic works after a clean launch is not verified.
 - Spotify does not. Ask the user to pause then play. If silent, Spotify needs a full restart.
   Do not kill it unasked: that ends their playback session.
 - Do not restart `meetily` unasked. It triggers the problem again.
