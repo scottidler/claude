@@ -1,5 +1,8 @@
 import type { EngineInterface, HookFailure, Register, ToolCallResult } from 'claude-code'
-import { chainVerdict, emdashReason, judgeToolCall, surfaceOf } from './rules'
+import {
+    chainVerdict, denyIdsFrom, emdashReason, judgeOutward, judgeProse, judgeToolCall,
+    ruleReason, surfaceOf, verdictOf, warnText,
+} from './rules'
 import type { ChainVerdict, Surface } from './rules'
 
 /**
@@ -12,6 +15,13 @@ import type { ChainVerdict, Surface } from './rules'
  * decide. Enforce: a violation returns `{ deny }`, which ends the chain; a pass
  * still returns `next(e)`. Every failure fails open through `next(e)`, as
  * `emdash.sh:48-49` does, and leaves a `catch` row.
+ *
+ * Phase 5 adds the phrase table (`rules.ts:RULES`). At an outward `tool.call`
+ * every table hit is a `warn` row, unless its id is in the `deny_outward`
+ * option and the rule is `deny-outward`: then it denies (enforce) or logs a
+ * `deny` and passes through (shadow). At `turn.complete`, with
+ * `warn_structural` on, the `warn` rules run over the final reply and their
+ * text is shown beneath the answer; a terminal reply never blocks.
  */
 
 /**
@@ -31,12 +41,13 @@ type Mode = 'shadow' | 'enforce'
 
 /** One judged call: the Data Model's row fields that apply at `tool.call`. */
 type Row = {
-    /** Null on a catch row for a call no matcher covers. */
-    surface: Surface | null
+    event: 'tool.call' | 'turn.complete'
+    /** Null on a catch row for a call no matcher covers; `reply` at `turn.complete`. */
+    surface: Surface | 'reply' | null
     tool: string
     rule: string | null
     label: string | null
-    modVerdict: 'allow' | 'deny' | null
+    modVerdict: 'allow' | 'deny' | 'warn' | null
     chainResult: ChainVerdict | null
     mode: Mode
     agentId: string | null
@@ -84,7 +95,7 @@ async function openFor($: EngineInterface, log: ModLog): Promise<string> {
 
 async function writeRow($: EngineInterface, log: ModLog, row: Row): Promise<void> {
     const session = await openFor($, log)
-    log.rows.push(JSON.stringify({ ts: new Date().toISOString(), session, event: 'tool.call', ...row }))
+    log.rows.push(JSON.stringify({ ts: new Date().toISOString(), session, ...row }))
     while (log.rows.length > ROW_CAP) {
         log.rows.shift()
         log.dropped += 1
@@ -124,22 +135,35 @@ function errorText(f: HookFailure): string {
 export const register: Register = (on, options) => {
     const mode: Mode = options['enforce'] === true ? 'enforce' : 'shadow'
     const log = newModLog()
+    const { ids: denyIds, unknown: unknownDenyIds } = denyIdsFrom(options['deny_outward'])
+    const warnStructural = options['warn_structural'] === true
+    let notedUnknown = false
 
     on('tool.call', async ($, e, next) => {
         const tool = String(e.tool)
         const surface = surfaceOf(tool)
         if (surface === null) { return next(e) }
-        const v = judgeToolCall(tool, inputOf(e as unknown as Record<string, unknown>))
-        const base = {
-            surface, tool, rule: v?.rule ?? null, label: v?.label ?? null,
-            modVerdict: v === null ? 'allow' as const : 'deny' as const, mode, agentId: e.agentId ?? null,
+        if (unknownDenyIds.length > 0 && !notedUnknown) {
+            notedUnknown = true
+            $.ui.log('voice-guard: deny_outward ignores ' + unknownDenyIds.join(', ') + ' (not a deny-outward rule id)', { to: 'debug' })
         }
-        if (v !== null && mode === 'enforce') {
-            void record($, log, { ...base, chainResult: null })
-            return { deny: emdashReason(v) }
+        const input = inputOf(e as unknown as Record<string, unknown>)
+        const v = judgeToolCall(tool, input)
+        // The em-dash rule keeps its own path. Otherwise one row per table hit, or a single allow row.
+        const hits = v === null ? judgeOutward(tool, input, warnStructural) : []
+        const judged: { rule: string | null; label: string | null; modVerdict: 'allow' | 'deny' | 'warn' }[] =
+            v !== null ? [{ rule: v.rule, label: v.label, modVerdict: 'deny' }]
+                : hits.length > 0 ? hits.map((h) => ({ rule: h.rule, label: h.label, modVerdict: verdictOf(h, denyIds) }))
+                    : [{ rule: null, label: null, modVerdict: 'allow' }]
+        const denying = hits.find((h) => verdictOf(h, denyIds) === 'deny')
+        const reason = v !== null ? emdashReason(v) : denying !== undefined ? ruleReason(denying) : null
+        const base = { event: 'tool.call' as const, surface, tool, mode, agentId: e.agentId ?? null }
+        if (reason !== null && mode === 'enforce') {
+            for (const j of judged) { void record($, log, { ...base, ...j, chainResult: null }) }
+            return { deny: reason }
         }
         const r: ToolCallResult = await next(e)
-        void record($, log, { ...base, chainResult: chainVerdict(r) })
+        for (const j of judged) { void record($, log, { ...base, ...j, chainResult: chainVerdict(r) }) }
         return r
     }).catch(async ($, e, next) => {
         // Fail open: `next` is replay-safe here, so a hook that had already
@@ -147,9 +171,24 @@ export const register: Register = (on, options) => {
         const r = await next(e)
         const tool = String(e.tool)
         void record($, log, {
-            surface: surfaceOf(tool), tool, rule: 'catch', label: null, modVerdict: null,
+            event: 'tool.call', surface: surfaceOf(tool), tool, rule: 'catch', label: null, modVerdict: null,
             chainResult: chainVerdict(r), mode, agentId: e.agentId ?? null, error: errorText(next.error),
         })
         return r
     })
+
+    on('turn.complete', async ($, e, next) => {
+        const r = await next(e)
+        // A subagent's answer is a report to its spawner, not a terminal reply to Scott.
+        if (!warnStructural || e.agentId !== undefined || typeof e.answer !== 'string') { return r }
+        const hits = judgeProse(e.answer, 'reply', true, 'the final reply')
+        if (hits.length === 0) { return r }
+        for (const h of hits) {
+            void record($, log, {
+                event: 'turn.complete', surface: 'reply', tool: '', rule: h.rule, label: h.label,
+                modVerdict: 'warn', chainResult: null, mode, agentId: null,
+            })
+        }
+        return { ...r, text: warnText(hits) }
+    }).catch(async ($, e, next) => next(e))
 }

@@ -14,6 +14,18 @@
       "default": false,
       "title": "enforce",
       "description": "When on, a match returns a deny and ends the chain. When off (shadow mode) the mod judges, logs and passes through, so the settings hook beneath decides."
+    },
+    "deny_outward": {
+      "type": "string",
+      "default": "",
+      "title": "deny_outward",
+      "description": "Space-separated rule ids of the new phrase table promoted from warn to deny on outward tool calls (Slack, Jira, Confluence, Marquee, create_pr, commit and gh bodies). Only deny-outward rules can be named; in shadow mode a match is logged and never returned. Default empty: every rule warns. The schema has no array type, so the list is one string. Underscore because the plugin schema rejects hyphens in these keys."
+    },
+    "warn_structural": {
+      "type": "boolean",
+      "default": false,
+      "title": "warn_structural",
+      "description": "When on, the structural warn rules run over outward posts (logged) and over the final reply, whose warning is shown beneath the answer. Never blocks."
     }
   }
 }

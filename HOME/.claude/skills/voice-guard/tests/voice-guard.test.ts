@@ -230,3 +230,154 @@ describe('enforce mode (off by default)', () => {
         expect(w.ran).toEqual(['Bash'])
     })
 })
+
+const SLACK = 'mcp__slack__chat_post_message'
+const slackPost = (text: string): any => ({ tool: SLACK, channel_id: 'C1', text })
+
+describe('phrase table at an outward tool.call: every rule defaults to warn', () => {
+    test('a chat-residue phrase in a Slack post is a warn row, and the call runs', async ($, on) => {
+        const w = world(on, allowAll)
+        const r = await $.tool.call(slackPost('Great question. The cap is 8.'))
+        expect(r.result).toBe('ok')
+        expect(w.ran).toEqual([SLACK])
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({
+            event: 'tool.call', surface: 'mcp-post', rule: 'chat-residue', modVerdict: 'warn', chainResult: 'allow', mode: 'shadow',
+        })])
+    })
+
+    test('enforce on, nothing promoted: the same post is only a warn row, and the hook beneath still runs', { options: { enforce: true } }, async ($, on) => {
+        let hookRan = false
+        const w = world(on, () => { hookRan = true; return undefined })
+        const r = await $.tool.call(slackPost('Great question. The cap is 8.'))
+        expect(r.result).toBe('ok')
+        expect(hookRan).toBe(true)
+        expect(w.ran).toEqual([SLACK])
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ rule: 'chat-residue', modVerdict: 'warn', mode: 'enforce' })])
+    })
+
+    test('a structural warn rule is silent unless warn_structural is on', async ($, on) => {
+        const w = world(on, allowAll)
+        await $.tool.call(slackPost('The hook serves as a gate.'))
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ rule: null, modVerdict: 'allow' })])
+    })
+
+    test('warn_structural on: the structural hit is a warn row', { options: { warn_structural: true } }, async ($, on) => {
+        const w = world(on, allowAll)
+        const r = await $.tool.call(slackPost('The hook serves as a gate.'))
+        expect(r.result).toBe('ok')
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ rule: 'copula-avoidance', modVerdict: 'warn' })])
+    })
+
+    test('a phrase in a Write is not outward: allow row, no table judgment', async ($, on) => {
+        const w = world(on, allowAll)
+        await $.tool.call({ tool: 'Write', file_path: 'a.md', content: 'Great question.' } as any)
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ rule: null, modVerdict: 'allow' })])
+    })
+
+    test('a commit heredoc body is outward: a hit is a warn row', async ($, on) => {
+        const w = world(on, allowAll)
+        await $.tool.call({ tool: 'Bash', command: "git commit -F - <<'MSG'\nfeat(x): y\n\nBelt and suspenders.\nMSG\n" } as any)
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ surface: 'bash', rule: 'belt-and-suspenders', modVerdict: 'warn' })])
+    })
+})
+
+describe('deny_outward promotion', () => {
+    test('shadow: a promoted match is logged as deny and never returned; the chain decides', { options: { deny_outward: 'chat-residue' } }, async ($, on) => {
+        const w = world(on, allowAll)
+        const r = await $.tool.call(slackPost('Great question. The cap is 8.'))
+        expect(r.result).toBe('ok')
+        expect(w.ran).toEqual([SLACK])
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ rule: 'chat-residue', modVerdict: 'deny', chainResult: 'allow', mode: 'shadow' })])
+    })
+
+    test('enforce: a promoted match is denied by the mod alone', { options: { enforce: true, deny_outward: 'chat-residue' } }, async ($, on) => {
+        let hookRan = false
+        const w = world(on, () => { hookRan = true; return undefined })
+        const r = await $.tool.call(slackPost('Great question. The cap is 8.'))
+        expect(denied(r)).toContain('chat-residue')
+        expect(denied(r)).toContain('Great question.')
+        expect(hookRan).toBe(false)
+        expect(w.ran).toEqual([])
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ rule: 'chat-residue', modVerdict: 'deny', chainResult: null, mode: 'enforce' })])
+    })
+
+    test('enforce: a promoted rule does not deny a different rule\'s match', { options: { enforce: true, deny_outward: 'full-stop' } }, async ($, on) => {
+        const w = world(on, allowAll)
+        const r = await $.tool.call(slackPost('Great question.'))
+        expect(r.result).toBe('ok')
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ rule: 'chat-residue', modVerdict: 'warn' })])
+    })
+
+    test('enforce: a clean post still reaches the settings hook and the tool beneath', { options: { enforce: true, deny_outward: 'chat-residue' } }, async ($, on) => {
+        const w = world(on, (tool, input) => (tool === SLACK && String(input['text']).includes('blocked') ? 'hook says no' : undefined))
+        expect(denied(await $.tool.call(slackPost('this is blocked')))).toContain('hook says no')
+        const ok = await $.tool.call(slackPost('shipped: green CI'))
+        expect(ok.result).toBe('ok')
+        expect(w.ran).toEqual([SLACK])
+    })
+
+    test('a warn rule named in deny_outward is ignored: it never denies', { options: { enforce: true, deny_outward: 'copula-avoidance', warn_structural: true } }, async ($, on) => {
+        const w = world(on, allowAll)
+        const r = await $.tool.call(slackPost('The hook serves as a gate.'))
+        expect(r.result).toBe('ok')
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({ rule: 'copula-avoidance', modVerdict: 'warn' })])
+    })
+
+    test('enforce: the em-dash rule still wins on a post that also carries a promoted phrase', { options: { enforce: true, deny_outward: 'chat-residue' } }, async ($, on) => {
+        world(on, allowAll)
+        const r = await $.tool.call(slackPost('Great question' + EMDASH_CHAR + 'yes.'))
+        expect(denied(r)).toContain('em-dash (U+2014)')
+    })
+})
+
+describe('turn.complete: warn text beneath the answer', () => {
+    const complete = (answer: string, extra: Record<string, unknown> = {}): any =>
+        ({ answer, durationMs: 1, isAborted: false, turnId: 't1', reason: 'answered', ...extra })
+
+    function turnWorld(on: On): World {
+        const w = world(on, allowAll)
+        on('turn.complete', ($, e) => ({ text: e.answer }))
+        return w
+    }
+
+    test('warn_structural off: the answer comes back untouched', async ($, on) => {
+        turnWorld(on)
+        const r = await $.turn.complete(complete('The hook serves as a gate.'))
+        expect(r.text).toBe('The hook serves as a gate.')
+    })
+
+    test('warn_structural on: a structural hit is shown beneath, and a row is logged', { options: { warn_structural: true } }, async ($, on) => {
+        const w = turnWorld(on)
+        const r = await $.turn.complete(complete('The hook serves as a gate.'))
+        expect(r.text).toContain('voice-guard warn')
+        expect(r.text).toContain('copula-avoidance')
+        expect(await rowsSettled(w, 1)).toEqual([expect.objectContaining({
+            event: 'turn.complete', surface: 'reply', rule: 'copula-avoidance', modVerdict: 'warn', mode: 'shadow',
+        })])
+    })
+
+    test('a clean reply is returned as it was', { options: { warn_structural: true } }, async ($, on) => {
+        turnWorld(on)
+        const r = await $.turn.complete(complete('The guard runs: CI is green.'))
+        expect(r.text).toBe('The guard runs: CI is green.')
+    })
+
+    test('a terminal reply gets warn only: a deny-outward phrase passes', { options: { warn_structural: true, enforce: true, deny_outward: 'chat-residue' } }, async ($, on) => {
+        turnWorld(on)
+        const r = await $.turn.complete(complete('Great question. The cap is 8.'))
+        expect(r.text).toBe('Great question. The cap is 8.')
+    })
+
+    test('a subagent\'s report is not a terminal reply: no warning', { options: { warn_structural: true } }, async ($, on) => {
+        turnWorld(on)
+        const r = await $.turn.complete(complete('The hook serves as a gate.', { agentId: 'a1' }))
+        expect(r.text).toBe('The hook serves as a gate.')
+    })
+
+    test('a banned phrase in a code fence in the reply is not warned', { options: { warn_structural: true } }, async ($, on) => {
+        turnWorld(on)
+        const answer = 'Here is the line:\n```\nThe hook serves as a gate.\n```\n'
+        const r = await $.turn.complete(complete(answer))
+        expect(r.text).toBe(answer)
+    })
+})

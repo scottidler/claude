@@ -278,3 +278,93 @@ The model saw `PreToolUse:Write hook error: em-dash (U+2014) in Write content; .
 ```
 
 No `probe.md` was written. The probe's log directory and scratch dir were removed with `rkvr rmrf`.
+
+## Phase 5: New phrase table
+
+Phases 3 and 4 are DROPPED: Phase 0 Q1 is NEGATIVE (a user-tier `classic.Stop` is bypassed by `cc-plugin-sec-default`) and Q4a is NEGATIVE with it, so both `prose.sh` entries stay and the mod has no Stop surface. Phase 5 is committed as Phase 5 of 8 anyway. The surfaces it uses are `tool.call` (Q2b VERIFIED) and `turn.complete`.
+
+### Design decisions
+
+- Rule table: `hooks/rules.ts:RULES`, 18 rules as data (`id, tier, pattern, scope, fix, source`, shape in `types/index.d.ts:Rule`). Seven `deny-outward`: `belt-and-suspenders`, `q-number-ref`, `ac-number-ref`, `chat-residue`, `staged-runup`, `let-that-sink-in`, `full-stop`. Eleven `warn`: `not-only-but`, `ing-tail`, `triad`, `copula-avoidance`, `bold-label-bullet`, `heres-leadin`, `arguing-with-no-one`, `about-the-document`, `ensure-word`, `promote-word`, `emphasis-word`. The doc's grouped bullets (Q and AC numbers; the `ensure`, `promote`, `essential` word lists) are split so each id is promotable on its own. `source` names the VOICE.md anti-pattern (paraphrased) or the public source (Wikipedia "Signs of AI writing", `blader/humanizer`, `hardikpandya/stop-slop`, Kobak et al.); the private profile is never quoted.
+- Pure functions, no `$`: `judgeProse(text, where, includeWarn, label, shell)`, `judgeOutward(tool, input, includeWarn)`, `outwardTexts`, `outwardHeredocText`, `proseOf`, `denyIdsFrom`, `verdictOf`, `ruleReason`, `warnText`. A hit is `deny` only when its rule is `deny-outward` and its id is in `deny_outward`; every other hit is `warn`.
+- Mentioned-not-used traps live in one place, `rules.ts:proseOf`: fenced code (backtick and tilde, an unterminated fence runs to the end), inline code, blockquote lines, double and curly-quoted spans, and shell-escaped quoted spans are removed before any rule runs. A single straight quote is an apostrophe, never a quote.
+- Shell quoting: in a Bash command the message itself sits in `-m "..."`, so `proseOf(text, shell)` leaves quoted spans alone on the line that holds an outward stage. Without that, the replay's first cut stripped every double-quoted commit message whole.
+- Outward extraction for Bash (`outwardTexts`): the command from its first outward stage on, with the body of a heredoc kept only when its opener line holds an outward stage (`git commit -F - <<`, `git commit -m "$(cat <<'EOF'`). `cat > notes.md <<EOF` is a file write, and the Write tool is not outward. Scope is Bash with an outward stage, outward MCP posts (Slack, Jira, Confluence, Marquee) and `create_pr`; Write, Edit and NotebookEdit are not judged by the table.
+- `index.ts`: the `tool.call` hook keeps the em-dash path and otherwise logs one row per table hit (`modVerdict: warn | deny`). Enforce mode denies with `{ deny: ruleReason(hit) }` only for a promoted `deny-outward` hit; shadow logs `deny` and returns `next(e)`. Every pass path returns `next(e)`. Deny-outward rules always judge; `warn` rules judge at `tool.call` only with `warn_structural` on.
+- `turn.complete`: with `warn_structural` on, `warn` rules (scope `outward-and-reply`) run over `e.answer` and the hook returns `{ text: warnText(hits) }`, shown beneath the answer; no hits returns `next(e)`'s result untouched. A subagent's answer (`e.agentId`) is a report to its spawner and is skipped. A terminal reply gets `warn` only: deny-outward rules are not judged there. A throw fails open through `.catch(next(e))`.
+- `warn_structural` defaults to false: shipping the mod changes nothing visible until it is turned on.
+- Row shape: `Row` gained `event` (`tool.call | turn.complete`), `surface: 'reply'`, and `modVerdict: 'warn'`.
+- Unknown ids in `deny_outward` (a typo, a `warn` rule, a non-string) are ignored and noted once in the debug log. A `warn` rule can never be promoted, per "Structural bans never block".
+- Tests: 186 new `bun test` cases (spec total 270, up from 84: `spec/phrases.spec.ts`, fixtures in `spec/phrase-cases.ts`): a positive and a negative per rule, and for every rule the shared traps (code fence, tilde fence, unterminated fence, inline code, quoted phrase, blockquote). Fiscal cases (`Q1 2026`, `in Q1`, `Q3 planning`, `last Q2`, `FY26 Q4 close`, `Q1'26`, `Training 2026 Q2`) are negatives for `q-number-ref`. `claude plugin test` grew from 11 to 29: default warn at a Slack post, shadow-promoted deny logged not returned, enforce deny by the mod alone, a different promoted rule does not deny, a clean post still reaches the settings hook and the tool beneath, a `warn` id in `deny_outward` never denies, em-dash still wins, and six `turn.complete` cases.
+- The U+2014 and the curly quotes are built from char codes. The Bash tool expanded typed backslash-u escapes for U+2019 in a heredoc into the literal (the same trap as Phase 1 and 2); a `perl` pass replaced them with `\W?` in four regexes. `grep -P '[^\x00-\x7F]'` over the folder is empty.
+
+### Replay
+
+Harness: an uncommitted bun script in the session scratchpad, `replay/replay.ts`, importing the production `rules.ts`. It reads every `*.jsonl` under `~/.claude/projects` (8,338 files, 4,159 of them subagent transcripts), skips tool-result lines unparsed, and extracts two things only. (1) Outward tool inputs: assistant `tool_use` blocks (deduplicated by id) that `outwardTexts` returns text for, judged by `judgeOutward` with the warn rules on. (2) Final replies: per main-loop turn, the last assistant message that carries text and no tool use, judged by `judgeProse(..., 'reply', true)` (so only `outward-and-reply` rules). Tool results and quoted documents are never read. A hit is one call or one reply, so a re-published page counts each time.
+
+Denominators: 7,128 outward calls (Bash 6,390; `slack chat_post_message` 124, `chat_update` 20; Jira create 94, edit 129, comment 139; Confluence create 34, update 158; Marquee publish 28, update 12; no `create_pr` or `conversations_add_message` in the corpus) and 20,804 final replies. One line failed to parse.
+
+False positive, as used below: a hit where the text is not an instance of the tic the rule names. That covers a fiscal quarter, a product tier name, a literal domain term, a plain list of named things, a label defined in the same document, and text that is not the outward message. A true instance Scott might still accept is not a false positive. FPs were judged by hand: every hit for the rules with a few dozen hits, a seeded random sample of 22 (20 for `bold-label-bullet`) for the rules with hundreds. Judgments are mine, not a second reader's. Per-hit lines (private text) stay in the scratchpad and are not pasted.
+
+| Rule | Tier | Outward hits | Reply hits | False positives |
+|---|---|---|---|---|
+| `belt-and-suspenders` | deny-outward | 0 | n/a | 0 (no hits) |
+| `q-number-ref` | deny-outward | 46 | n/a | 26 of 46 |
+| `ac-number-ref` | deny-outward | 56 | n/a | 6 of 56 |
+| `chat-residue` | deny-outward | 0 | n/a | 0 (no hits) |
+| `staged-runup` | deny-outward | 0 | n/a | 0 (no hits) |
+| `let-that-sink-in` | deny-outward | 0 | n/a | 0 (no hits) |
+| `full-stop` | deny-outward | 0 | n/a | 0 (no hits) |
+| `not-only-but` | warn | 2 | 1 | 0 of 3 |
+| `ing-tail` | warn | 0 | 0 | 0 (no hits) |
+| `triad` | warn | 99 | 389 | about 19 of 22 sampled (plain lists of names and items) |
+| `copula-avoidance` | warn | 0 | 16 | at least 5 of 16 (literal "act as a login provider/authenticator"; 2 unresolved) |
+| `bold-label-bullet` | warn | 13 | 400 | 1 of 20 sampled (a `**owner**:` key-value line) |
+| `heres-leadin` | warn | 0 | 14 | 0 of 14 |
+| `arguing-with-no-one` | warn | 1 | 1 | 0 of 2 |
+| `about-the-document` | warn | 1 | 1 | 2 of 2 (a scope claim; "in this post" naming a Marquee post) |
+| `ensure-word` | warn | 50 | 2 | 5 of 22 sampled (the `diff/ensure` and `label-ensure` tool names) |
+| `promote-word` | warn | 134 | 275 | 22 of 22 sampled (release "promote to prod", a headcount "promote") |
+| `emphasis-word` | warn | 12 | 2 | at least 7 of 14 (a product tier named "Essential"; 4 unresolved) |
+
+How the `q-number-ref` and `ac-number-ref` FPs break down:
+
+- `q-number-ref`, 26 of 46: 21 hits in Marquee scorecards where `Q2`/`Q3`/`Q4` label a question list defined in the same post; 3 Slack hits where "the Q3 list" is a quarter with no fiscal word beside it; 1 Slack reply answering a numbered questionnaire in-thread; 1 Marquee hit with a label defined in the document. The 20 true hits are commit messages that carry review-item labels (`(Q9, H4, H5, H11)`, `Q7`, `Q1, Q2a, ...`).
+- `ac-number-ref`, 6 of 56: all in a Bash command that also holds a commit but where the label sits in an `echo` or `jq` statement, not the message (`echo "== AC2"`, `echo "AC3: self-test ..."`). The 50 true hits are commit and `gh` bodies that cite a design doc's acceptance criteria by number.
+
+Two replay-driven fixes landed in the code, each with a test, before the numbers above were taken. The first cut judged the whole Bash command, which counted a file-write heredoc body and an `echo` before the commit; `outwardHeredocText` and the cut at the first outward stage came from that (`ac-number-ref` went from 71 to 56 hits). A fiscal `2026 Q2` in a Jira edit was a plain FP; `20\d\d` joined the fiscal lookbehind, and `Training 2026 Q2` is now a negative fixture. Raw pattern counts (no quote or fence stripping) matched the filtered counts for every deny-outward rule, so the zero-hit rules are zero in the corpus and not hidden by `proseOf`.
+
+### Promotion gate
+
+No rule is promoted. The gate is hits greater than zero and false positives equal to zero. `q-number-ref` (46 hits, 26 FP) and `ac-number-ref` (56 hits, 6 FP) have hits and fail on FPs. The other five deny-outward rules have zero hits in 7,128 outward calls, so they have no evidence to promote on; zero is not "zero false positives". Defaults stay empty.
+
+Recommended config, documented here, not a default change:
+
+```json
+"voice-guard@skills-dir": { "options": { "enforce": false, "deny_outward": "", "warn_structural": false } }
+```
+
+That is the shipped default. To collect more evidence with no behavior change, set `warn_structural` to `true`: it shows the structural warnings under replies and logs warn rows for outward posts. Re-run the replay after a few weeks; promote a rule by listing its id (space-separated) in `deny_outward` only when it then shows hits and zero FPs.
+
+### Deviations
+
+- `deny_outward` is a string of space-separated rule ids, default `""`, not an array. The plugin manifest schema rejects `type: array` (`userConfig.deny_outward.type: Invalid option: expected one of "string"|"number"|"boolean"|"directory"|"file"`). The reader also accepts an array, for a hand edit of settings. Space-separated, not commas, per the user's CLI rule.
+- `warn_structural` defaults to false (the doc says only "boolean").
+- At `tool.call` a warn is a log row only. The doc's "warn text beneath the answer" is delivered at `turn.complete` for the final reply; a warn on an outward post has no surface that shows text to the model without changing the tool's result, so it is logged and visible in the replay and the mod log.
+- No Stop surface: the doc's "terminal replies get warn only" is delivered at `turn.complete` (Phases 3 and 4 dropped).
+- `MultiEdit` is not touched; Write, Edit, MultiEdit and NotebookEdit are not outward for the table (the doc's outward list does not name them), though the em-dash rule still judges them.
+
+### Tradeoffs
+
+- Outward Bash text is the command from its first outward stage on, with only the heredocs that feed an outward stage kept, over parsing out the exact `-m`/`-F`/`--body` argument: it keeps quoted multi-line messages whole without a shell parser. Cost: text after the commit in the same command (an `echo`) is still judged (the 6 `ac-number-ref` FPs), and a PR body written by `cat > body.md <<EOF` then `--body-file body.md` is not judged (a false negative, matching the Write tool being out of scope).
+- Stripping quoted spans over judging them: a banned phrase quoted as an example is mentioned, not used. Cost: a real sentence wrapped in double quotes in Slack text is not judged.
+- One id per promotable concern over the doc's grouped bullets (for example `ensure-word` stays one id across `ensure`, `ensures`, `ensuring`).
+- Whole-hit-per-rule (first match) over every match: the row names the rule and the first offending line; counting every occurrence adds nothing to the verdict.
+- A replay over assistant-side tool inputs and final replies, not over text Scott actually sent: those were already passed by `emdash.sh` and the routed voice rule, so hits are what survives today's guards, and a drafted-then-denied call also counts.
+
+### Open questions
+
+- Q1 is NEGATIVE, so Phases 3 and 4 are gone and Phase 6's `prose-report` change and Phase 7's `prose.sh` retirement lose their rows. Should the doc be revised before Phase 6, or does Phase 6 proceed as the notes in Phase 0 describe?
+- `q-number-ref` and `ac-number-ref` fire on commit messages that cite design-doc labels. Is a design-doc `AC5` or a review `Q7` in a commit body on a repo where the doc lives a violation, or only on Slack, Jira, Confluence and Marquee? The answer decides whether the 20 and 50 "true" hits are really true, and whether the rules should narrow to the MCP posts (where their FPs are the in-document scorecard labels) before any promotion.
+- Should `triad` and `promote-word` stay in the table? Both measured as mostly FPs on this corpus (about 19 of 22 and 22 of 22 sampled). They are `warn` and never block, but `warn_structural` would show them on most replies that list three tools or mention a release promote.
+- `warn_structural` has no live check: no interactive session was run, and `claude plugin test` stands in for the engine. The "warn beneath the answer" display is verified in the kit, not on a terminal.
