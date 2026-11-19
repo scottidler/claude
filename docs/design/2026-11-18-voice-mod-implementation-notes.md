@@ -423,3 +423,25 @@ That is the shipped default. To collect more evidence with no behavior change, s
 - Promotion gate: PASS. No rule promoted; `deny_outward` default is empty (Phase 5 replay table above).
 - Visibility: PASS. `hooks-preflight-test.sh` printed `pass=23 fail=0`; `bin/prose-report-test.sh` printed `27 passed, 0 failed`.
 - Cutover: UNVERIFIED, Phase 7 operator step. `rg -c 'emdash\.sh|prose\.sh' HOME/.claude/settings.json` still returns 6.
+
+## Audit fold (round 3)
+
+Review-panel run 8e330b2f, Mode 2 implementation audit, architect seat only (staff-engineer seat failed on a model_not_found error; the orchestrator verified every claim). Commit 1 is code, commit 2 is the doc body.
+
+### Design decisions
+- Must-fix 1, false "did not load" warning after /clear: `hooks/hooks-preflight.sh` skips the read-compare-write when the SessionStart payload `source` is `clear` (test seam: `HOOKS_PREFLIGHT_SOURCE`). The engine raises no `session.start` for /clear, so its id never gets a heartbeat; recording it warned at the next startup. Chosen over writing the heartbeat from tool.call because it needs no mod change and keeps `last-session-id` pointing at a session that can have a heartbeat. Test: `hooks-preflight-test.sh` startup X, /clear Y, startup Z gives no warning, and a case that `clear` leaves `last-session-id` untouched.
+- Must-fix 2, doc body stale: reconciled in commit 2 (Summary, Overview surfaces, Phases 3 and 4 marked DROPPED, Q4a row, `deny_outward` string, `chainSource`, inert MultiEdit selector, Phase 6 /clear text, acceptance checkboxes, Resolved Decisions bullet).
+- Cheap win 3, log prune: `hooks/rules.ts:staleLogs` (pure, `*.jsonl` files older than `LOG_KEEP_MS` = 14 days) joins `staleHeartbeats` in the one `rkvr rmrf` call at `session.start` (`hooks/index.ts:writeHeartbeat`), mirroring rails' `staleLogs` + `pruneLogs`. Tests: `spec/parity.spec.ts` (selection, 2 cases) and `tests/voice-guard.test.ts` (an old log goes through rkvr, a fresh one stays).
+- Cheap win 4, `tests/voice-guard.test.ts`: a handler beneath `session.start` returns `{ cwd: '/beneath' }` through the mod.
+- Cheap win 5, `bin/prose-report-test.sh`: the "VOICE_GUARD_LOG_DIR is the default mod dir" case sets the env var for that call and passes no `--mod-dir`.
+
+### Deviations
+- Prune uses `*.jsonl` and `Date.now()` inside `writeHeartbeat`, not rails' `say` log line; the mod logs failures to debug only, as its heartbeat code already does. Same effect.
+- The existing test "logs and last-session-id are never named" gave its log entry `mtimeMs: 0`, which is now correctly stale; it was changed to a fresh mtime, since its intent is that fresh logs are never named.
+
+### Tradeoffs
+- Skip on `source: clear` vs. writing the heartbeat for an id first seen at tool.call: the skip loses one detection (a load failure in a session that began with /clear is seen only if a later startup follows a non-clear session), the heartbeat variant would add a write path to the hot hooks. Chose the skip.
+
+### Open questions
+- Deferred (audit finding 6): `turn.complete` returns `{ ...r, text: warnText(hits) }`, which replaces any `text` a module beneath set. No other mod in this repo hooks `turn.complete`, so no conflict today; revisit if one does.
+- Phase 7 (cutover) remains an operator step; unchanged.
