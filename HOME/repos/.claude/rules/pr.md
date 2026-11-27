@@ -17,14 +17,12 @@ load: always
 - A `rides` claim is checked against the diff: if no version line changes vs the PR's base, the gate denies even with the line present. Write the line only after the bump commit is on the branch.
 - This is decided at PR-open time on purpose: a PR that merges without its bump creates a deadlock no later gate can fix, since a bump can then only ride the next feature PR or a Scott-ordered standalone bump.
 
-# Pull Requests: babysit every one we open to green
+# Pull Requests: we own every one to green
 
-- Every time we create a PR, we OWN it to done -- do not open-and-walk-away. "Done" is CI green AND every CodeRabbit thread handled, not "PR opened."
-- Babysit the PR after opening it: watch CI to completion, fix any failure, and work every CodeRabbit comment (fold in the fix, or push back with rationale on the thread). Handle simple human review comments the same way.
-- CodeRabbit threads: fix -> reply on the thread -> mark it resolved. Don't leave dangling unresolved bot threads. Use `/general:coderabbit-autofix` (the extended fix+reply+resolve flow).
-- Use the `general:babysit-prs` skill for the sweep; wrap it in `/loop 15m /babysit-prs` for a workday cadence when several PRs are in flight.
-- Never hand a red or comment-laden PR back to Scott as "done." If something is genuinely blocked, name the concrete blocker and the evidence -- per the 2-strike / root-cause rules, not another blind retry.
-- Applies to PRs on any repo, ours or work (`tatari-tv/*`).
+- Every PR we open is ours until CI is green AND every CodeRabbit thread is handled. "PR opened" is not done.
+- `/pr:watch` does the watching. The `pr` plugin's `watch_offer.py` hook prompts for it after `pr:create`; this rule does not trigger it.
+- A PR opened some other way (no `pr:create`) gets no hook: run `/pr:watch <url>` yourself.
+- Never hand a red or comment-laden PR back to Scott as "done." If it is blocked, name the blocker and the evidence.
 
 # Pull Requests: never `gh stack`
 
