@@ -989,6 +989,10 @@
           },
           {
             "type": "command",
+            "command": "~/.claude/hooks/creds-guard.sh"
+          },
+          {
+            "type": "command",
             "command": "~/.claude/hooks/hindsight-retain.sh"
           }
         ]
@@ -1001,6 +1005,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/prose.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/creds-guard.sh"
           }
         ]
       }
