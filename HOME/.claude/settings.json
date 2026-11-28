@@ -830,7 +830,9 @@
     "core": "off",
     "teach": "off",
     "create-design-doc": "off",
-    "how-to-execute-a-plan": "off"
+    "how-to-execute-a-plan": "off",
+    "architect": "off",
+    "staff-engineer": "off"
   },
   "hooks": {
     "PreToolUse": [
