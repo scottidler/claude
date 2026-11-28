@@ -95,13 +95,13 @@ silent() {
 
 # ---- the invocation class ---------------------------------------------------
 injects "multi-clause imperative" \
-  'merge, pull main, /bump, install, /cli-shakedown' bump cli-shakedown
+  'merge, pull main, /handoff, install, /cli-shakedown' handoff cli-shakedown
 
 injects "single inline token" 'then /cli-shakedown it' cli-shakedown
 
 # One token twice is one name: the injected list is a set, so the model is not
 # told to invoke the same skill twice.
-injects "repeated token deduped" 'merge, then /bump, and /bump again after install' bump
+injects "repeated token deduped" 'merge, then /handoff, and /handoff again after install' handoff
 
 # ---- the discussion class: still injects, and the wording earns the decline --
 # Phase 7's negative criteria are about what the MODEL does with these, not
@@ -129,12 +129,12 @@ fi
 # ---- the classes the hook must leave alone ----------------------------------
 # The whole-prompt bail, not the per-occurrence one: the matcher's offset-0
 # rule would still have matched the SECOND token here.
-silent "prompt opening with a slash command" '/bump then /cli-shakedown'
-silent "prompt that is only a slash command" '/bump'
+silent "prompt opening with a slash command" '/handoff then /cli-shakedown'
+silent "prompt that is only a slash command" '/handoff'
 
 silent "generic-word deny list" 'run /status and /run now'
 silent "token naming no live skill" 'see /not-a-real-skill-xyz for details'
-silent "token inside a code span" 'the literal `/bump` string is what it greps for'
+silent "token inside a code span" 'the literal `/handoff` string is what it greps for'
 silent "no token at all" 'merge, pull main, install'
 silent "empty prompt" ''
 
@@ -200,7 +200,7 @@ for payload in '{"prompt":42}' '{"prompt":[]}' '{"prompt":{"a":1}}' '{"prompt":t
 done
 
 # ---- the output shape -------------------------------------------------------
-out=$(run 'merge, pull main, /bump, install')
+out=$(run 'merge, pull main, /handoff, install')
 if [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName')" = "UserPromptSubmit" ]; then
   ok "output: hookEventName is UserPromptSubmit"
 else

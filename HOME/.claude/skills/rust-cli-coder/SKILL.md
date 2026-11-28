@@ -621,7 +621,7 @@ fn output_data<T: Serialize>(data: &T) -> Result<()> {
 
 ## Version Bumping
 
-See the `/bump` skill.
+See the `/plan:release` skill.
 
 ## What NOT to Do
 

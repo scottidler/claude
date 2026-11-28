@@ -49,8 +49,6 @@
     "-~/.claude/skills/reposlug",
     "-~/.claude/skills/rkvr",
     "-~/.claude/skills/run-via",
-    "-~/.claude/skills/rwl-a-plan",
-    "-~/.claude/skills/spec-review",
     "-~/.claude/skills/spotify-playlist",
     "-~/.claude/skills/tdd",
     "-~/.claude/skills/teach",
