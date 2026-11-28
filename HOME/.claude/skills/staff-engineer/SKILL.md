@@ -27,9 +27,9 @@ This is the codex-backed sibling of `/architect` (which runs on Gemini). Use `/s
 
 Examples:
 - `/staff-engineer` — auto-detect doc and mode
-- `/staff-engineer docs/design/2026-04-16-foo.md`
-- `/staff-engineer docs/design/2026-04-16-foo.md focus on the failure modes under load`
-- `/staff-engineer docs/design/2026-04-16-foo.md what are the top three risks?`
+- `/staff-engineer docs/plan/2026-04-16-foo.md`
+- `/staff-engineer docs/plan/2026-04-16-foo.md focus on the failure modes under load`
+- `/staff-engineer docs/plan/2026-04-16-foo.md what are the top three risks?`
 - `/staff-engineer ~/repos/other/docs/plan.md` — doc outside CWD is fine; codex can read it directly
 - `/staff-engineer docs/plan.md --dirs ~/repos/other-svc,~/repos/shared-lib audit the wire format`
 
@@ -56,7 +56,7 @@ See `notes.md` for operating notes and the few real caveats.
 **If no path was provided**, search for the most relevant doc:
 
 ```bash
-find docs/design -name "*.md" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -5 | awk '{print $2}'
+find docs/plan docs/design -name "*.md" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -5 | awk '{print $2}'
 ```
 
 - For **Mode 2 context** (just ran `/how-to-execute-a-plan`): prefer docs containing "Implemented"
@@ -304,7 +304,7 @@ Ask the user if they want to append this summary to the design doc's Open Questi
 
 - If `codex` is not found: it must be installed (`npm install -g @openai/codex` or the user's usual install path); verify with `codex --version`
 - If the doc path doesn't exist: stop and ask the user for the correct path
-- If no design doc found in `docs/design/`: ask the user to provide the path explicitly
+- If no design doc found in `docs/plan/` or `docs/design/`: ask the user to provide the path explicitly
 - If the script exits non-zero: it prints the full codex trace to stderr — show that and ask the user how to proceed
 - Never fabricate a Staff Engineer response — only display what codex actually returns
 

@@ -8,7 +8,7 @@
 
 - On 2026-09-12 a 14-lens audit of every Claude Code session Jun 1 to Sep 12 produced 22 ranked changes to this setup.
 - Scott's call: work the list in chunks, one design doc per chunk, each doc lands (merged, deployed via the dotfiles tool, verified) before the next opens.
-- This file is the baton. A future agent picking this up reads it first, finds the next chunk marked `next`, and runs `/create-design-doc` for it. Update the table when a chunk changes state.
+- This file is the baton. A future agent picking this up reads it first, finds the next chunk marked `next`, and runs `/plan:create` for it, which writes the doc to `docs/plan/` (older chunk docs sit in `docs/design/`; new ones never do). Update the table when a chunk changes state.
 
 ## Sources
 
@@ -46,6 +46,7 @@ Status values: `queued` | `next` | `drafting` | `in review` | `approved` | `buil
 
 ## Log
 
+- 2026-11-27: **new plans go in `docs/plan/` only, fixed out of band, Scott's call ("fix all of them to use docs/plan").** `2026-11-18-voice-mod.md` landed in `docs/design/` two weeks after `/plan:create` took over: session `20679c92` ran `/plan:create` (which says `docs/plan/`), then read this baton, whose chunk docs all sit in `docs/design/`, and followed that precedent. Fixed: `general.md` now says every new design doc or plan goes in `docs/plan/`; `CLAUDE.md` and this file's "This file is the baton" line say a new chunk doc goes in `docs/plan/` via `/plan:create`; `architect`, `staff-engineer` and the `review-panel` agent search `docs/plan` before `docs/design`; the `phase-implementer` example and the switched-off `create-design-doc` / `how-to-execute-a-plan` skills write to `docs/plan/`. Existing `docs/design/` docs stay put, because about 18 docs and a test fixture cite their paths. Headless launch test returned `OK`. No chunk opened or advanced.
 - 2026-11-23: **`creds-guard.sh` added out of band, Scott's call ("intercepts you every time you say you dont know how to get creds for aws, k8s and/or argocd").**
   - Why: the model said AWS and ArgoCD creds were gone, handed Scott a login command, and said the ArgoCD server was unknown. Hindsight work bank and clyde session `17f77394` held the recipe the whole time.
   - What: a Stop and SubagentStop hook blocks a final reply that pairs a creds subject (aws, kubectl, k8s, eks, argocd, sso) with a give-up or a login handoff. The block text is the recipe: aws-vault `--device-code` in the background -> forward the link; `kubectl` under `aws-vault exec -d 12h prod`; ArgoCD read through context `ops`.

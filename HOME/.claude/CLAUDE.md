@@ -87,6 +87,7 @@ Safety:
 
 - Working the 2026-09-12 audit's 22 changes one design doc per chunk. Baton: `~/repos/scottidler/claude/docs/design/2026-09-13-setup-audit-program.md`
 - Read it before touching hooks, rules, skills, agents, or settings in this repo; pick up the chunk marked `next`, never fold a later chunk in early.
+- The baton and older chunk docs live in `docs/design/`; a new chunk doc goes in `docs/plan/` via `/plan:create`, never beside them.
 
 ## References
 

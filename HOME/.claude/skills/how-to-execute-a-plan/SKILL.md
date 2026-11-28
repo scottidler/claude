@@ -182,7 +182,7 @@ Follow the design doc specifications exactly. If the design doc uses `/rust-cli-
 
 ### Step 2.5: Maintain Implementation Notes
 
-As you implement, maintain `docs/design/<feature>-implementation-notes.md`, a
+As you implement, maintain `docs/plan/<feature>-implementation-notes.md`, a
 running, **append-only** record of anything a future reviewer should know about
 how the implementation diverges from or interprets the design doc.
 
@@ -283,17 +283,17 @@ Once CI passes, commit the phase.
 
 ```bash
 # Update design doc status
-sed -i 's/^**Status:** Draft/**Status:** Implemented/' docs/design/<feature>.md
+sed -i 's/^**Status:** Draft/**Status:** Implemented/' docs/plan/<feature>.md
 
 # Stage implementation + updated design doc + implementation notes
-git add <implementation files> docs/design/<feature>.md docs/design/<feature>-implementation-notes.md
+git add <implementation files> docs/plan/<feature>.md docs/plan/<feature>-implementation-notes.md
 git commit -m "$(cat <<'EOF'
 <type>(<scope>): <description>
 
 <body explaining what this phase accomplishes>
 
 Phase N of N: <phase name from design doc>
-Design doc: docs/design/<feature>.md
+Design doc: docs/plan/<feature>.md
 EOF
 )"
 ```
@@ -308,7 +308,7 @@ git commit -m "$(cat <<'EOF'
 <body explaining what this phase accomplishes>
 
 Phase N of M: <phase name from design doc>
-Design doc: docs/design/<feature>.md
+Design doc: docs/plan/<feature>.md
 EOF
 )"
 ```
@@ -462,7 +462,7 @@ one-line summary of each phase's open questions. **Do not block** on the user:
 they can act on it after the push. Example output:
 
 ```
-Implementation notes: docs/design/<feature>-implementation-notes.md
+Implementation notes: docs/plan/<feature>-implementation-notes.md
 - Phase 1 open questions: none
 - Phase 2 open questions: Should retry logic also cover 5xx from upstream?
 - Phase 3 open questions: none
@@ -508,7 +508,7 @@ guards against cost five occurrences on `tatari-tv/clyde` #77
 Change the design doc's `**Status:**` from `Draft` to `Implemented`, then commit:
 
 ```bash
-git add docs/design/<design-doc>.md
+git add docs/plan/<design-doc>.md
 git commit -m "docs: mark <feature> design doc as implemented"
 ```
 

@@ -62,7 +62,7 @@ is yours before writing code. Never guess into the wrong phase.
 
 5. **Append implementation notes.** The notes file sits beside the design doc:
    take `DOC_PATH`, strip its `.md`, append `-implementation-notes.md` (e.g.
-   `docs/design/2026-06-24-foo.md` → `docs/design/2026-06-24-foo-implementation-notes.md`).
+   `docs/plan/2026-06-24-foo.md` → `docs/plan/2026-06-24-foo-implementation-notes.md`).
    Create it if this is the first phase; otherwise append. Append-only — never
    edit prior entries. Write all four buckets, using "None." where empty:
    ```markdown

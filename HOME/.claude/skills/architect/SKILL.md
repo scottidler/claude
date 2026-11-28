@@ -25,9 +25,9 @@ Summon Gemini's Architect persona to review a design document. Two modes:
 
 Examples:
 - `/architect` — auto-detect doc and mode
-- `/architect docs/design/2026-04-16-foo.md`
-- `/architect docs/design/2026-04-16-foo.md focus on the FSM state transitions`
-- `/architect docs/design/2026-04-16-foo.md what are the top three risks?`
+- `/architect docs/plan/2026-04-16-foo.md`
+- `/architect docs/plan/2026-04-16-foo.md focus on the FSM state transitions`
+- `/architect docs/plan/2026-04-16-foo.md what are the top three risks?`
 - `/architect ~/repos/other/docs/plan.md` — doc outside CWD; the doc's repo root is auto-included
 - `/architect docs/plan.md compare the queue model to how ~/repos/scottidler/loopr-v5 handles batching` — reference repo auto-detected from the prompt
 - `/architect docs/plan.md --dirs ~/repos/other-service,~/repos/shared-lib audit the wire format` — explicitly include reference repos
@@ -46,7 +46,7 @@ The Architect persona is defined in `persona.md` colocated with this skill and i
 **If no path was provided**, search for the most relevant doc:
 
 ```bash
-find docs/design -name "*.md" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -5 | awk '{print $2}'
+find docs/plan docs/design -name "*.md" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -5 | awk '{print $2}'
 ```
 
 - For **Mode 2 context** (just ran `/how-to-execute-a-plan`): prefer docs containing "Implemented"
@@ -358,7 +358,7 @@ Ask the user if they want to append this summary to the design doc's Open Questi
 
 - If `gemini` is not found: `gemini` must be installed via `npm install -g @google/gemini-cli`
 - If the doc path doesn't exist: stop and ask the user for the correct path
-- If no design doc found in `docs/design/`: ask the user to provide the path explicitly
+- If no design doc found in `docs/plan/` or `docs/design/`: ask the user to provide the path explicitly
 - If Gemini returns an empty or error response: show the raw output and ask the user how to proceed
 - Never fabricate an Architect response — only display what Gemini actually returns
 

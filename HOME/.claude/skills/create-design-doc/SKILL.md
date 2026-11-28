@@ -131,7 +131,7 @@ max ("probably", "TBD").
 
 ## Output
 
-Save to `docs/design/YYYY-MM-DD-feature-name.md` or user-specified location.
+Save to `docs/plan/YYYY-MM-DD-feature-name.md` or user-specified location.
 
 ## Key Rules
 
