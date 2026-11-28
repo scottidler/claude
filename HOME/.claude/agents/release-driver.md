@@ -1,6 +1,6 @@
 ---
 name: release-driver
-description: Execute a release end-to-end in an isolated context: commit the code change, run `bump release` (on a gated repo it pushes the branch and never opens the PR: the caller opens it with `/pr:create`), babysit the PR to merge, run `bump finish`, install, and PROVE the new version is live (`sdv probe` for a deployed service, the installed binary's version plus acceptance commands for a CLI). Also the entry for "the PR already merged, finish the bump" (ENTRY finish). Invoked by the /shipit, /bump and /babysit skills when changes are ready to ship. NOT for routine commits. Owns the async wait-for-merge gap so the main thread isn't polluted by polling. Uses `bump release`/`bump finish` for ALL version/tag/push work (it has no Edit/Write, so it physically cannot hand-edit a version). It does NOT run the shakedown: that stays with the caller.
+description: Execute a release end-to-end in an isolated context: commit the code change, run `bump release` (on a gated repo it pushes the branch and never opens the PR: the caller opens it with `/pr:create`), babysit the PR to merge, run `bump finish`, install, and PROVE the new version is live (`sdv probe` for a deployed service, the installed binary's version plus acceptance commands for a CLI). Also the entry for "the PR already merged, finish the bump" (ENTRY finish). Invoked by the /shipit and /bump skills when changes are ready to ship. NOT for routine commits. Owns the async wait-for-merge gap so the main thread isn't polluted by polling. Uses `bump release`/`bump finish` for ALL version/tag/push work (it has no Edit/Write, so it physically cannot hand-edit a version). It does NOT run the shakedown: that stays with the caller.
 tools: Bash, Read, Grep, Glob
 model: opus
 ---
@@ -168,10 +168,7 @@ the main session, which has the context and the `Skill` tool you lack.
      true for EVERY terminal state, success and failure both, never success alone. (`review-panel.md:146-151`'s dual-seat launch is the deliberate
      exception: it stays foreground with `wait`, never `run_in_background`, because a
      detached child is reaped by the sandbox's PID namespace. That carve-out covers
-     parallel seats sharing one call, not a solo polling wait like this one. Babysit's
-     `/loop` timer at `babysit/SKILL.md:80-91` solves the same class of wait for the
-     main session, which has a `Skill` tool this agent lacks; `run_in_background` plus
-     the `until` loop above is the equivalent here.)
+     parallel seats sharing one call, not a solo polling wait like this one.)
 
 5. **Verify: do not claim success you didn't check.** Confirm, with commands
    (substitute the actual vX.Y.Z in the greps below):

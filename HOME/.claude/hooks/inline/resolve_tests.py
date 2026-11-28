@@ -235,8 +235,8 @@ class LiveStateTest(unittest.TestCase):
     repo, symlinked into place). Never writes to either, per the phase's
     constraint."""
 
-    def test_babysit_resolves_to_exactly_one_skill(self) -> None:
-        self.assertEqual(resolve("babysit"), ["babysit"])
+    def test_retired_babysit_resolves_to_nothing(self) -> None:
+        self.assertEqual(resolve("babysit"), [])
 
     def test_plan_create_resolves_to_exactly_the_namespaced_skill(self) -> None:
         self.assertEqual(resolve("plan:create"), ["plan:create"])
