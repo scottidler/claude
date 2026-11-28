@@ -165,7 +165,7 @@ the main session, which has the context and the `Skill` tool you lack.
      so the wait would spin past the very failure the bullet four lines above tells
      you to STOP and report. Where a blocking mode does not exist, the shape is a
      `run_in_background` call wrapping a terminating `until` loop whose condition is
-     true for EVERY terminal state, success and failure both, never success alone. (`review-panel.md:146-151`'s dual-seat launch is the deliberate
+     true for EVERY terminal state, success and failure both, never success alone. (The `plan:review-panel` agent's dual-seat launch is the deliberate
      exception: it stays foreground with `wait`, never `run_in_background`, because a
      detached child is reaped by the sandbox's PID namespace. That carve-out covers
      parallel seats sharing one call, not a solo polling wait like this one.)

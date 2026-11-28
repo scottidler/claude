@@ -832,7 +832,8 @@
     "create-design-doc": "off",
     "how-to-execute-a-plan": "off",
     "architect": "off",
-    "staff-engineer": "off"
+    "staff-engineer": "off",
+    "review-panel": "off"
   },
   "hooks": {
     "PreToolUse": [

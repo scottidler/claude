@@ -33,8 +33,8 @@ Durable, load-bearing facts about me. Read at session start (included from
 
 Scott's own shorthand, so an agent stops guessing what these mean.
 
-- **rp**: bare-word shorthand for `review-panel` (the design-doc review agent/skill at `HOME/.claude/agents/review-panel.md` / `HOME/.claude/skills/review-panel/`). No slash, so the `/token` matcher in `inline-skill-tokens.py` cannot catch it (parked non-goal, `docs/design/2026-09-17-dm-resolution-and-pipeline-glue.md:97`).
-- **panel**: the `review-panel` agent/skill itself, dispatches review rounds against a design doc, capped mechanically by `panel-round-guard.sh`.
+- **rp**: bare-word shorthand for the review panel: `/plan:review`, which dispatches the `plan:review-panel` agent. No slash, so the `/token` matcher in `inline-skill-tokens.py` cannot catch it (parked non-goal, `docs/design/2026-09-17-dm-resolution-and-pipeline-glue.md:97`).
+- **panel**: the `plan:review-panel` agent itself (reached through `/plan:review`), dispatches review rounds against a design doc, capped mechanically by `panel-round-guard.sh`.
 - **rmrf**: `rkvr rmrf`, the archival-then-delete subcommand of the `rkvr` CLI. Archives to a three-week recovery bin before removing; the one for anything not regenerable (see `rules/safety.md`).
 - **bkup**: `rkvr bkup`, the archive-without-deleting subcommand of the same `rkvr` CLI. `filter-ref` stages candidates for either `rmrf` or `bkup`.
 - **lappy**: the laptop, `ltl-7007.lan`, reached over Tailscale (see Devices above).
