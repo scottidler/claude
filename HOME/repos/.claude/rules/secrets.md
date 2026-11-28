@@ -35,16 +35,22 @@ config, memory file, or commit message. Companion repo docs:
 
 `gh-token.age` and `github-token.age` are symlinks to `github-pat-work.age`, so
 the ambient `$GH_TOKEN` / `$GITHUB_TOKEN` resolve to the WORK account
-(`escote-tatari`). Those two env vars OVERRIDE gh's own per-account switching, so
-a raw `gh` command acts as work even on a personal repo, and `gh pr create` on a
-`scottidler/*` repo fails with "must be a collaborator".
+(`escote-tatari`). Those two env vars OVERRIDE gh's own per-account switching.
+
+`~/bin/gh` (dotfiles `HOME/bin/gh`) is a wrapper ahead of `/usr/bin/gh` on PATH
+that picks the token for every caller, typed or `subprocess` (the pr plugin's
+`create.py`/`watch.py`, `bump`). Under `~/repos/tatari-tv/` it keeps work;
+anywhere else it sets the home PAT. `GH_PERSONA=work|home` (or `gh-work` /
+`gh-home`) forces one when cwd and target org differ. Calling `/usr/bin/gh` by
+full path skips it and acts as work: `gh pr create` on a `scottidler/*` repo then
+fails with "must be a collaborator".
 
 Choose the token from the repo's org under `~/repos/<org>/`:
 
 - `~/repos/scottidler/*` (home persona) uses `github-pat-home` (login `scottidler`)
 - `~/repos/tatari-tv/*` (work persona) uses `github-pat-work` (login `escote-tatari`, the ambient default)
 
-Run gh as the home persona on a `scottidler/*` repo:
+Run gh as the home persona by hand (the wrapper's job, for a shell without it):
 
 ```bash
 eval "$(manifest age decrypt ~/repos/scottidler/keep/.env/github-pat-home.age)"
